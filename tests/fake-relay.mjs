@@ -3,7 +3,16 @@ import { WebSocketServer } from 'ws';
 import { verifyEvent } from 'nostr-tools/pure';
 import { matchFilters } from 'nostr-tools/filter';
 
-export function startRelay(port = 0) {
+const safeMatch = (filters, ev) => {
+  try {
+    return matchFilters(filters, ev);
+  } catch {
+    return false;
+  }
+};
+
+/** `verify: false` makes a hostile relay that forwards anything, to test client-side checks. */
+export function startRelay(port = 0, { verify = true } = {}) {
   const wss = new WebSocketServer({ port, host: '127.0.0.1' });
   let events = [];
   const subs = new Map();
@@ -21,7 +30,8 @@ export function startRelay(port = 0) {
       const [type, ...rest] = msg;
       if (type === 'EVENT') {
         const ev = rest[0];
-        if (!verifyEvent(ev)) return ws.send(JSON.stringify(['OK', ev?.id, false, 'invalid: bad signature']));
+        if (!ev || typeof ev !== 'object') return;
+        if (verify && !verifyEvent(ev)) return ws.send(JSON.stringify(['OK', ev.id, false, 'invalid: bad signature']));
         const ephemeral = ev.kind >= 20000 && ev.kind < 30000;
         if (ev.kind >= 30000 && ev.kind < 40000) {
           const d = ev.tags.find((t) => t[0] === 'd')?.[1] ?? '';
@@ -29,11 +39,11 @@ export function startRelay(port = 0) {
         }
         if (!ephemeral && !events.some((e) => e.id === ev.id)) events.push(ev);
         ws.send(JSON.stringify(['OK', ev.id, true, '']));
-        for (const [client, m] of subs) for (const [id, filters] of m) if (matchFilters(filters, ev)) client.send(JSON.stringify(['EVENT', id, ev]));
+        for (const [client, m] of subs) for (const [id, filters] of m) if (safeMatch(filters, ev)) client.send(JSON.stringify(['EVENT', id, ev]));
       } else if (type === 'REQ') {
         const [id, ...filters] = rest;
         subs.get(ws).set(id, filters);
-        for (const ev of events) if (matchFilters(filters, ev)) ws.send(JSON.stringify(['EVENT', id, ev]));
+        for (const ev of events) if (safeMatch(filters, ev)) ws.send(JSON.stringify(['EVENT', id, ev]));
         ws.send(JSON.stringify(['EOSE', id]));
       } else if (type === 'CLOSE') {
         subs.get(ws).delete(rest[0]);
