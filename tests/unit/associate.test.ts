@@ -62,4 +62,16 @@ describe('association', () => {
     expect(evs).toHaveLength(1);
     expect(evs[0].triggers.map((t) => t.id)).not.toContain('stray');
   });
+
+  // Was cubic: 1,000 phones took 11 s, which would freeze the live map after a city quake.
+  it('handles a dense city of 1,000 phones and stray picks quickly', { timeout: 3000 }, () => {
+    const src = { lat: 35, lon: -118 };
+    const r = rng(8);
+    const stray: Trigger[] = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}`, node: `s${i}`, ...offset(src, (r() - 0.5) * 80, (r() - 0.5) * 80), t: T0 + (r() - 0.5) * 120_000, pga: 0.1 }));
+    const evs = associate([...quake(src, T0, 1000, 9, 'a'), ...stray]);
+    const big = evs.filter((e) => e.triggers.length > 10);
+    expect(big).toHaveLength(1);
+    expect(distanceKm(big[0], src)).toBeLessThan(3);
+    expect(big[0].triggers.length).toBeGreaterThan(950);
+  });
 });

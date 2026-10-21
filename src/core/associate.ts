@@ -48,21 +48,33 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
   const deadSeeds = new Set<string>();
   const events: DetectedEvent[] = [];
 
-  const compatible = (a: Trigger, b: Trigger) => {
-    const d = distanceKm(a, b);
-    return d <= maxD && Math.abs(a.t - b.t) / 1000 <= d / VP_KMS + tol;
-  };
+  // Pairwise compatibility as one bitset row per trigger, so growing a cluster costs a few
+  // word-ANDs per member instead of a distance check against every member (a city of a
+  // thousand phones would otherwise take seconds).
+  const n = sorted.length;
+  const words = (n + 31) >>> 5;
+  const compat = new Uint32Array(n * words);
+  for (let a = 0; a < n; a++) {
+    for (let b = a + 1; b < n && sorted[b].t - sorted[a].t <= maxSpan; b++) {
+      const d = distanceKm(sorted[a], sorted[b]);
+      if (d <= maxD && (sorted[b].t - sorted[a].t) / 1000 <= d / VP_KMS + tol) {
+        compat[a * words + (b >>> 5)] |= 1 << (b & 31);
+        compat[b * words + (a >>> 5)] |= 1 << (a & 31);
+      }
+    }
+  }
 
   const grow = (i: number) => {
     const cluster = [sorted[i]];
     const nodes = new Set([sorted[i].node]);
-    for (let j = i + 1; j < sorted.length && sorted[j].t - sorted[i].t <= maxSpan; j++) {
+    // Triggers compatible with every member so far.
+    const fits = compat.slice(i * words, (i + 1) * words);
+    for (let j = i + 1; j < n && sorted[j].t - sorted[i].t <= maxSpan; j++) {
       const c = sorted[j];
-      if (used.has(c.id) || nodes.has(c.node)) continue;
-      if (cluster.every((m) => compatible(m, c))) {
-        cluster.push(c);
-        nodes.add(c.node);
-      }
+      if (!(fits[j >>> 5] & (1 << (j & 31))) || used.has(c.id) || nodes.has(c.node)) continue;
+      cluster.push(c);
+      nodes.add(c.node);
+      for (let w = 0; w < words; w++) fits[w] &= compat[j * words + w];
     }
     return cluster;
   };

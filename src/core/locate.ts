@@ -135,7 +135,17 @@ export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution 
   };
 }
 
-function search(arr: Arrival[], vp: number, depth: number, opts: LocateOptions) {
+/** Grid misfits use at most this many arrivals: a few dozen pin an epicentre as well as a thousand. */
+const MAX_GRID_ARRIVALS = 80;
+
+/** An even sample across the arrival times, earliest and latest included. */
+function spread(arr: Arrival[], k: number): Arrival[] {
+  const byTime = [...arr].sort((a, b) => a.t - b.t);
+  return Array.from({ length: k }, (_, i) => byTime[Math.round((i * (byTime.length - 1)) / (k - 1))]);
+}
+
+function search(all: Arrival[], vp: number, depth: number, opts: LocateOptions) {
+  const arr = all.length > MAX_GRID_ARRIVALS ? spread(all, MAX_GRID_ARRIVALS) : all;
   const f = frame(arr);
   const A = toXY(f, arr);
   const t = Float64Array.from(arr, (a) => a.t);
@@ -191,7 +201,7 @@ function search(arr: Arrival[], vp: number, depth: number, opts: LocateOptions) 
     step = half / 20;
   }
   const p = offset(f.origin, best.x, best.y);
-  const res = arr.map((a) => a.t - hypocentralKm(distanceKm(p, a), depth) / vp);
+  const res = all.map((a) => a.t - hypocentralKm(distanceKm(p, a), depth) / vp);
   const t0 = median(res);
   return { p, t0, res: res.map((x) => x - t0) };
 }
