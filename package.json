@@ -1,0 +1,35 @@
+{
+  "name": "tremor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A serverless citizen seismometer network: phones become sensors, Nostr carries the triggers, USGS keeps us honest.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "vite build && vite preview --port 4173 --strictPort",
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test",
+    "relay": "node tests/fake-relay.mjs"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans-condensed": "^5.3.0",
+    "maplibre-gl": "^6.15.0",
+    "nostr-tools": "^2.25.2"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.1",
+    "@types/node": "^26.6.5",
+    "@types/ws": "^8.18.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.5",
+    "vitest": "^5.0.5",
+    "ws": "^8.22.0"
+  }
+}

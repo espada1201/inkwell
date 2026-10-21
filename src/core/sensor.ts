@@ -1,0 +1,189 @@
+import { Bandpass, OnePole } from './filters';
+
+export interface Sample {
+  /** ms since epoch */
+  t: number;
+  /** accelerationIncludingGravity, m/s² */
+  x: number;
+  y: number;
+  z: number;
+}
+
+export type RejectReason = 'handling' | 'impulse' | 'footsteps';
+
+export type DetectorOutput =
+  | { kind: 'trigger'; t: number; pga: number; durS: number; ratio: number }
+  | { kind: 'reject'; t: number; reason: RejectReason; pga: number };
+
+export interface DetectorOptions {
+  staS?: number;
+  ltaS?: number;
+  /** Base STA/LTA energy ratio that opens a candidate. Adapts upward after false alarms. */
+  thresholdOn?: number;
+  /** Shaking below this RMS (m/s²) is ignored regardless of ratio: phone noise floor. */
+  floor?: number;
+  warmupS?: number;
+}
+
+const DEG = 180 / Math.PI;
+
+/**
+ * Per-phone earthquake trigger.
+ *  1. Track gravity with a slow low-pass (also tells us the phone's orientation).
+ *  2. Bandpass each axis 1–10 Hz and take the vector magnitude.
+ *  3. Recursive STA/LTA on signal energy opens a candidate.
+ *  4. The candidate is judged once shaking has died down: phone rotated → handling; under a
+ *     second of strong motion → impulse (door slam, bump); three or more separate bursts →
+ *     footsteps. Survivors trigger, with the onset time of the first arrival.
+ * Each false alarm raises the threshold, which relaxes back over a couple of minutes.
+ */
+export class NodeDetector {
+  readonly fs: number;
+  readonly base: number;
+  threshold: number;
+  readonly floor: number;
+  ratio = 0;
+  level = 0;
+  private sta = 0;
+  private lta = 0;
+  private n = 0;
+  private readonly kSta: number;
+  private readonly kLta: number;
+  private readonly warmup: number;
+  private readonly grav: OnePole[];
+  private readonly bp: Bandpass[];
+  private readonly env: OnePole;
+  private lastT = 0;
+  private holdUntil = 0;
+  private cand: {
+    t0: number;
+    g0: [number, number, number];
+    lastLoud: number;
+    peak: number;
+    peakEnv: number;
+    maxRatio: number;
+    maxTilt: number;
+    envs: number[];
+  } | null = null;
+  private gNow: [number, number, number] = [0, 0, 9.81];
+  private gHist: [number, number, number][] = [];
+
+  constructor(fs: number, o: DetectorOptions = {}) {
+    this.fs = fs;
+    this.kSta = 1 / ((o.staS ?? 0.4) * fs);
+    this.kLta = 1 / ((o.ltaS ?? 20) * fs);
+    this.base = this.threshold = o.thresholdOn ?? 5;
+    this.floor = o.floor ?? 0.04;
+    this.warmup = (o.warmupS ?? 5) * fs;
+    this.grav = [0, 1, 2].map(() => new OnePole(2, fs));
+    this.bp = [0, 1, 2].map(() => new Bandpass(1, 10, fs));
+    this.env = new OnePole(0.08, fs);
+  }
+
+  get warmingUp(): boolean {
+    return this.n < this.warmup;
+  }
+
+  push(s: Sample): DetectorOutput | null {
+    if (this.lastT && s.t - this.lastT > 1000) this.reset();
+    const dtS = this.lastT ? (s.t - this.lastT) / 1000 : 1 / this.fs;
+    this.lastT = s.t;
+    // Threshold relaxes toward base with a 2-minute time constant.
+    this.threshold = this.base + (this.threshold - this.base) * Math.exp(-dtS / 120);
+
+    const raw = [s.x, s.y, s.z];
+    this.gNow = raw.map((v, i) => this.grav[i].step(v)) as [number, number, number];
+    if (this.n % Math.round(this.fs / 4) === 0) {
+      this.gHist.push(this.gNow);
+      if (this.gHist.length > 8) this.gHist.shift();
+    }
+    let e = 0;
+    for (let i = 0; i < 3; i++) {
+      const f = this.bp[i].step(raw[i]);
+      e += f * f;
+    }
+    const a = Math.sqrt(e);
+    this.level = a;
+    const env = this.env.step(a);
+
+    this.n++;
+    // Skip the first second so the filters' start-up transient never reaches the averages.
+    const m = this.n - this.fs;
+    if (m <= 0) return null;
+    this.sta += (e - this.sta) * Math.max(this.kSta, 1 / m);
+    if (!this.cand) this.lta += (e - this.lta) * Math.max(this.kLta, 1 / m);
+    this.ratio = this.lta > 0 ? this.sta / this.lta : 0;
+    if (this.warmingUp) return null;
+
+    if (!this.cand) {
+      if (s.t >= this.holdUntil && this.ratio > this.threshold && Math.sqrt(this.sta) > this.floor) {
+        this.cand = { t0: s.t, g0: this.gHist[0] ?? this.gNow, lastLoud: s.t, peak: a, peakEnv: env, maxRatio: this.ratio, maxTilt: 0, envs: [env] };
+      }
+      return null;
+    }
+    const c = this.cand;
+    c.peak = Math.max(c.peak, a);
+    c.peakEnv = Math.max(c.peakEnv, env);
+    c.maxRatio = Math.max(c.maxRatio, this.ratio);
+    c.maxTilt = Math.max(c.maxTilt, angle(c.g0, this.gNow));
+    c.envs.push(env);
+    if (env > 0.15 * c.peakEnv) c.lastLoud = s.t;
+    // Keep listening at least 15 s so a late, stronger S wave still counts toward the peak.
+    const open = s.t - c.t0;
+    if (open < 30000 && (open < 15000 || s.t - c.lastLoud < 3000)) return null;
+    return this.judge(s.t);
+  }
+
+  private judge(t: number): DetectorOutput {
+    const c = this.cand!;
+    this.cand = null;
+    // Seconds of strong envelope, and the separate bursts it came in (hysteresis 0.5 / 0.2 of peak).
+    let active = 0;
+    const bursts: number[] = [];
+    let start = -1;
+    c.envs.forEach((v, i) => {
+      if (v > 0.25 * c.peakEnv) active++;
+      if (start < 0 && v > 0.5 * c.peakEnv) start = i;
+      else if (start >= 0 && v < 0.2 * c.peakEnv) {
+        bursts.push(i - start);
+        start = -1;
+      }
+    });
+    if (start >= 0) bursts.push(c.envs.length - start);
+    const activeS = active / this.fs;
+    // Footsteps are a train of short knocks; quake shaking comes as a few long bursts.
+    const typicalBurstS = median(bursts) / this.fs;
+
+    let reason: RejectReason | null = null;
+    if (c.maxTilt > 5) reason = 'handling';
+    else if (activeS < 1) reason = 'impulse';
+    else if (bursts.length >= 4 && typicalBurstS < 1) reason = 'footsteps';
+
+    if (reason) {
+      this.threshold = Math.min(this.threshold * 1.25, this.base * 3);
+      this.holdUntil = t + (reason === 'handling' ? 30000 : 2000);
+      return { kind: 'reject', t: c.t0, reason, pga: c.peak };
+    }
+    this.holdUntil = t + 10000;
+    return { kind: 'trigger', t: c.t0, pga: c.peak, durS: activeS, ratio: c.maxRatio };
+  }
+
+  private reset() {
+    this.n = 0;
+    this.sta = this.lta = 0;
+    this.cand = null;
+    this.gHist = [];
+  }
+}
+
+function angle(a: number[], b: number[]): number {
+  const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const m = Math.hypot(a[0], a[1], a[2]) * Math.hypot(b[0], b[1], b[2]);
+  return m ? Math.acos(Math.max(-1, Math.min(1, dot / m))) * DEG : 0;
+}
+
+function median(xs: number[]): number {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  return s[s.length >> 1];
+}
