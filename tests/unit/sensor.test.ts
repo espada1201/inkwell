@@ -82,3 +82,23 @@ describe('strong and distant quakes', () => {
     }
   });
 });
+
+describe('provisional picks', () => {
+  it('sends a pick at the onset, long before the confirmed trigger', () => {
+    const { out } = run({ quake: { tP: 30, tS: 34, pga: 0.6 } });
+    const pick = out.find((o) => o.kind === 'pick')!;
+    const trig = out.find((o) => o.kind === 'trigger')!;
+    expect(pick.t).toBe(trig.t);
+    expect(pick.at).toBe(pick.t);
+    expect(trig.at - pick.at).toBeGreaterThanOrEqual(15_000);
+  });
+
+  it('every pick is later resolved as either a trigger or a reject', () => {
+    for (const o of [{ footsteps: { t: 30, count: 10 } }, { slam: { t: 30 } }, { quake: { tP: 30, tS: 34, pga: 0.6 } }]) {
+      const { out } = run(o);
+      const picks = out.filter((x) => x.kind === 'pick');
+      const finals = out.filter((x) => x.kind !== 'pick');
+      expect(picks.map((p) => p.t)).toEqual(finals.map((f) => f.t));
+    }
+  });
+});

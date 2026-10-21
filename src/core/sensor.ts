@@ -12,6 +12,8 @@ export interface Sample {
 export type RejectReason = 'handling' | 'impulse' | 'footsteps';
 
 export type DetectorOutput =
+  /** Provisional: shaking just started. Sent at once so the network can react within seconds. */
+  | { kind: 'pick'; t: number; at: number }
   | { kind: 'trigger'; t: number; at: number; pga: number; durS: number; ratio: number }
   | { kind: 'reject'; t: number; at: number; reason: RejectReason; pga: number };
 
@@ -32,6 +34,7 @@ const DEG = 180 / Math.PI;
  *  1. Track gravity with a slow low-pass (also tells us the phone's orientation).
  *  2. Bandpass each axis 1–10 Hz and take the vector magnitude.
  *  3. Recursive STA/LTA on signal energy opens a candidate.
+ *     The moment a candidate opens, a provisional "pick" goes out so the network can act fast.
  *  4. The candidate is judged once shaking has died down: phone rotated → handling; under a
  *     second of strong motion → impulse (door slam, bump); three or more separate bursts →
  *     footsteps. Survivors trigger, with the onset time of the first arrival.
@@ -119,6 +122,7 @@ export class NodeDetector {
     if (!this.cand) {
       if (s.t >= this.holdUntil && this.ratio > this.threshold && Math.sqrt(this.sta) > this.floor) {
         this.cand = { t0: s.t, g0: this.gHist[0] ?? this.gNow, lastLoud: s.t, peak: a, peakEnv: env, maxRatio: this.ratio, maxTilt: 0, envs: [env] };
+        return { kind: 'pick', t: s.t, at: s.t };
       }
       return null;
     }

@@ -4,12 +4,16 @@ import { coarsen } from '../core/geo';
 
 /**
  * Tremor's wire format: ordinary signed Nostr events, so any public relay can carry them.
- *  - trigger (kind 4579, regular, stored): "I felt shaking starting at t".
+ *  - pick (kind 4578): "shaking started here at t", sent the instant a phone's trigger opens.
+ *  - retraction (kind 5, NIP-09 deletion of a pick): "that was footsteps / a door / my hand".
+ *  - trigger (kind 4579): the phone's confirmed verdict, with peak acceleration.
  *  - heartbeat (kind 34579, parameterised-replaceable): "I'm alive, here, this noisy".
  *    Relays keep only the latest per node, so late viewers see the whole network at once.
  */
+export const KIND_PICK = 4578;
 export const KIND_TRIGGER = 4579;
 export const KIND_HEARTBEAT = 34579;
+export const KIND_DELETION = 5;
 export const TAG = 'tremor';
 export const HEARTBEAT_EVERY_MS = 60_000;
 
@@ -22,44 +26,67 @@ export interface Heartbeat {
   sps: number;
 }
 
-export interface TriggerReport {
+export interface PickReport {
   lat: number;
   lon: number;
   /** Onset, ms since epoch (phone clock). */
   t: number;
+}
+
+export interface TriggerReport extends PickReport {
   /** Peak acceleration, m/s². */
   pga: number;
   /** Seconds of strong shaking. */
   dur: number;
 }
 
+interface Base {
+  id: string;
+  node: string;
+  /** Signed creation time, ms. */
+  at: number;
+}
 export type Message =
-  | { type: 'heartbeat'; id: string; node: string; at: number; data: Heartbeat }
-  | { type: 'trigger'; id: string; node: string; at: number; data: TriggerReport };
+  | (Base & { type: 'heartbeat'; data: Heartbeat })
+  | (Base & { type: 'pick'; data: PickReport })
+  | (Base & { type: 'trigger'; data: TriggerReport; pick: string | null })
+  | (Base & { type: 'retract'; pick: string });
 
 const nowS = () => Math.floor(Date.now() / 1000);
 
 export function signHeartbeat(sk: Uint8Array, hb: Heartbeat, at = nowS()): Event {
-  const c = coarsen(hb);
   return finalizeEvent(
     {
       kind: KIND_HEARTBEAT,
       created_at: at,
       tags: [['d', TAG], ['t', TAG]],
-      content: JSON.stringify({ v: 1, ...c, noise: +hb.noise.toFixed(4), sps: Math.round(hb.sps) }),
+      content: JSON.stringify({ v: 1, ...coarsen(hb), noise: +hb.noise.toFixed(4), sps: Math.round(hb.sps) }),
     },
     sk,
   );
 }
 
-export function signTrigger(sk: Uint8Array, tr: TriggerReport, at = Math.floor(tr.t / 1000)): Event {
-  const c = coarsen(tr);
+export function signPick(sk: Uint8Array, p: PickReport, at = Math.floor(p.t / 1000)): Event {
+  return finalizeEvent(
+    { kind: KIND_PICK, created_at: at, tags: [['t', TAG]], content: JSON.stringify({ v: 1, ...coarsen(p), t: Math.round(p.t) }) },
+    sk,
+  );
+}
+
+export function signRetraction(sk: Uint8Array, pickId: string, reason: string, at = nowS()): Event {
+  return finalizeEvent(
+    { kind: KIND_DELETION, created_at: at, tags: [['e', pickId], ['k', String(KIND_PICK)], ['t', TAG]], content: reason },
+    sk,
+  );
+}
+
+export function signTrigger(sk: Uint8Array, tr: TriggerReport, pickId?: string, at = Math.floor(tr.t / 1000)): Event {
   return finalizeEvent(
     {
       kind: KIND_TRIGGER,
       created_at: at,
-      tags: [['t', TAG]],
-      content: JSON.stringify({ v: 1, ...c, t: Math.round(tr.t), pga: +tr.pga.toFixed(4), dur: +tr.dur.toFixed(2) }),
+      tags: [['t', TAG], ...(pickId ? [['e', pickId]] : [])],
+      content: JSON.stringify({ v: 1, ...coarsen(tr), t: Math.round(tr.t), pga: +tr.pga.toFixed(4), dur: +tr.dur.toFixed(2) }),
     },
     sk,
   );
@@ -67,14 +94,21 @@ export function signTrigger(sk: Uint8Array, tr: TriggerReport, at = Math.floor(t
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const inRange = (v: unknown, lo: number, hi: number): v is number => finite(v) && v >= lo && v <= hi;
+const hex64 = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
+const KINDS = [KIND_PICK, KIND_TRIGGER, KIND_HEARTBEAT, KIND_DELETION];
 
 /** Verify signature and shape. Anything malformed, forged or implausible returns null. */
 export function parse(ev: Event): Message | null {
-  if (ev.kind !== KIND_TRIGGER && ev.kind !== KIND_HEARTBEAT) return null;
+  if (!ev || !KINDS.includes(ev.kind) || !Array.isArray(ev.tags)) return null;
   if (!ev.tags.some((t) => t[0] === 't' && t[1] === TAG)) return null;
   // Verify a plain copy: nostr-tools caches a "verified" flag on event objects it has seen.
   const { id, pubkey, created_at, kind, tags, content, sig } = ev;
   if (!verifyEvent({ id, pubkey, created_at, kind, tags, content, sig })) return null;
+  const base = { id: ev.id, node: ev.pubkey, at: ev.created_at * 1000 };
+  const ref = ev.tags.find((t) => t[0] === 'e')?.[1];
+
+  if (ev.kind === KIND_DELETION) return hex64(ref) ? { ...base, type: 'retract', pick: ref } : null;
+
   let c: Record<string, unknown>;
   try {
     c = JSON.parse(ev.content);
@@ -84,20 +118,21 @@ export function parse(ev: Event): Message | null {
   if (!c || c.v !== 1 || !inRange(c.lat, -90, 90) || !inRange(c.lon, -180, 180)) return null;
   // Re-coarsen on receipt too: a modified client cannot make us display a precise home location.
   const loc = coarsen({ lat: c.lat, lon: c.lon });
-  const base = { id: ev.id, node: ev.pubkey, at: ev.created_at * 1000 };
   if (ev.kind === KIND_HEARTBEAT) {
     if (!inRange(c.noise, 0, 50) || !inRange(c.sps, 1, 1000)) return null;
     return { ...base, type: 'heartbeat', data: { ...loc, noise: c.noise, sps: c.sps } };
   }
-  if (!finite(c.t) || Math.abs(c.t - base.at) > 120_000 || !inRange(c.pga, 0, 100) || !inRange(c.dur, 0, 120)) return null;
-  return { ...base, type: 'trigger', data: { ...loc, t: c.t, pga: c.pga, dur: c.dur } };
+  if (!finite(c.t) || Math.abs(c.t - base.at) > 120_000) return null;
+  if (ev.kind === KIND_PICK) return { ...base, type: 'pick', data: { ...loc, t: c.t } };
+  if (!inRange(c.pga, 0, 100) || !inRange(c.dur, 0, 120)) return null;
+  return { ...base, type: 'trigger', data: { ...loc, t: c.t, pga: c.pga, dur: c.dur }, pick: hex64(ref) ? ref : null };
 }
 
 /** Subscription filters for everything Tremor publishes since a given time. */
 export function filters(sinceMs: number): Filter[] {
   const since = Math.floor(sinceMs / 1000);
   return [
-    { kinds: [KIND_TRIGGER], '#t': [TAG], since },
+    { kinds: [KIND_PICK, KIND_TRIGGER, KIND_DELETION], '#t': [TAG], since },
     { kinds: [KIND_HEARTBEAT], '#t': [TAG], since: since - 600 },
   ];
 }

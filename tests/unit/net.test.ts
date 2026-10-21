@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { filters, parse, signHeartbeat, signTrigger } from '../../src/net/protocol';
+import { filters, parse, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import { RelayPool } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
 // @ts-expect-error plain JS test helper
@@ -19,7 +19,7 @@ describe('protocol', () => {
   it('signs a trigger that verifies and round-trips with coarse coordinates', () => {
     const t = Date.now();
     const ev = signTrigger(sk, { lat: 37.774929, lon: -122.419416, t, pga: 0.4321, dur: 3.2 });
-    const m = parse(ev)!;
+    const m = parse(ev)! as Extract<Message, { type: 'trigger' }>;
     expect(m.type).toBe('trigger');
     expect(m.node).toBe(getPublicKey(sk));
     expect(m.data).toMatchObject({ lat: 37.77, lon: -122.42, t, pga: 0.4321 });
@@ -35,14 +35,23 @@ describe('protocol', () => {
   });
 
   it('rejects a trigger whose onset disagrees with its signed timestamp', () => {
-    const ev = signTrigger(sk, { lat: 1, lon: 2, t: Date.now(), pga: 0.3, dur: 2 }, Math.floor(Date.now() / 1000) - 3600);
+    const ev = signTrigger(sk, { lat: 1, lon: 2, t: Date.now(), pga: 0.3, dur: 2 }, undefined, Math.floor(Date.now() / 1000) - 3600);
     expect(parse(ev)).toBeNull();
   });
 
   it('heartbeats parse', () => {
-    const m = parse(signHeartbeat(sk, { lat: -43.53, lon: 172.62, noise: 0.012, sps: 60 }))!;
+    const m = parse(signHeartbeat(sk, { lat: -43.53, lon: 172.62, noise: 0.012, sps: 60 }))! as Extract<Message, { type: 'heartbeat' }>;
     expect(m.type).toBe('heartbeat');
     expect(m.data).toMatchObject({ lat: -43.53, lon: 172.62, sps: 60 });
+  });
+
+  it('picks, retractions and pick-linked triggers round-trip', () => {
+    const t = Date.now();
+    const pick = signPick(sk, { lat: 10.123, lon: 20.456, t });
+    expect(parse(pick)).toMatchObject({ type: 'pick', data: { lat: 10.12, lon: 20.46, t } });
+    expect(parse(signRetraction(sk, pick.id, 'footsteps'))).toMatchObject({ type: 'retract', pick: pick.id });
+    expect(parse(signTrigger(sk, { lat: 10, lon: 20, t, pga: 1, dur: 3 }, pick.id))).toMatchObject({ type: 'trigger', pick: pick.id });
+    expect(parse(signRetraction(sk, 'not-an-id', 'x'))).toBeNull();
   });
 
   it('identity persists in storage', () => {
