@@ -9,6 +9,7 @@ import { h } from './ui/dom';
 import { QuakeMap, SHAKE_COLORS } from './ui/map';
 import { aboutView } from './views/about';
 import { networkView } from './views/network';
+import { planView } from './views/plan';
 import { replayView } from './views/replay';
 import { sensorView } from './views/sensor';
 
@@ -27,10 +28,11 @@ function relayList(): string[] {
   return DEFAULT_RELAYS;
 }
 
-type View = 'network' | 'replay' | 'sensor' | 'about';
+type View = 'network' | 'replay' | 'plan' | 'sensor' | 'about';
 const TABS: [View, string][] = [
   ['network', 'Network'],
   ['replay', 'Replay'],
+  ['plan', 'Plan'],
   ['sensor', 'Be a sensor'],
   ['about', 'About'],
 ];
@@ -86,7 +88,8 @@ live.on(status);
 let current: { view: View; dispose: () => void } | null = null;
 
 function route() {
-  const [name, arg] = location.hash.replace(/^#/, '').split('/');
+  const [name, ...rest] = location.hash.replace(/^#/, '').split('/');
+  const arg = rest.join('/') || undefined;
   const view: View = (TABS.find(([v]) => v === name)?.[0] as View) ?? 'network';
   if (current?.view === view) return;
   current?.dispose();
@@ -95,7 +98,13 @@ function route() {
   sensorEl.hidden = !isSensor;
   mapEl.hidden = panel.hidden = isSensor;
   const swatches =
-    view === 'replay'
+    view === 'plan'
+      ? [
+          ['var(--ink)', 'phone (one simulation)'],
+          ['var(--red)', 'simulated quake, detected'],
+          ['transparent;border:1.5px solid var(--muted)', 'simulated quake, missed'],
+        ]
+      : view === 'replay'
       ? [
           ['var(--ink)', 'phone'],
           ['#e58a7c', 'picked a P wave'],
@@ -111,7 +120,7 @@ function route() {
         ];
   legendBody.replaceChildren(
     ...swatches.map(([c, l]) => h('span', {}, h('i', { style: `background:${c}` }), l)),
-    h('span', { class: 'shake-key' }, h('b', { style: `background:linear-gradient(90deg, ${SHAKE_COLORS.slice(1).join(',')})` }), 'shaking felt'),
+    ...(view === 'plan' ? [] : [h('span', { class: 'shake-key' }, h('b', { style: `background:linear-gradient(90deg, ${SHAKE_COLORS.slice(1).join(',')})` }), 'shaking felt')]),
   );
   let v: { el: HTMLElement; dispose: () => void };
   if (view === 'network') {
@@ -126,6 +135,7 @@ function route() {
     });
     map.fly({ lat: 30, lon: -100 }, 2.2);
   } else if (view === 'replay') v = replayView(replay, map, arg, Number(params.get('speed')) || 1);
+  else if (view === 'plan') v = planView(map, arg);
   else if (view === 'sensor') v = sensorView(sensor);
   else v = aboutView();
   (isSensor ? sensorEl : panel).replaceChildren(v.el);

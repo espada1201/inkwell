@@ -135,6 +135,34 @@ export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution 
   };
 }
 
+/**
+ * Silent phones pooled into cells of this size, each weighted by its count. Positions move by
+ * at most ~2 km (a third of a second of P travel, well inside the slack), and a dense city's
+ * thousand silent phones become ~150 terms.
+ */
+const SILENT_CELL_KM = 3;
+
+function pooled(f: Frame, pts: LatLon[]) {
+  const { x, y } = toXY(f, pts);
+  if (pts.length <= 100) return { x, y, w: new Float64Array(pts.length).fill(1) };
+  const cells = new Map<string, [number, number, number]>();
+  for (let i = 0; i < pts.length; i++) {
+    const key = `${Math.floor(x[i] / SILENT_CELL_KM)},${Math.floor(y[i] / SILENT_CELL_KM)}`;
+    const c = cells.get(key);
+    if (c) {
+      c[0] += x[i];
+      c[1] += y[i];
+      c[2]++;
+    } else cells.set(key, [x[i], y[i], 1]);
+  }
+  const list = [...cells.values()];
+  return {
+    x: Float64Array.from(list, (c) => c[0] / c[2]),
+    y: Float64Array.from(list, (c) => c[1] / c[2]),
+    w: Float64Array.from(list, (c) => c[2]),
+  };
+}
+
 /** Grid misfits use at most this many arrivals: a few dozen pin an epicentre as well as a thousand. */
 const MAX_GRID_ARRIVALS = 80;
 
@@ -149,7 +177,7 @@ function search(all: Arrival[], vp: number, depth: number, opts: LocateOptions) 
   const f = frame(arr);
   const A = toXY(f, arr);
   const t = Float64Array.from(arr, (a) => a.t);
-  const S = toXY(f, opts.silent ?? []);
+  const S = pooled(f, opts.silent ?? []);
   const useSilent = S.x.length > 0 && opts.now !== undefined;
   const deadline = (opts.now ?? 0) - (opts.silentSlackS ?? 1.5);
   const z2 = depth * depth;
@@ -175,7 +203,7 @@ function search(all: Arrival[], vp: number, depth: number, opts: LocateOptions) 
         const d2 = dx * dx + dy * dy;
         if (d2 >= far2) continue;
         const late = deadline - (t0 + Math.sqrt(d2 + z2) / vp);
-        if (late > 0) cost += Math.min(late, 5);
+        if (late > 0) cost += S.w[k] * Math.min(late, 5);
       }
     }
     return { cost, t0 };

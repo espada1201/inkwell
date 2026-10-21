@@ -196,6 +196,45 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 .ring-label { font: 11px var(--mono); color: var(--ink); background: color-mix(in srgb, var(--card) 85%, transparent); padding: 1px 4px; border-radius: 2px; pointer-events: none; white-space: nowrap; }
 .ring-label.blind { color: var(--red); }
 
+/* ── plan ────────────────────────────────────────────── */
+.plan-controls { display: grid; gap: 12px; }
+.plan-controls .scenarios { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.phones { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; font-size: 13px; color: var(--ink-2); }
+.big-num { font-size: 18px; font-weight: 500; color: var(--ink); white-space: nowrap; }
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--ink); }
+.kpis > div { padding: 10px 10px 8px; border-left: 1px solid var(--rule); border-top: 1px solid var(--rule); display: grid; gap: 2px; }
+.kpis > div:nth-child(3n + 1) { border-left: 0; }
+.kpis > div:nth-child(-n + 3) { border-top: 0; }
+.kpis span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.kpis b { font: 500 22px/1.1 var(--mono); }
+.kpis small { font-size: 12px; color: var(--muted); }
+.kpis.pending b { color: var(--rule); }
+.plan-story { font-size: 15px; margin-top: 10px; }
+.chart-wrap { display: grid; gap: 8px; margin-top: 8px; }
+.chart-box { position: relative; }
+.chart { width: 100%; height: auto; display: block; overflow: visible; }
+.chart .grid { stroke: var(--rule); stroke-width: 1; }
+.chart .tick { font: 10px var(--mono); fill: var(--muted); }
+.chart .end { font: 11px var(--sans); fill: var(--ink-2); }
+.chart .you { stroke: var(--ink); stroke-width: 1; }
+.chart .dot { stroke: var(--card); stroke-width: 2; }
+.chart .band { fill: transparent; cursor: default; outline: none; }
+.chart .band:hover, .chart .band:focus-visible { fill: color-mix(in srgb, var(--ink) 6%, transparent); }
+.chart-tip {
+  position: absolute; top: 0; transform: translateX(-50%); background: var(--card); border: 1px solid var(--ink); padding: 6px 8px;
+  font-size: 12px; display: grid; gap: 2px; pointer-events: none; white-space: nowrap; z-index: 1;
+}
+.chart-tip[hidden] { display: none; }
+.chart-tip b { font: 500 13px var(--mono); }
+.chart-tip .key { display: inline-block; width: 12px; height: 2px; background: var(--red); margin-right: 6px; vertical-align: 3px; }
+.chart-tip .key.muted { background: var(--muted); }
+.legend-inline .you-key { width: 1px; height: 10px; background: var(--ink); vertical-align: -1px; }
+.chart-table summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.chart-table table { width: 100%; border-collapse: collapse; font: 12px var(--mono); margin-top: 6px; }
+.chart-table th { text-align: left; font: 500 11px var(--sans); color: var(--muted); padding: 4px; border-bottom: 1px solid var(--ink); }
+.chart-table td { padding: 4px; border-bottom: 1px solid var(--rule); }
+.chart-skeleton { height: 196px; }
+
 /* ── sensor (night instrument) ───────────────────────── */
 .sensor { grid-column: 1 / -1; background: var(--night); color: var(--night-ink); overflow-y: auto; min-height: 100%; }
 .sensor-inner { max-width: 1100px; margin: 0 auto; padding: 24px 20px 48px; display: grid; gap: 18px; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
@@ -255,6 +294,8 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
   .sensor h1 { font-size: 28px; }
   .trace { height: 200px; }
   .stats b { font-size: 20px; }
+  .plan-controls .scenarios { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpis b { font-size: 19px; }
 }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }

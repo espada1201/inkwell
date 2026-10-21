@@ -10,6 +10,7 @@ const overflowing = () =>
 for (const [view, ready] of [
   ['network', 'Live network'],
   ['replay/napa-2014', 'Replay'],
+  ['plan/kathmandu/6/near/20', 'Plan a network'],
   ['sensor', 'Ready'],
   ['about', 'Old phones as civic infrastructure'],
 ] as const) {
@@ -18,6 +19,7 @@ for (const [view, ready] of [
     await expect(page.getByRole('heading', { name: ready })).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Sections' })).toBeVisible();
     if (view.startsWith('replay')) await expect(page.getByTestId('warned')).toBeVisible();
+    if (view.startsWith('plan')) await expect(page.getByTestId('kpi-detected')).toBeVisible({ timeout: 30_000 });
     expect(await page.evaluate(overflowing)).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });

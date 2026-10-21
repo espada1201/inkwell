@@ -38,6 +38,10 @@ export interface MapQuake extends LatLon {
   /** 0 (now) .. 1 (oldest in window) */
   age: number;
 }
+/** A simulated quake in the planner: was it caught? */
+export interface MapTrial extends LatLon {
+  hit: boolean;
+}
 export interface MapWaves {
   center: LatLon;
   pKm: number;
@@ -89,6 +93,7 @@ const INK = '#1d1c1a';
 const RED = '#c8261c';
 const AMBER = '#b7791f';
 const PAPER = '#f4f1e8';
+const MUTED = '#6b675d';
 
 /** Minimal offline basemap: Natural Earth land, loaded only if the online style is unreachable. */
 async function fallbackStyle(): Promise<StyleSpecification> {
@@ -166,7 +171,7 @@ export class QuakeMap {
   }
 
   private addLayers(map: MlMap) {
-    for (const id of ['shake', 'rings', 'waves', 'links', 'usgs', 'nodes', 'events', 'truth']) map.addSource(id, { type: 'geojson', data: fc([]) });
+    for (const id of ['shake', 'rings', 'waves', 'links', 'usgs', 'trials', 'nodes', 'events', 'truth']) map.addSource(id, { type: 'geojson', data: fc([]) });
     map.addLayer({
       id: 'shake',
       type: 'fill',
@@ -213,6 +218,17 @@ export class QuakeMap {
         'circle-stroke-color': INK,
         'circle-stroke-width': 1.4,
         'circle-stroke-opacity': ['interpolate', ['linear'], ['get', 'age'], 0, 1, 1, 0.35],
+      },
+    });
+    map.addLayer({
+      id: 'trials',
+      type: 'circle',
+      source: 'trials',
+      paint: {
+        'circle-radius': 5,
+        'circle-color': ['case', ['get', 'hit'], RED, 'rgba(0,0,0,0)'],
+        'circle-stroke-color': ['case', ['get', 'hit'], PAPER, MUTED],
+        'circle-stroke-width': 1.5,
       },
     });
     map.addLayer({
@@ -306,6 +322,10 @@ export class QuakeMap {
 
   setUsgs(q: MapQuake[]) {
     this.set('usgs', fc(q.map((x) => pt(x, { id: x.id, mag: x.mag, age: x.age }))));
+  }
+
+  setTrials(t: MapTrial[]) {
+    this.set('trials', fc(t.map((x) => pt(x, { hit: x.hit }))));
   }
 
   setWaves(w: MapWaves | null) {
