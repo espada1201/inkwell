@@ -21,11 +21,14 @@
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans-condensed": "^5.3.0",
     "maplibre-gl": "^6.15.0",
-    "nostr-tools": "^2.25.2"
+    "nostr-tools": "^2.25.2",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",
     "@types/node": "^26.6.5",
+    "@types/topojson-client": "^3.1.5",
     "@types/ws": "^8.18.2",
     "typescript": "^7.0.2",
     "vite": "^8.3.5",

@@ -12,8 +12,8 @@ export interface Sample {
 export type RejectReason = 'handling' | 'impulse' | 'footsteps';
 
 export type DetectorOutput =
-  | { kind: 'trigger'; t: number; pga: number; durS: number; ratio: number }
-  | { kind: 'reject'; t: number; reason: RejectReason; pga: number };
+  | { kind: 'trigger'; t: number; at: number; pga: number; durS: number; ratio: number }
+  | { kind: 'reject'; t: number; at: number; reason: RejectReason; pga: number };
 
 export interface DetectorOptions {
   staS?: number;
@@ -43,6 +43,7 @@ export class NodeDetector {
   threshold: number;
   readonly floor: number;
   ratio = 0;
+  /** Latest bandpassed acceleration magnitude, m/s². */
   level = 0;
   private sta = 0;
   private lta = 0;
@@ -162,10 +163,10 @@ export class NodeDetector {
     if (reason) {
       this.threshold = Math.min(this.threshold * 1.25, this.base * 3);
       this.holdUntil = t + (reason === 'handling' ? 30000 : 2000);
-      return { kind: 'reject', t: c.t0, reason, pga: c.peak };
+      return { kind: 'reject', t: c.t0, at: t, reason, pga: c.peak };
     }
     this.holdUntil = t + 10000;
-    return { kind: 'trigger', t: c.t0, pga: c.peak, durS: activeS, ratio: c.maxRatio };
+    return { kind: 'trigger', t: c.t0, at: t, pga: c.peak, durS: activeS, ratio: c.maxRatio };
   }
 
   private reset() {
