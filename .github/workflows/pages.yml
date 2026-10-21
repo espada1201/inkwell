@@ -1,0 +1,43 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      # Skips quietly until Pages is switched on: Settings → Pages → Source: GitHub Actions.
+      - id: pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+      - if: steps.pages.outcome == 'success'
+        uses: actions/checkout@v4
+      - if: steps.pages.outcome == 'success'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.pages.outcome == 'success'
+        run: npm ci && npm run build
+      - if: steps.pages.outcome == 'success'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - if: steps.pages.outcome == 'success'
+        id: deploy
+        uses: actions/deploy-pages@v4

@@ -65,7 +65,3 @@ export function startRelay(port = 0, { verify = true } = {}) {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const r = await startRelay(Number(process.env.PORT ?? 7777));
-  console.log(`fake relay listening on ${r.url}`);
-}
