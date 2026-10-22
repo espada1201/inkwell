@@ -322,4 +322,12 @@ describe('this phone on the network', () => {
     expect(sent.filter((m) => m.type === 'retract')).toEqual([expect.objectContaining({ pick: pick.id })]);
     expect(node.log).toEqual([expect.objectContaining({ out: expect.objectContaining({ kind: 'reject', t: pick.data.t, reason: 'interrupted' }), published: true })]);
   });
+
+  it('tells the network it has stopped before it stops sharing', async () => {
+    const { node, feed, heartbeats } = phone();
+    await node.start();
+    feed({ durationS: 6 });
+    node.setJoined(false);
+    expect(heartbeats().map((m) => m.data.sps)).toEqual([50, 0]);
+  });
 });

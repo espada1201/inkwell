@@ -122,6 +122,8 @@ export class SensorNode extends Emitter {
   }
 
   setJoined(on: boolean) {
+    // Leaving: say this phone has stopped while it still may, or it is counted on for minutes.
+    if (!on) this.heartbeat(false);
     this.joined = on;
     safeStorage()?.setItem(JOIN_KEY, on ? '1' : '0');
     this.heartbeat();
