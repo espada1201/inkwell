@@ -406,6 +406,22 @@ describe('this phone on the network', () => {
     expect(node.log).toHaveLength(1);
   });
 
+  it('says it has stopped with the background it had, when hidden and when stopped', async () => {
+    const { node, feed, doc, on, heartbeats } = phone();
+    await node.start();
+    feed({ durationS: 10 });
+    let had = node.detector!.background;
+    doc.visibilityState = 'hidden';
+    on.visibilitychange();
+    expect(heartbeats().at(-1)!.data).toMatchObject({ sps: 0, noise: expect.closeTo(had, 3) });
+    doc.visibilityState = 'visible';
+    on.visibilitychange();
+    feed({ durationS: 10 });
+    had = node.detector!.background;
+    node.stop();
+    expect(heartbeats().at(-1)!.data).toMatchObject({ sps: 0, noise: expect.closeTo(had, 3) });
+  });
+
   it('dates what it sends by the wall clock, even when the event clock has fallen behind', async () => {
     const { node, feed, sent, heartbeats } = phone();
     await node.start();

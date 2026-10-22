@@ -87,7 +87,6 @@ export class SensorNode extends Emitter {
     // Hidden tabs get no motion events: say so at once rather than count as a quiet phone.
     if (document.visibilityState === 'hidden') {
       this.interrupt();
-      this.heartbeat(false);
       this.saveListened();
     } else this.requestWakeLock();
   };
@@ -143,7 +142,6 @@ export class SensorNode extends Emitter {
 
   stop() {
     this.interrupt();
-    this.heartbeat(false);
     this.saveListened();
     window.removeEventListener('devicemotion', this.onMotion);
     document.removeEventListener('visibilitychange', this.onVisible);
@@ -220,10 +218,13 @@ export class SensorNode extends Emitter {
     });
   }
 
-  /** The samples stop here: a pick still being checked never will be now. */
+  /** The samples stop here: withdraw a pick still being checked, which never will be now, and say this phone has stopped. */
   private interrupt() {
+    // Interrupted, the detector starts afresh: report the background it had.
+    const noise = this.detector?.background;
     const out = this.detector?.interrupt(Date.now());
     if (out) this.handle(out);
+    this.heartbeat(false, noise);
   }
 
   private set(s: SensorState) {
@@ -283,14 +284,14 @@ export class SensorNode extends Emitter {
     this.emit();
   }
 
-  /** I'm here and listening since the end of the warm-up; or, with `listening` false, I have stopped. */
-  private heartbeat(listening = true) {
+  /** I'm here and listening since the end of the warm-up; or, with `listening` false, I have stopped. `noise`: the background to report, if not the detector's now. */
+  private heartbeat(listening = true, noise?: number) {
     const d = this.detector;
     if (!this.canPublish || !d) return;
     // Not listening yet (still learning the background), or no samples lately (a hidden tab
     // whose timer still fires): stay silent and go stale.
     if (listening && (d.warmingUp || Date.now() - this.lastSample > 5000)) return;
-    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: d.background, sps: listening ? this.fs : 0, since: this.stretches.at(-1)?.from }));
+    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: noise ?? d.background, sps: listening ? this.fs : 0, since: this.stretches.at(-1)?.from }));
   }
 
   /** Keep this week's listening time in this browser. */
