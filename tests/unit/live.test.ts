@@ -81,9 +81,10 @@ describe('live network model', () => {
   });
 
   it('a few triggers that line up by chance are no quake when the phones around them heard nothing', () => {
-    // A grid of phones 2 km apart; five near the middle trigger as if on one wavefront.
-    const city = Array.from({ length: 100 }, (_, i) => ({ sk: generateSecretKey(), ...offset(src, 2 * ((i % 10) - 4.5), 2 * (Math.floor(i / 10) - 4.5)) }));
-    const five = [44, 45, 54, 55, 66].map((i) => city[i]);
+    // A grid of phones 2 km apart; five near the middle trigger as if on one wavefront. Six by six
+    // holds every phone the wave reaches; more phones would only add signing time.
+    const city = Array.from({ length: 36 }, (_, i) => ({ sk: generateSecretKey(), ...offset(src, 2 * ((i % 6) - 2.5), 2 * (Math.floor(i / 6) - 2.5)) }));
+    const five = [14, 15, 20, 21, 28].map((i) => city[i]);
     const listening = T0 - 600_000;
     const confirmed = (heartbeat: (p: (typeof city)[number]) => Event) => {
       const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
