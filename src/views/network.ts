@@ -51,6 +51,8 @@ const NEAR_MS = 10 * 60_000;
 const NEAR_USGS_KM = 300;
 
 const feltText = (c: FeltCluster) => `${c.people} people in ${c.places} places felt shaking`;
+/** Why a quake can be missing from the USGS list. */
+const USGS_GAP = 'Outside the US, USGS may not list quakes below about M4.5.';
 
 /** Asks where you are, roughly: by the browser's location or typed coordinates. `then` follows once it is set. */
 export function placeForm(place: Place, then: () => void) {
@@ -135,11 +137,17 @@ export function networkView(ctx: NetworkCtx) {
       'div',
       {},
       h('h1', {}, 'Live network'),
-      h('p', { class: 'lede' }, 'Phones lying still on tables, everywhere. Their triggers travel over public Nostr relays and are pieced together right here in your browser. No server.'),
+      h('p', { class: 'lede' }, 'Phones lying still on tables, wherever someone has set one up, and people saying what they felt. Their reports travel over public Nostr relays and are pieced together right here in your browser. No server.'),
     ),
   );
   const parts = { near: part(), stats: part(), provisional: part(), detail: part(), detections: part(), felt: part(), usgs: part() };
-  root.append(h('p', { class: 'honest' }, 'Community science, not an official warning system. Phones only feel fairly strong shaking, and anyone can publish to public relays. For official alerts use your national seismic service.'));
+  root.append(
+    h(
+      'p',
+      { class: 'honest' },
+      'Community science, not an official warning system. Phones only feel fairly strong shaking, and anyone can publish to public relays. For official alerts: on Android, turn on Earthquake alerts in Settings under Safety & emergency (the path varies by maker); on the US West Coast, keep Wireless Emergency Alerts on and add the MyShake app; elsewhere, follow your national seismic service.',
+    ),
+  );
   const relays = relaysBox();
 
   map.clear();
@@ -259,9 +267,9 @@ export function networkView(ctx: NetworkCtx) {
     const st = live.transport.statuses();
     return h(
       'div',
-      { class: 'stats', title: `Phones listening now (heard from in the last ${NODE_STALE_MS / 60_000} minutes); triggers and quakes from the last ${HOURS} hours` },
+      { class: 'stats', title: `Phones listening now (heard from in the last ${NODE_STALE_MS / 60_000} minutes); confirmed reports and quakes from the last ${HOURS} hours` },
       h('div', {}, h('b', { 'data-testid': 'stat-nodes' }, [...live.nodes.values()].filter((n) => live.isOnline(n)).length), h('span', {}, 'phones')),
-      h('div', {}, h('b', {}, live.triggers.length), h('span', {}, 'triggers')),
+      h('div', {}, h('b', {}, live.triggers.length), h('span', {}, 'confirmed reports')),
       h('div', {}, h('b', { 'data-testid': 'stat-events' }, live.events.length), h('span', {}, 'quakes')),
       h('div', {}, h('b', {}, `${st.filter((s) => s.state === 'open').length}/${st.length}`), h('span', {}, 'relays')),
     );
@@ -301,7 +309,7 @@ export function networkView(ctx: NetworkCtx) {
         'Network detection',
         ev,
         m ? { lat: m.quake.lat, lon: m.quake.lon, time: m.quake.time, mag: m.quake.mag, label: 'USGS', url: m.quake.url } : null,
-        live.usgsState === 'ok' ? 'No matching USGS event yet. Official solutions can take minutes, or this may be a false alarm.' : 'USGS feed unavailable, cannot cross-check right now.',
+        live.usgsState === 'ok' ? `No matching USGS event yet. Official solutions can take minutes, or this may be a false alarm. ${USGS_GAP}` : 'USGS feed unavailable, cannot cross-check right now.',
       );
     }
     const q = selected?.kind === 'usgs' ? live.usgs.find((x) => x.id === selected!.id) : null;
@@ -442,6 +450,7 @@ export function networkView(ctx: NetworkCtx) {
           )
         : null,
       body,
+      h('p', { class: 'small muted usgs-gap' }, USGS_GAP),
     );
   }
 
@@ -463,7 +472,7 @@ export function networkView(ctx: NetworkCtx) {
     el.append(
       ta,
       note,
-      h('p', { class: 'small muted' }, 'Most public Nostr relays work. Tremor events are tagged #tremor: kind 4578 picks, kind 5 retractions, kind 4579 confirmed triggers and kind 34579 heartbeats.'),
+      h('p', { class: 'small muted' }, 'Most public Nostr relays work. Tremor events are tagged #tremor: kind 4578 picks, kind 5 retractions, kind 4579 confirmed reports, kind 34579 heartbeats and kind 4580 felt reports.'),
       h('button', { class: 'btn', onclick: save }, 'Save and reconnect'),
     );
     root.append(el);

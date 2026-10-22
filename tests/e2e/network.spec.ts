@@ -268,6 +268,16 @@ test('the relay editor says why it saved nothing, and which lines were wrong', a
   await expect(box).toHaveValue('relay.damus.io\nwss://nos.lol\nnostr.wine');
 });
 
+test('the copy claims no more coverage than there is, and says where official alerts come from', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.locator('.lede')).toContainText('wherever someone has set one up');
+  await expect(page.locator('.lede')).not.toContainText('everywhere');
+  await expect(page.locator('.stats')).toContainText('confirmed reports');
+  await expect(page.locator('.honest')).toContainText('on Android, turn on Earthquake alerts in Settings under Safety & emergency (the path varies by maker)');
+  await expect(page.locator('.honest')).toContainText('on the US West Coast, keep Wireless Emergency Alerts on and add the MyShake app');
+  await expect(page.getByText('Outside the US, USGS may not list quakes below about M4.5.')).toBeVisible();
+});
+
 test('USGS outage shows a calm error state', async ({ page, relay }) => {
   await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ status: 200, body: 'garbage' }));
   await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));

@@ -321,3 +321,4 @@ dialog.felt::backdrop { background: rgb(29 28 26 / 0.45); }
 .level { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; text-align: left; padding: 10px 12px; min-height: 44px; border: 1px solid var(--ink); background: var(--card); border-radius: 2px; cursor: pointer; }
 .level:hover { background: var(--paper-2); }
 .level span { font-size: 13px; color: var(--ink-2); }
+.usgs-gap { margin-top: 8px; }
