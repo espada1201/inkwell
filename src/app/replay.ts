@@ -1,5 +1,5 @@
-import { associate, type DetectedEvent, type Trigger } from '../core/associate';
-import { corroborated, earlyDetect, type EarlyEvent } from '../core/early';
+import type { DetectedEvent, Trigger } from '../core/associate';
+import { confirmedEvents, earlyDetect, type EarlyEvent, type Onset } from '../core/early';
 import { Bandpass } from '../core/filters';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS } from '../core/physics';
@@ -57,7 +57,7 @@ export class Replay extends Emitter {
   private next = 0;
   private picks = new Map<string, Trigger>();
   /** Onsets heard so far: picks, withdrawn or not, and triggers. */
-  private heard: Trigger[] = [];
+  private heard: Onset[] = [];
   /** A provisional candidate holds for now, but phones the wave is still reaching could overturn it. */
   private waiting = false;
   private lastEval = 0;
@@ -178,10 +178,7 @@ export class Replay extends Emitter {
 
   /** Events located from the vetted triggers so far that the quiet phones do not contradict. */
   private confirmed(at: number) {
-    return associate(this.arrivedTriggers).filter((e) => {
-      const felt = new Set(this.heard.filter((h) => h.t >= e.time - 10_000 && h.t <= e.time + 180_000).map((h) => h.node));
-      return corroborated(e, this.nodes, felt, this.sim!.start + at);
-    });
+    return confirmedEvents(this.arrivedTriggers, this.heard, () => this.nodes, this.sim!.start + at);
   }
 
   private evaluateEarly(at: number) {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Trigger } from '../../src/core/associate';
-import { earlyDetect, type Listener } from '../../src/core/early';
+import { confirmedEvents, earlyDetect, type Listener } from '../../src/core/early';
 import { distanceKm, offset } from '../../src/core/geo';
-import { VP_KMS, hypocentralKm } from '../../src/core/physics';
+import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
 import { SCENARIOS, simulate } from '../../src/core/scenarios';
 
@@ -79,6 +79,27 @@ describe('early detection from raw picks', () => {
     expect(evs).toHaveLength(1);
     const bearing = (p: { lat: number; lon: number }) => Math.atan2(p.lon - city.lon, p.lat - city.lat);
     expect(Math.abs(bearing(evs[0]) - bearing(src))).toBeLessThan(0.3);
+  });
+});
+
+describe('confirmed events face the phones that were listening', () => {
+  // A distant quake shakes a city near what a phone can notice, so most phones stay quiet. They
+  // are no evidence against it: none of them was due to feel more than weak shaking.
+  it('confirms a distant quake that only a quarter of the phones felt', () => {
+    const src = { lat: 35, lon: -118 };
+    const city = offset(src, 80, 0);
+    const r = rng(31);
+    const phones = Array.from({ length: 120 }, (_, i) => ({ id: `n${i}`, ...offset(city, 30 * (r() - 0.5), 30 * (r() - 0.5)) }));
+    const t0 = Date.UTC(2026, 0, 1);
+    const triggers: Trigger[] = phones
+      .filter(() => r() < 0.25)
+      .map((p) => {
+        const hyp = hypocentralKm(distanceKm(src, p));
+        return { ...p, node: p.id, t: t0 + (hyp / VP_KMS + 0.12 * gauss(r)) * 1000, pga: pgaFor(5, hyp), phase: 'P' as const };
+      });
+    const evs = confirmedEvents(triggers, triggers, () => phones, t0 + 60_000);
+    expect(evs).toHaveLength(1);
+    expect(evs[0].triggers.length).toBeGreaterThan(20);
   });
 });
 

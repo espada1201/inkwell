@@ -1,5 +1,5 @@
-import { associate, type Trigger } from './associate';
-import { earlyDetect } from './early';
+import type { Trigger } from './associate';
+import { MIN_PICKS, confirmedEvents, earlyDetect, type Onset } from './early';
 import { coarsen, distanceKm, offset, type LatLon } from './geo';
 import { VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor, type Phase } from './physics';
 import { gauss, rng } from './rng';
@@ -207,7 +207,7 @@ function firstDeclaration(arrivals: Arrival[], nodes: Node[], from = -Infinity) 
     if (!(fresh || waiting) || t < from) continue;
     fresh = false;
     waiting = false;
-    if (picks.size < 4) continue;
+    if (picks.size < MIN_PICKS) continue;
     const r = earlyDetect([...picks.values()], nodes, t);
     if (r.events.length) return { at: t, ev: r.events[0] };
     waiting = r.waiting;
@@ -263,9 +263,11 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
     if (intensityLevel(pgaFor(input.mag, hyp)) >= 3) warnings.push(hyp / VS_KMS - alertAt);
   }
   let errKm: number | null = null;
-  if (input.confirm && triggers.length >= 4) {
+  if (input.confirm && triggers.length >= MIN_PICKS) {
+    // As the app does: every phone listened, and every phone that picked felt it.
     const sample = triggers.length > MAX_CONFIRM ? triggers.filter((_, i) => i % Math.ceil(triggers.length / MAX_CONFIRM) === 0) : triggers;
-    const ev = associate(sample).sort((a, b) => b.triggers.length - a.triggers.length)[0];
+    const heard: Onset[] = arrivals.filter((a) => a.kind === 'pick').map((a) => a.tr);
+    const ev = confirmedEvents(sample, heard, () => nodes, Infinity).sort((a, b) => b.triggers.length - a.triggers.length)[0];
     if (ev) errKm = distanceKm(ev, epi);
   }
   const trial: Trial = { epicentre: epi, declaredS, errKm, warnings };

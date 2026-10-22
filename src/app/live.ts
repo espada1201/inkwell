@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools/pure';
-import { associate, type DetectedEvent, type Trigger } from '../core/associate';
-import { corroborated, earlyDetect, type EarlyEvent } from '../core/early';
+import type { DetectedEvent, Trigger } from '../core/associate';
+import { confirmedEvents, earlyDetect, type EarlyEvent, type Onset } from '../core/early';
 import { distanceKm } from '../core/geo';
 import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat } from '../net/protocol';
 import type { Transport } from '../net/transport';
@@ -41,7 +41,7 @@ export class LiveNetwork extends Emitter {
   /** Retracted pick → the phone that retracted it. Only a pick's own author may. */
   private retracted = new Map<string, string>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
-  private heard: { node: string; t: number }[] = [];
+  private heard: Onset[] = [];
   private recomputeQueued = false;
   private recheck: ReturnType<typeof setTimeout> | undefined;
 
@@ -148,15 +148,7 @@ export class LiveNetwork extends Emitter {
     clearTimeout(this.recheck);
     const nodes = [...this.nodes.values()];
     // Confirmed events face the phones that were listening when they struck, and stayed quiet.
-    this.events = associate(this.triggers).filter((e) => {
-      const felt = new Set(this.heard.filter((h) => h.t >= e.time - 10_000 && h.t <= e.time + 180_000).map((h) => h.node));
-      return corroborated(
-        e,
-        nodes.filter((n) => this.isOnline(n, e.time)),
-        felt,
-        now,
-      );
-    });
+    this.events = confirmedEvents(this.triggers, this.heard, (t) => nodes.filter((n) => this.isOnline(n, t)), now);
     const early = earlyDetect(
       [...this.picks.values()],
       nodes.filter((n) => this.isOnline(n, now)),
