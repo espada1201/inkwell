@@ -100,7 +100,7 @@ test.describe('recent quakes from the USGS feed', () => {
     await expect(rows.nth(1).getByRole('button')).toHaveAttribute('aria-pressed', 'true');
     await expect(page.locator('[data-scenario="napa-2014"]')).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByText(/^M5\.1, 4 km SE of Berkeley, CA, .* UTC, from the USGS feed\. The quake is real; the phones are simulated, around the epicentre\./)).toBeVisible();
-    await expect(page.getByText('Each line is a phone, farther phones lower; the slanted bands are the P and S waves arriving.')).toBeVisible();
+    await expect(page.getByText('Each line is a phone, and farther phones are lower; the slanted bands are the P and S waves arriving.')).toBeVisible();
     await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
     await expect(page.getByTestId('replay-stats')).toHaveText(/^40 simulated phones · /);
 

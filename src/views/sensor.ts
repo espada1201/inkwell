@@ -2,7 +2,7 @@ import type { LiveNetwork } from '../app/live';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
 import { distanceKm, parseLatLon, type LatLon } from '../core/geo';
 import { h, keepFocus } from '../ui/dom';
-import { WITHDRAWN, coord, intensityWord, mag } from '../ui/format';
+import { WITHDRAWN, coord, intensityWord, mag, many } from '../ui/format';
 import { drawTrace } from '../ui/trace';
 
 const STIRRING = 2.5;
@@ -80,7 +80,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
       h('p', {}, `Listening time: ${duration(session)} this session, ${duration(week)} this week.`),
       !here
         ? h('p', { class: 'small muted' }, 'Set a location to see the phones and quakes near you.')
-        : h('p', { 'data-testid': 'neighbours' }, phones ? `Heard from ${phones} other phone${phones === 1 ? '' : 's'} listening within ${NEAR_KM} km.` : `No other phones heard listening within ${NEAR_KM} km.`),
+        : h('p', { 'data-testid': 'neighbours' }, phones ? `Heard from ${many(phones, 'other phone')} listening within ${NEAR_KM} km.` : `No other phones heard listening within ${NEAR_KM} km.`),
       !here || !d
         ? null
         : live.usgsState === 'loading'
@@ -94,7 +94,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
                   ...quakes.map((q) => h('li', {}, h('span', {}, `${mag(q.quake.mag)} · ${q.quake.place} · about ${about(q.km)} km away`), h('span', { class: VERDICTS[q.verdict][1] }, VERDICTS[q.verdict][0]))),
                 )
               : h('p', { class: 'small muted' }, 'No USGS quake since it began listening was strong enough here to register.'),
-      h('p', { class: 'small muted' }, 'Rough: a simple model of how shaking fades with distance, and this phone’s background now. Listening time is kept in this browser only.'),
+      h('p', { class: 'small muted' }, 'These estimates are rough: they come from a simple model of how shaking fades with distance, and this phone’s background now. Listening time is kept in this browser only.'),
     );
   }
 
@@ -197,7 +197,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
         h(
           'p',
           { class: 'small muted', 'data-testid': 'publish-note' },
-          s.canPublish ? 'On. Shaking goes out as a pick within about a second, then is confirmed or withdrawn 15–30 s later, plus a heartbeat every minute. All signed with this phone’s key.' : !s.joined ? 'Off. Nothing leaves this phone.' : 'Set a location to start sharing.',
+          s.canPublish ? 'On. Shaking goes out as a pick within about a second, then is confirmed or withdrawn 15–30 s later, plus a heartbeat every minute. All of it is signed with this phone’s key.' : !s.joined ? 'Off. Nothing leaves this phone.' : 'Set a location to start sharing.',
         ),
       ),
       locationCard(),

@@ -1,12 +1,12 @@
 # Tremor verification map
 
-The maintained list of what a Tremor user can do, one file per screen. Read this index, then drive the matching file's recipes with `drive.mjs` (see `../SKILL.md`).
+This is the maintained list of what a Tremor user can do, one file per screen. Read this index, then drive the matching file's recipes with `drive.mjs` (see `../SKILL.md`).
 
 ## Baseline preconditions
 
 - Tremor is served from this checkout (`npm start`, or your own `vite preview` port) and the doctor passes.
-- A fresh browser profile: `drive.mjs` starts each journey with empty localStorage, so no saved location, relays, identity or opt-in.
-- Isolated runs: one private relay, the default two-quake USGS feed unless the recipe sets one, no map tiles.
+- A fresh browser profile: `drive.mjs` starts each journey with empty localStorage, so there is no saved location, relay list, identity or opt-in.
+- Isolated runs use one private relay and no map tiles, with the default two-quake USGS feed unless the recipe sets one.
 - Replays play at `speed=10` unless a recipe says otherwise; at 1× a quake takes a minute or more.
 
 ## Driving conventions
@@ -18,9 +18,9 @@ The maintained list of what a Tremor user can do, one file per screen. Read this
 
 ## Proof and skip reporting
 
-- Shots of the state before and after each action; an ARIA snapshot of the panel at the end.
+- Screenshots of the state before and after each action, and an ARIA snapshot of the panel at the end.
 - Network proofs include `relay-events.json`; sensor proofs include the events the phone published.
-- Report each sub-feature ID as PASS, FAIL (expected vs seen) or NOT VERIFIED (what was missing).
+- Report each sub-feature ID as PASS, FAIL (what was expected and what was seen) or NOT VERIFIED (what was missing).
 
 ## Feature entry contract
 

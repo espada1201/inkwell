@@ -57,7 +57,7 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     note: `Within ${HERE_KM} km of ${coord(p.lat, p.lon)}${isMine(p) ? ', your saved location' : ''}. Phones listening right now are counted from the relays this browser follows.`,
   });
   const [c, m, d, p] = (arg ?? '').split('/');
-  const spot = parseSpot(c ?? '');
+  const spot = parseSpot(c);
   const phones = Number(p);
   const state = {
     city: CITIES.find((x) => x.id === c) ?? (spot ? herePlace(spot) : CITIES[0]),
@@ -340,7 +340,7 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
 
   map.clear();
   root.append(
-    h('div', {}, h('h1', {}, 'Plan a network'), h('p', { class: 'lede' }, 'How many phones does a city, or your own area, need? Pick a place and an earthquake. Tremor throws dozens of simulated quakes at simulated phones that behave like the real detector, through the same network code as the live map.')),
+    h('div', {}, h('h1', {}, 'Plan a network'), h('p', { class: 'lede' }, 'How many phones does a city, or your own area, need? Pick a place and an earthquake. Tremor runs dozens of simulated quakes on simulated phones that behave like the real detector, through the same network code as the live map.')),
     h('section', { class: 'plan-controls' }, cityButtons, cityNote, hereForm, gap, h('div', { class: 'transport' }, magSeg, settingSeg), h('label', { class: 'phones' }, h('span', {}, 'Phones listening at the moment it strikes'), phonesOut), slider),
     status,
     results,
