@@ -92,11 +92,31 @@ export type Swatch = [background: string, label: string];
 const SOURCES = ['shake', 'rings', 'waves', 'links', 'usgs', 'trials', 'felt', 'nodes', 'events', 'truth'] as const;
 type Source = (typeof SOURCES)[number];
 
+/**
+ * Land that crosses the antimeridian (Chukotka, Wrangel, Fiji) jumps from 180° to -180° and back,
+ * and drawn flat each jump is a line across the world. Unwrapped, its longitudes run on past 180°.
+ * Antarctica circles the pole and crosses only once, so it is left as it is.
+ */
+function unwrap(ring: GeoJSON.Position[]): GeoJSON.Position[] {
+  let prev = ring[0][0];
+  const out = ring.map(([lon, lat]) => {
+    prev = lon + 360 * Math.round((prev - lon) / 360);
+    return [prev, lat];
+  });
+  if (Math.abs(out[out.length - 1][0] - out[0][0]) >= 180) return ring;
+  // Keep the bulk of the land in -180..180, where it was.
+  const shift = 360 * Math.round(-out.reduce((s, [lon]) => s + lon, 0) / out.length / 360);
+  return out.map(([lon, lat]) => [lon + shift, lat]);
+}
+
 /** Minimal offline basemap: Natural Earth land, loaded only if the online style is unreachable. */
 async function fallbackStyle(): Promise<StyleSpecification> {
   const [{ feature: toGeo }, land] = await Promise.all([import('topojson-client'), import('world-atlas/land-50m.json')]);
   const topo = ((land as { default?: unknown }).default ?? land) as Topology<{ land: GeometryCollection }>;
   const geo = toGeo(topo, topo.objects.land);
+  for (const f of geo.features)
+    if (f.geometry.type === 'MultiPolygon') f.geometry.coordinates = f.geometry.coordinates.map((p) => p.map(unwrap));
+    else if (f.geometry.type === 'Polygon') f.geometry.coordinates = f.geometry.coordinates.map(unwrap);
   return {
     version: 8,
     sources: { land: { type: 'geojson', data: geo } },
