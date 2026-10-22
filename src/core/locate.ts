@@ -1,4 +1,4 @@
-import { distanceKm, offset, type LatLon } from './geo';
+import { KM_PER_DEG, distanceKm, offset, type LatLon } from './geo';
 import { DEFAULT_DEPTH_KM, DISTANCE_PRIOR, hypocentralKm, magnitudeFrom, speedOf, type Phase } from './physics';
 import { median } from './stats';
 
@@ -62,7 +62,7 @@ function frame(points: LatLon[]): Frame {
     lat: points.reduce((s, a) => s + a.lat, 0) / points.length,
     lon: points.reduce((s, a) => s + a.lon, 0) / points.length,
   };
-  return { origin, kx: 111.195 * Math.cos((origin.lat * Math.PI) / 180) };
+  return { origin, kx: KM_PER_DEG * Math.cos((origin.lat * Math.PI) / 180) };
 }
 function toXY(f: Frame, pts: LatLon[]) {
   const x = new Float64Array(pts.length);
@@ -72,7 +72,7 @@ function toXY(f: Frame, pts: LatLon[]) {
     if (dLon > 180) dLon -= 360;
     if (dLon < -180) dLon += 360;
     x[i] = dLon * f.kx;
-    y[i] = (p.lat - f.origin.lat) * 111.195;
+    y[i] = (p.lat - f.origin.lat) * KM_PER_DEG;
   });
   return { x, y };
 }
@@ -113,12 +113,11 @@ function quickMedian(a: Float64Array, n: number): number {
  * Coarse rings around the phones → two refinements, then outlier rejection.
  */
 export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution | null {
-  const depth = DEFAULT_DEPTH_KM;
   const minN = opts.minArrivals ?? 3;
   if (arrivals.length < minN) return null;
 
   let used = arrivals.map((_, i) => i);
-  let best = search(arrivals, depth, opts);
+  let best = search(arrivals, DEFAULT_DEPTH_KM, opts);
   const maxOut = opts.maxOutliers ?? 2;
   let dropped = 0;
   while (dropped < maxOut) {
@@ -130,17 +129,13 @@ export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution 
     if (!drop.size || used.length - drop.size < minN) break;
     used = used.filter((_, k) => !drop.has(k));
     dropped += drop.size;
-    best = search(
-      used.map((i) => arrivals[i]),
-      depth,
-      opts,
-    );
+    best = search(used.map((i) => arrivals[i]), DEFAULT_DEPTH_KM, opts);
   }
   const rms = Math.sqrt(best.res.reduce((s, r) => s + r * r, 0) / best.res.length);
   const mags = used
     .map((i) => arrivals[i])
     .filter((a) => a.pga && a.pga > 0)
-    .map((a) => magnitudeFrom(a.pga!, hypocentralKm(distanceKm(best.p, a), depth)));
+    .map((a) => magnitudeFrom(a.pga!, hypocentralKm(distanceKm(best.p, a), DEFAULT_DEPTH_KM)));
   return {
     ...best.p,
     t0: best.t0,
@@ -244,7 +239,7 @@ function problem(all: Arrival[], depth: number, opts: LocateOptions) {
         if (late > 0) cost += S.w[k] * Math.min(late, 5);
       }
     }
-    return { cost, t0 };
+    return { cost: cost < bound ? cost : Infinity, t0 };
   };
 
   let extent = 0;
@@ -285,7 +280,11 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
   return { p, t0, res: res.map((x) => x - t0) };
 }
 
-const PLAUSIBLE = 2.3;
+/**
+ * Half the 90% χ² quantile for two degrees of freedom: the misfit over its error scale is a
+ * negative log-likelihood, and twice a difference of those is χ²-distributed.
+ */
+const PLAUSIBLE = -Math.log(0.1);
 const MIN_UNCERTAINTY_KM = 1;
 const BEARINGS = 72;
 /** Depths tried: real quakes are rarely as shallow as half the default or deeper than twice it. */

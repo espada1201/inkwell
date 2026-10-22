@@ -4,6 +4,8 @@ export interface LatLon {
 }
 
 const R_EARTH_KM = 6371;
+/** Kilometres in a degree of latitude, or of longitude at the equator. */
+export const KM_PER_DEG = (R_EARTH_KM * Math.PI) / 180;
 const rad = (d: number) => (d * Math.PI) / 180;
 
 export function distanceKm(a: LatLon, b: LatLon): number {
