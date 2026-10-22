@@ -63,5 +63,8 @@ describe('the quake someone reports feeling', () => {
     expect(felt(20 * 60, [quake('bigger', 5, 37.8, -121.36, origin + 18.5 * 60_000), near])).toBe('near');
     // Two that shook here alike: the later.
     expect(felt(15 * 60, [near, quake('later', 4.5, 37.71, -122.27, origin + 10 * 60_000)])).toBe('later');
+    // An M2.4 right below, after an M4.5 40 km off: the model puts both at light here, but quakes that
+    // small are rarely felt, so it counts as weak, as the near-you card says, and the M4.5 wins.
+    expect(felt(20 * 60, [quake('m45', 4.5, 38.16, -122.27), quake('micro', 2.4, 37.818, -122.27, origin + 15 * 60_000)])).toBe('m45');
   });
 });

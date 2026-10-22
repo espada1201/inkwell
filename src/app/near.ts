@@ -1,5 +1,5 @@
 import { distanceKm, type LatLon } from '../core/geo';
-import { hypocentralKm, intensityLevel, pgaFor } from '../core/physics';
+import { shakingLevel } from '../core/physics';
 import type { LiveNetwork } from './live';
 import type { SensorNode } from './sensor';
 
@@ -10,8 +10,6 @@ export type Place = Pick<SensorNode, 'location' | 'setLocation' | 'canPublish'>;
 const NEAR_KM = 100;
 export const NEAR_MS = 10 * 60_000;
 const NEAR_USGS_KM = 300;
-/** Quakes below about M2.5 are usually not felt, yet the shaking model, made for bigger ones, puts small ones close by at light or more. */
-const FELT_MAG = 2.5;
 /** Light shaking, which people indoors notice. Below it a row is listed, with nothing to do about it. */
 export const NOTICED_LEVEL = 2;
 
@@ -24,11 +22,7 @@ export type Near = { km: number; time: number; level: number | null } & (
 
 /** What has been reported near you that could have shaken you, nearest first. */
 export function nearYou(live: LiveNetwork, you: LatLon, now = Date.now()): Near[] {
-  const shook = (e: LatLon & { mag: number | null }, km: number, depthKm?: number) => {
-    if (e.mag === null) return null;
-    const level = intensityLevel(pgaFor(e.mag, hypocentralKm(km, depthKm)));
-    return e.mag < FELT_MAG ? Math.min(level, 1) : level;
-  };
+  const shook = (e: { mag: number | null }, km: number, depthKm?: number) => (e.mag === null ? null : shakingLevel(e.mag, km, depthKm));
   const ours: Near[] = [
     ...live.early.map((e) => ({ kind: 'provisional' as const, e })),
     ...live.events.filter((e) => now - e.time < NEAR_MS).map((e) => ({ kind: 'confirmed' as const, e })),

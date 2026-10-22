@@ -59,3 +59,12 @@ export function intensityLevel(pga: number): number {
   while (k < MMI_G.length && g >= MMI_G[k]) k++;
   return k;
 }
+
+/** Quakes below about M2.5 are usually not felt, yet the shaking model, made for bigger ones, puts small ones close by at light or more. */
+const FELT_MAG = 2.5;
+
+/** How hard a quake shook a place this far from its epicentre, as `intensityLevel` counts: weak at most below about M2.5. */
+export function shakingLevel(mag: number, epicentralKm: number, depthKm?: number): number {
+  const level = intensityLevel(pgaFor(mag, hypocentralKm(epicentralKm, depthKm)));
+  return mag < FELT_MAG ? Math.min(level, 1) : level;
+}

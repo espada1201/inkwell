@@ -1,5 +1,5 @@
 import { distanceKm, type LatLon } from '../core/geo';
-import { hypocentralKm, intensityLevel, pgaFor } from '../core/physics';
+import { shakingLevel } from '../core/physics';
 
 export interface UsgsQuake extends LatLon {
   id: string;
@@ -78,7 +78,7 @@ export function matchFelt(report: LatLon & { t: number }, quakes: UsgsQuake[]): 
     const dt = (report.t - q.time) / 1000;
     if (q.mag === null || dt < -120 || dt > 3600) continue;
     const d = distanceKm(report, q);
-    const level = intensityLevel(pgaFor(q.mag, hypocentralKm(d, q.depthKm)));
+    const level = shakingLevel(q.mag, d, q.depthKm);
     if (level >= 1 && (!best || level > best.level || (level === best.level && q.time > best.quake.time))) best = { quake: q, distanceKm: d, dtS: dt, level };
   }
   return best;
