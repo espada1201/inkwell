@@ -1,11 +1,31 @@
 import type { Trigger } from './associate';
 import type { Listener } from './early';
+import { offset, type LatLon } from './geo';
+import { gauss } from './rng';
 import type { DetectorOutput } from './sensor';
 
 /**
- * The simulated network that Replay and the planner share: how long the relays take, and what a
- * browser watching them receives from each simulated phone.
+ * The simulated network that Replay and the planner share: what a simulated phone is like, how
+ * long the relays take, and what a browser watching them receives from each phone.
  */
+
+/** Samples per second of every simulated phone record. */
+export const FS = 50;
+/** Spread of simulated phones' clock errors, ms (one standard deviation). */
+export const CLOCK_SIGMA_MS = 150;
+/** A phone's own accelerometer noise, m/s² RMS per axis: phones differ. */
+export const phoneNoise = (r: () => number) => 0.008 + 0.01 * r();
+/** How much harder or softer a phone's own spot shakes than the attenuation law says. */
+export const siteScatter = (r: () => number) => 10 ** (0.15 * gauss(r));
+/** Seconds the strong shaking takes to die away: bigger quakes ring longer. */
+export const codaS = (mag: number) => 2 + mag - 4;
+
+/** A point drawn evenly over the disk of `radiusKm` around `c`. */
+export function pointInDisk(c: LatLon, radiusKm: number, r: () => number): LatLon {
+  const a = r() * 2 * Math.PI;
+  const d = radiusKm * Math.sqrt(r());
+  return offset(c, d * Math.cos(a), d * Math.sin(a));
+}
 
 /** Assumed phone → relay → browser latency, ms; an alert takes as long back out to the phones. */
 export const RELAY_LATENCY_MS = 1000;

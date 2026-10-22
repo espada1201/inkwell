@@ -1,6 +1,7 @@
 import type { Replay } from '../app/replay';
 import { DEFAULT_DEPTH_KM, VP_KMS, VS_KMS, hypocentralKm } from '../core/physics';
-import { FS, ORIGIN_OFFSET_S } from '../core/scenarios';
+import { ORIGIN_OFFSET_S } from '../core/scenarios';
+import { FS } from '../core/simnet';
 import { css, fit } from './canvas';
 
 /**

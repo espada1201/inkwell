@@ -1,28 +1,21 @@
 import type { Trigger } from './associate';
-import { MIN_PICKS, confirmedEvents, earlyDetect, type Onset } from './early';
+import { MIN_PICKS, confirmedEvents, earlyDetect, type Listener, type Onset } from './early';
 import { coarsen, distanceKm, offset, type LatLon } from './geo';
-import { VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor, type Phase } from './physics';
+import { DEFAULT_DEPTH_KM, VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor } from './physics';
+import { respond, type PhoneModel } from './phonemodel';
 import { gauss, rng } from './rng';
 import { upperMedian } from './stats';
-import { NodeDetector, type DetectorOutput } from './sensor';
-import { RELAY_LATENCY_MS, alertS, type Arrival } from './simnet';
-import { synthesize } from './synth';
+import { CLOCK_SIGMA_MS, RELAY_LATENCY_MS, alertS, pointInDisk, siteScatter, type Arrival } from './simnet';
 
 /**
  * Network planner: how many phones does a city need?
  *
  * Hundreds of quakes against thousands of phones is too much to synthesise sample by sample,
- * so each phone is replaced by its measured behaviour. `calibrate` runs the real on-device
- * detector over synthetic records across shaking levels and S−P times; every simulated phone
- * then draws its outcome (noticed or not, how late, confirmed or retracted) from those runs.
- * Everything downstream is the real network code: early detection from picks, association,
- * location and warning time.
+ * so each phone draws its behaviour from a model measured on the real detector (see
+ * phonemodel.ts). Everything downstream is the real network code: early detection from picks,
+ * association, location and warning time.
  */
 
-const FS = 50;
-const PGA_LEVELS = [0.005, 0.01, 0.02, 0.035, 0.06, 0.1, 0.18, 0.3, 0.55, 1, 1.8, 3.2];
-const SP_LEVELS = [1, 2.5, 5, 9];
-const RUNS = 6;
 /**
  * The planner judges on frames this long, and only when a pick is new or quiet phones have
  * come due. The live app judges 200 ms after each batch of messages and Replay at every
@@ -34,77 +27,8 @@ const FRAME_MS = 250;
 export const DISTURBED_PER_MINUTE = 0.05;
 /** Above this many confirmed triggers, locate from an even sample of them (the app uses all). */
 const MAX_CONFIRM = 300;
-
-interface Response {
-  /** Seconds from the P arrival to the onset the phone picked; null when it never noticed. */
-  delay: number | null;
-  /** The wave the phone said it felt. */
-  phase: Phase;
-  /** Seconds from the onset until the pick went out. */
-  sent: number;
-  /** Seconds from the onset to the phone's verdict. */
-  vet: number;
-  confirmed: boolean;
-  /** Measured peak over true peak acceleration. */
-  gain: number;
-}
-
-export interface PhoneModel {
-  /** [shaking level][S−P time][run] */
-  cells: Response[][][];
-}
-
-/** Measure the real phone detector on synthetic quakes of this magnitude (about a second of work). */
-export function calibrate(mag: number): PhoneModel {
-  const r = rng(Math.round(mag * 1000));
-  const tP = 12;
-  const cells = PGA_LEVELS.map((pga) =>
-    SP_LEVELS.map((sp) =>
-      Array.from({ length: RUNS }, (): Response => {
-        const det = new NodeDetector(FS);
-        const record = synthesize({
-          fs: FS,
-          start: 0,
-          durationS: tP + sp + 32,
-          seed: Math.floor(r() * 2 ** 31),
-          noise: 0.008 + 0.01 * r(),
-          quake: { tP, tS: tP + sp, pga, decayS: 2 + mag - 4 },
-        });
-        let pick: Extract<DetectorOutput, { kind: 'pick' }> | null = null;
-        for (const s of record) {
-          const o = det.push(s);
-          if (!o) continue;
-          if (o.kind === 'pick') {
-            if (pick === null && o.t >= (tP - 1) * 1000) pick = o;
-          } else if (pick && o.t === pick.t) {
-            const sent = (pick.at - pick.t) / 1000;
-            return { delay: pick.t / 1000 - tP, phase: pick.phase, sent, vet: (o.at - pick.t) / 1000, confirmed: o.kind === 'trigger', gain: o.kind === 'trigger' ? o.pga / pga : 1 };
-          }
-        }
-        return { delay: null, phase: 'P', sent: 0, vet: 0, confirmed: false, gain: 1 };
-      }),
-    ),
-  );
-  return { cells };
-}
-
-/** Draw one phone's behaviour for a given true shaking level and S−P time. */
-function respond(m: PhoneModel, pga: number, sp: number, r: () => number): Response {
-  const lp = Math.log(pga);
-  let i = 0;
-  while (i < PGA_LEVELS.length - 1 && Math.log(PGA_LEVELS[i + 1]) <= lp) i++;
-  // Between two measured levels: choose one at random, weighted by closeness in log PGA.
-  if (i < PGA_LEVELS.length - 1 && lp > Math.log(PGA_LEVELS[i])) {
-    const f = (lp - Math.log(PGA_LEVELS[i])) / (Math.log(PGA_LEVELS[i + 1]) - Math.log(PGA_LEVELS[i]));
-    if (r() < f) i++;
-  }
-  let j = 0;
-  SP_LEVELS.forEach((v, k) => Math.abs(v - sp) < Math.abs(SP_LEVELS[j] - sp) && (j = k));
-  const runs = m.cells[i][j];
-  const out = runs[Math.floor(r() * runs.length)];
-  // A pick made on the S wave moves with this phone's own S−P time.
-  return out.delay !== null && out.phase === 'S' ? { ...out, delay: out.delay - SP_LEVELS[j] + sp } : out;
-}
+/** Residents count toward the share warned once they shake at least moderately (intensity 3). */
+const SHAKEN_LEVEL = 3;
 
 export interface PlanInput {
   city: LatLon;
@@ -155,14 +79,10 @@ export interface PlanResult {
   phones: LatLon[];
 }
 
-type Node = LatLon & { id: string };
-
-function scatter(c: LatLon, radiusKm: number, n: number, r: () => number): LatLon[] {
-  return Array.from({ length: n }, () => {
-    const a = r() * 2 * Math.PI;
-    const d = radiusKm * Math.sqrt(r());
-    return offset(c, d * Math.cos(a), d * Math.sin(a));
-  });
+/** Where the plan's phones are, and the coarse positions the network knows them by. */
+function phoneNodes(input: PlanInput, r: () => number) {
+  const phones = Array.from({ length: input.phones }, () => pointInDisk(input.city, input.radiusKm, r));
+  return { phones, nodes: phones.map((p, i): Listener => ({ id: `p${i}`, ...coarsen(p) })) };
 }
 
 /** Evenly spaced points standing in for where people live. */
@@ -174,7 +94,7 @@ function residents(c: LatLon, radiusKm: number, target = 150): LatLon[] {
 }
 
 /** A bump at a random time in [fromS, toS]: a pick, then a retraction once the phone has vetted it. */
-function bump(node: Node, r: () => number, fromS: number, toS: number): [Arrival, Arrival] {
+function bump(node: Listener, r: () => number, fromS: number, toS: number): [Arrival, Arrival] {
   const t = (fromS + (toS - fromS) * r()) * 1000;
   const tr: Trigger = { id: `${node.id}:b`, node: node.id, lat: node.lat, lon: node.lon, t, pga: 0 };
   return [
@@ -184,7 +104,7 @@ function bump(node: Node, r: () => number, fromS: number, toS: number): [Arrival
 }
 
 /** Watch arrivals the way a browser does, frame by frame, and return the first declaration at or after `from`. */
-function firstDeclaration(arrivals: Arrival[], nodes: Node[], from = -Infinity) {
+function firstDeclaration(arrivals: Arrival[], nodes: Listener[], from = -Infinity) {
   if (!arrivals.length) return null;
   arrivals.sort((a, b) => a.at - b.at);
   const picks = new Map<string, Trigger>();
@@ -212,22 +132,22 @@ function firstDeclaration(arrivals: Arrival[], nodes: Node[], from = -Infinity) 
 }
 
 function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => number) {
-  const depth = input.depthKm ?? 10;
+  const depth = input.depthKm ?? DEFAULT_DEPTH_KM;
   const [near, far] = input.distanceKm;
   const ang = r() * 2 * Math.PI;
   const d = Math.sqrt(near * near + (far * far - near * near) * r());
   const epi = offset(input.city, d * Math.cos(ang), d * Math.sin(ang));
-  const phones = scatter(input.city, input.radiusKm, input.phones, r);
-  const nodes: Node[] = phones.map((p, i) => ({ id: `p${i}`, ...coarsen(p) }));
+  const { phones, nodes } = phoneNodes(input, r);
   const arrivals: Arrival[] = [];
   const triggers: Trigger[] = [];
+  let firstPick = Infinity;
 
   phones.forEach((p, i) => {
     const node = nodes[i];
-    const clock = 150 * gauss(r);
+    const clock = CLOCK_SIGMA_MS * gauss(r);
     const hyp = hypocentralKm(distanceKm(epi, p), depth);
     const tP = hyp / VP_KMS;
-    const pga = pgaFor(input.mag, hyp) * 10 ** (0.15 * gauss(r));
+    const pga = pgaFor(input.mag, hyp) * siteScatter(r);
     const o = respond(model, pga, hyp / VS_KMS - tP, r);
     let t = o.delay === null ? null : (tP + o.delay) * 1000 + clock;
     // Only bumps that can overlap the quake matter here; quiet minutes measure the rest.
@@ -242,13 +162,14 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
     }
     if (t === null) return;
     const tr: Trigger = { id: `${node.id}:q`, node: node.id, lat: node.lat, lon: node.lon, t, pga: pga * o.gain, phase: o.phase };
-    arrivals.push({ at: t + o.sent * 1000 + RELAY_LATENCY_MS, kind: 'pick', tr });
+    const at = t + o.sent * 1000 + RELAY_LATENCY_MS;
+    arrivals.push({ at, kind: 'pick', tr });
+    firstPick = Math.min(firstPick, at);
     if (o.confirmed) triggers.push(tr);
     else arrivals.push({ at: t + o.vet * 1000 + RELAY_LATENCY_MS, kind: 'retract', tr });
   });
 
   // False alerts are counted in quiet minutes, so only look once the P wave has reached someone.
-  const firstPick = Math.min(...arrivals.filter((a) => a.tr.id.endsWith(':q')).map((a) => a.at));
   const dec = firstDeclaration(arrivals, nodes, firstPick);
   const declaredS = dec && dec.at / 1000;
   // The alert then travels back out through the relays to every phone.
@@ -256,7 +177,7 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
   const warnings: number[] = [];
   for (const q of people) {
     const hyp = hypocentralKm(distanceKm(epi, q), depth);
-    if (intensityLevel(pgaFor(input.mag, hyp)) >= 3) warnings.push(hyp / VS_KMS - alertAt);
+    if (intensityLevel(pgaFor(input.mag, hyp)) >= SHAKEN_LEVEL) warnings.push(hyp / VS_KMS - alertAt);
   }
   let errKm: number | null = null;
   if (input.confirm && triggers.length >= MIN_PICKS) {
@@ -272,7 +193,7 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
 
 /** A minute with no earthquake: does anyone's bump turn into a false alert? */
 function quietMinute(input: PlanInput, r: () => number) {
-  const nodes: Node[] = scatter(input.city, input.radiusKm, input.phones, r).map((p, i) => ({ id: `p${i}`, ...coarsen(p) }));
+  const { nodes } = phoneNodes(input, r);
   const arrivals = nodes.flatMap((n) => (r() < DISTURBED_PER_MINUTE ? bump(n, r, 0, 60) : []));
   return firstDeclaration(arrivals, nodes) !== null;
 }

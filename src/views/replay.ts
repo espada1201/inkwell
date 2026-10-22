@@ -227,7 +227,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
         ? compareCard(
             'Tremor located it',
             ev,
-            truth ? { lat: truth.lat, lon: truth.lon, time: sim.origin, mag: truth.mag, label: 'USGS catalogue', url: truth.usgsId ? usgsEventUrl(truth.usgsId) : undefined } : null,
+            truth ? { lat: truth.lat, lon: truth.lon, time: sim.origin, mag: truth.mag, label: 'USGS catalogue', url: usgsEventUrl(truth.usgsId) } : null,
             'No real earthquake in this scenario, so this would be a false alarm.',
           )
         : '',

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { calibrate, simulatePlan, type PhoneModel, type PlanInput, type PlanResult } from '../../src/core/planner';
+import { calibrate, type PhoneModel } from '../../src/core/phonemodel';
+import { simulatePlan, type PlanInput, type PlanResult } from '../../src/core/planner';
 import { alertS } from '../../src/core/simnet';
 import { upperMedian } from '../../src/core/stats';
 

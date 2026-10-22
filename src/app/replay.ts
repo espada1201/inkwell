@@ -2,9 +2,9 @@ import type { DetectedEvent, Trigger } from '../core/associate';
 import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS, waveRadiusKm, type Phase } from '../core/physics';
-import { FS, ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
+import { ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
 import type { RejectReason } from '../core/sensor';
-import { alertS, arrivalsOf, type Arrival } from '../core/simnet';
+import { FS, alertS, arrivalsOf, type Arrival } from '../core/simnet';
 import type { NodeState } from '../ui/map';
 import { Emitter } from './emitter';
 
@@ -61,7 +61,7 @@ export class Replay extends Emitter {
 
   load(s: Scenario) {
     this.pause();
-    const start = s.truth?.date ? Date.parse(s.truth.date) - ORIGIN_OFFSET_S * 1000 : Date.UTC(2025, 6, 4, 21, 30);
+    const start = s.truth ? Date.parse(s.truth.date) - ORIGIN_OFFSET_S * 1000 : Date.UTC(2025, 6, 4, 21, 30);
     const sim = simulate(s, start);
     this.sim = sim;
     this.queue = [];
