@@ -91,6 +91,9 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   const km = Number((await page.getByTestId('est-km').innerText()).match(/^± (\d+) km/)![1]);
   expect(distanceKm(est, truth)).toBeLessThanOrEqual(km);
   await expect(page.getByTestId('est-mag')).toHaveText(/^M\d\.\d–\d\.\d$/);
+  // Measured on simulated quakes, which shake by Tremor's own model: it says so.
+  await expect(page.getByTestId('compare')).toContainText('In tests on simulated quakes, nine times in ten');
+  await expect(page.getByTestId('compare')).toContainText('which reads big quakes low');
 });
 
 test('a provisional detection its phones withdraw stays listed as not confirmed, with their reasons', async ({ page, relay }) => {

@@ -47,7 +47,7 @@ export function compareCard(title: string, est: DetectedEvent, ref: Reference | 
         h('td', { class: 'num' }, ref ? mag(ref.mag) : '—'),
       ),
     ),
-    h('p', { class: 'note small muted' }, 'Nine times in ten the quake is within the ± distance of where the phones put it, and its magnitude within the range.'),
+    h('p', { class: 'note small muted' }, 'In tests on simulated quakes, nine times in ten the quake was within the ± distance of where the phones put it, and its magnitude within the range. The range is only as good as Tremor’s shaking model, which reads big quakes low.'),
     h('p', { class: 'verdict', 'data-testid': 'verdict' }, verdict, ref?.url ? ' ' : null, ref?.url ? h('a', { href: ref.url, target: '_blank', rel: 'noopener' }, 'USGS page ↗') : null),
   );
 }
