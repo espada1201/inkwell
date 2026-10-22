@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fetchUsgs, matchUsgs, parseFeed } from '../../src/net/usgs';
+import { fetchUsgs, matchFelt, matchUsgs, parseFeed, type UsgsQuake } from '../../src/net/usgs';
 
 const feed = {
   type: 'FeatureCollection',
@@ -32,5 +32,36 @@ describe('USGS feed', () => {
     expect(m.dtS).toBeCloseTo(3);
     expect(matchUsgs({ lat: 35.75, lon: -117.62, time: 1_000_000 + 600_000 }, q)).toBeNull();
     expect(matchUsgs({ lat: 0, lon: 0, time: 1_000_000 }, q)).toBeNull();
+  });
+});
+
+describe('the quake someone reports feeling', () => {
+  const origin = Date.UTC(2026, 9, 21, 14, 3);
+  const here = { lat: 37.8, lon: -122.27 };
+  const quake = (id: string, mag: number, lat: number, lon: number, time = origin): UsgsQuake => ({ id, mag, place: id, time, lat, lon, depthKm: 8, url: `https://x/${id}` });
+  /** M4.5 8 km north: moderate shaking here, by the model. */
+  const near = quake('near', 4.5, 37.87, -122.27);
+  /** The quake that a report made here this many seconds after the origin links to. */
+  const felt = (afterS: number, quakes: UsgsQuake[]) => matchFelt({ ...here, t: origin + afterS * 1000 }, quakes)?.quake.id ?? null;
+
+  it('is found by a report made minutes after it, once USGS has posted it', () => {
+    // USGS posts about 2.5 min after a quake in California, 8 elsewhere in the US, 20 abroad.
+    for (const min of [2.5, 5, 15]) expect(felt(min * 60, [near]), `${min} min`).toBe('near');
+  });
+
+  it('began in the hour before the report, and shook the reporter at least weakly', () => {
+    expect(felt(2 * 3600, [near])).toBeNull();
+    // A clock a minute behind still finds it; nobody felt a quake five minutes before it began.
+    expect(felt(-60, [near])).toBe('near');
+    expect(felt(-300, [near])).toBeNull();
+    // An M3 160 km away is too small and far to feel, even a minute after it.
+    expect(felt(60, [quake('far', 3, 37.8, -120.45)])).toBeNull();
+  });
+
+  it('is the one that shook them hardest, then the latest', () => {
+    // A bigger quake 80 km away, just before the report, shook here only weakly.
+    expect(felt(20 * 60, [quake('bigger', 5, 37.8, -121.36, origin + 18.5 * 60_000), near])).toBe('near');
+    // Two that shook here alike: the later.
+    expect(felt(15 * 60, [near, quake('later', 4.5, 37.71, -122.27, origin + 10 * 60_000)])).toBe('later');
   });
 });
