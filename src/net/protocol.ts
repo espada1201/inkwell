@@ -6,8 +6,8 @@ import type { DetectorOutput, RejectReason } from '../core/sensor';
 
 /**
  * Tremor's wire format: ordinary signed Nostr events, so any public relay can carry them.
- *  - pick (kind 4578): "shaking started here at t", sent half a second after the onset, with
- *    the wave the phone felt first (ph: P or S; events without it count as P).
+ *  - pick (kind 4578): "shaking started here at t", sent about a second after the shaking
+ *    arrives, with the wave the phone felt first (ph: P or S; events without it count as P).
  *  - retraction (kind 5, NIP-09 deletion of a pick): "that was footsteps / a door / my hand".
  *  - trigger (kind 4579): the phone's confirmed verdict, with peak acceleration.
  *  - heartbeat (kind 34579, parameterised-replaceable): "I'm alive, here, this noisy, and

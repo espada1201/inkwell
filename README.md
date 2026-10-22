@@ -22,39 +22,39 @@ plug it in, tap **Start sensor**, set a rough location and switch sharing on.
 
 ## What it does
 
-- **Be a sensor**: accelerometer → gravity removal → 1–10 Hz bandpass → STA/LTA trigger with an
-  adaptive threshold. A provisional *pick* goes out within half a second, labelled P or S by
-  which way the phone shakes (P waves are mostly up and down, S side to side). The phone then
-  vets it for 15–30 s (rotated = picked up, under 1 s = door slam, many short knocks = footsteps)
-  and either confirms it as a *trigger* or retracts it. Screen wake lock, battery readout, dim mode.
-- **Network**: live map of phones, picks, detections and USGS quakes. Picks from 4+ phones in 3+
-  places that fit one wavefront, and that the quiet phones nearby do not outvote, declare a
-  provisional quake within seconds. Vetted triggers, judged the same way, give the epicentre, a
-  rough magnitude, a crowd shaking map and a side-by-side check against USGS.
-- **Replay**: real historical quakes (Napa 2014, Ridgecrest 2019, Christchurch 2011) and a
-  concert night with no quake, played into simulated phones that run the same detector, with a
-  record section, a timeline and how many seconds of warning each phone would have had.
-- **Plan**: how many phones does a city need? 5 to 2,000 simulated phones, modelled on the real
-  detector and run through the same network code, face 24 quakes and a busy hour without one,
-  plus a curve from 10 to 1,000 phones.
+- **Be a sensor**: accelerometer → gravity removal → 1–10 Hz bandpass → STA/LTA trigger. A *pick*,
+  P or S by which way the phone shakes, goes out about a second after the shaking arrives; for
+  15–30 s the phone checks it against the earlier background (picked up, door slam, footsteps),
+  then confirms it as a *trigger* or retracts it. A card says how far away it would notice a quake.
+- **Network**: what was reported near you, then a live map. Picks from 4+ phones in 3+ places that
+  fit one wavefront, and that quiet phones nearby do not outvote, declare a provisional quake in
+  seconds; vetted triggers give the epicentre (± km), a rough magnitude and a USGS check. Anyone
+  can say "I felt it" (shown once 3 people in 3 places agree); an opt-in chime marks shaking nearby.
+- **Replay**: real quakes (Napa 2014, Ridgecrest 2019, Christchurch 2011, or any M4+ from the
+  past day's USGS feed) and a concert night with no quake, played into simulated phones that run
+  the same detector, with a record section, a timeline and each phone's seconds of warning.
+- **Plan**: how many phones does a city, or your own area, need? 5 to 2,000 simulated phones,
+  modelled on the real detector and run through the same network code, face 24 quakes and a busy
+  hour without one, plus a curve from 10 to 1,000 phones.
 
-**Wire format**: signed Nostr events tagged `#tremor`: pick (kind 4578, `ph` = P or S), trigger
-(4579), heartbeat (34579, replaceable) and retraction (NIP-09 deletion). Locations are snapped
-to a 0.01° (~1 km) grid on the phone and again on every receiver. Relays are editable in the app.
+**Wire format**: signed Nostr events tagged `#tremor`: pick (kind 4578, `ph` = P or S), confirmed
+report (4579), heartbeat (34579, replaceable), retraction (NIP-09) and felt report (4580, level
+1–5). Locations are snapped to a 0.01° (~1 km) grid on the phone and on every receiver.
 
 ## Honest limits
 
-- Community science, not an official warning system. Phones only feel strong shaking nearby, and
-  magnitudes are rough (±0.5–1). Use the alerts from your national seismic service.
-- Browsers pause sensors in background tabs: a sensor phone must stay open on screen, plugged in.
-- The detector is tuned on synthetic phone records; replays use real epicentres, simulated phones.
-  The planner assumes uniform ground and one attenuation curve: read it as scale, not a forecast.
-- Public relays are open, so a determined person could publish fake picks.
+- Community science, not an official warning system: phones feel only strong shaking nearby, and
+  magnitudes are rough (big quakes read low). For alerts, on Android turn on Earthquake alerts
+  (Settings → Safety & emergency; it varies by maker), on the US West Coast use Wireless Emergency
+  Alerts and MyShake, elsewhere your national seismic service.
+- Background tabs pause sensors and sounds: keep a sensor phone, or a page set to chime, on screen.
+- Tuned on synthetic phone records; replays use real epicentres and simulated phones. The planner
+  assumes uniform ground and one attenuation curve: read it as scale, not a forecast.
+- Public relays are open: anyone could publish fake phones, picks or felt reports. Outside the US,
+  USGS may not list quakes below about M4.5.
 
 ## Develop and publish
 
-`npm run dev` (hot reload) · `npm run typecheck` · `npm test` (Vitest) · `npm run e2e` (Playwright;
-`npx playwright install chromium` once). CI runs these and the build on pushes to `main` and PRs.
-
-**GitHub Pages**: the Pages workflow deploys `main` once Pages is switched on (Settings → Pages →
-Source: GitHub Actions); it needs a public repository. MIT licence.
+`npm run dev` (hot reload) · `npm run typecheck` · `npm test` · `npm run e2e` (Playwright; `npx
+playwright install chromium` once). CI runs them on every push to `main`. **GitHub Pages** deploys
+`main` once switched on (Settings → Pages → Source: GitHub Actions). MIT licence.
