@@ -1,10 +1,11 @@
+import { generateSecretKey } from 'nostr-tools/pure';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reachKm, SensorNode } from '../../src/app/sensor';
 import { offset } from '../../src/core/geo';
 import { hypocentralKm, pgaFor, VP_KMS } from '../../src/core/physics';
 import { NodeDetector, type DetectorOutput } from '../../src/core/sensor';
 import { synthesize, type SynthOptions } from '../../src/core/synth';
-import { parse, type Message } from '../../src/net/protocol';
+import { parse, signOutput, type Message } from '../../src/net/protocol';
 
 function run(o: Omit<SynthOptions, 'start' | 'durationS' | 'seed'> & { seed?: number; durationS?: number; start?: number }) {
   const det = new NodeDetector(50);
@@ -420,5 +421,19 @@ describe('this phone on the network', () => {
   it('inverts the shaking model into how far away a quake would still be noticed', () => {
     for (const [mag, pga] of [[4, 0.1], [5, 0.1], [5, 0.5]]) expect(pgaFor(mag, hypocentralKm(reachKm(mag, pga)))).toBeCloseTo(pga, 4);
     expect(reachKm(4, 5)).toBe(0);
+  });
+
+  it('signs what a phone publishes for each output: the pick, then its retraction or a trigger linked to it', () => {
+    const sk = generateSecretKey();
+    const here = { lat: 37.77, lon: -122.42 };
+    const t = Date.now() - 30_000;
+    const pick = signOutput(sk, here, { kind: 'pick', t, at: t + 400, phase: 'S' })!;
+    expect(parse(pick)).toMatchObject({ type: 'pick', data: { ...here, t, phase: 'S' } });
+    const trigger = signOutput(sk, here, { kind: 'trigger', t, at: t + 20_000, phase: 'S', pga: 0.3, durS: 4 }, pick.id)!;
+    expect(parse(trigger)).toMatchObject({ type: 'trigger', pick: pick.id, data: { ...here, t, phase: 'S', pga: 0.3, dur: 4 } });
+    // A retraction is dated when the phone gave up on its pick; with no pick open there is nothing to withdraw.
+    const gaveUp = { kind: 'reject', t, at: t + 20_000, reason: 'footsteps' } as const;
+    expect(parse(signOutput(sk, here, gaveUp, pick.id)!)).toMatchObject({ type: 'retract', pick: pick.id, at: Math.floor((t + 20_000) / 1000) * 1000 });
+    expect(signOutput(sk, here, gaveUp)).toBeNull();
   });
 });

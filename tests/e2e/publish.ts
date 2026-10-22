@@ -1,7 +1,7 @@
 import { generateSecretKey } from 'nostr-tools/pure';
 import type { Event } from 'nostr-tools/pure';
 import { SCENARIOS, simulate, type Simulation } from '../../src/core/scenarios';
-import { signHeartbeat, signPick, signRetraction, signTrigger } from '../../src/net/protocol';
+import { signHeartbeat, signOutput } from '../../src/net/protocol';
 
 /** Send events to a relay over a plain WebSocket and wait until each is acknowledged. */
 export async function send(url: string, events: Event[]) {
@@ -33,18 +33,12 @@ export function scenarioEvents(id: string) {
   for (const n of sim.nodes) {
     const sk = generateSecretKey();
     heartbeats.push(signHeartbeat(sk, { lat: n.lat, lon: n.lon, noise: 0.01, sps: 50 }, Math.floor(sim.start / 1000)));
-    let open: Event | null = null;
+    let open: { t: number; id: string } | null = null;
     for (const o of n.outputs) {
-      if (o.kind === 'pick') {
-        open = signPick(sk, { lat: n.lat, lon: n.lon, t: o.t, phase: o.phase });
-        picks.push(open);
-      } else if (o.kind === 'reject') {
-        if (open) finals.push(signRetraction(sk, open.id, o.reason, Math.floor(o.at / 1000)));
-        open = null;
-      } else {
-        finals.push(signTrigger(sk, { lat: n.lat, lon: n.lon, t: o.t, phase: o.phase, pga: o.pga, dur: o.durS }, open?.id));
-        open = null;
-      }
+      // As a phone does: the pick a verdict settles is the open one with its onset.
+      const ev = signOutput(sk, n, o, open?.t === o.t ? open.id : undefined);
+      open = o.kind === 'pick' ? { t: o.t, id: ev!.id } : null;
+      if (ev) (o.kind === 'pick' ? picks : finals).push(ev);
     }
   }
   return { sim, heartbeats, picks, finals };

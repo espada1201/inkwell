@@ -3,7 +3,7 @@ import { hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
 import { NodeDetector, type DetectorOutput } from '../core/sensor';
 import { upperMedian } from '../core/stats';
 import { loadIdentity, safeStorage } from '../net/identity';
-import { HEARTBEAT_EVERY_MS, signHeartbeat, signPick, signRetraction, signTrigger } from '../net/protocol';
+import { HEARTBEAT_EVERY_MS, signHeartbeat, signOutput } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import type { UsgsQuake } from '../net/usgs';
 import { Emitter } from './emitter';
@@ -263,28 +263,17 @@ export class SensorNode extends Emitter {
 
   private handle(out: DetectorOutput) {
     // Picks go out within a second or so of the shaking; the verdict follows 15–30 s later.
-    const pickId = this.openPick?.t === out.t ? this.openPick.id : undefined;
-    let published = false;
+    const open = this.openPick?.t === out.t ? this.openPick.id : undefined;
+    this.openPick = null;
+    // Only while sharing, except that a pick already out is still withdrawn (a retraction needs no location).
+    const ev = this.canPublish || out.kind === 'reject' ? signOutput(this.sk, this.location!, out, open) : null;
+    if (ev) this.transport.publish(ev);
     if (out.kind === 'pick') {
-      this.openPick = null;
-      if (this.canPublish) {
-        const ev = signPick(this.sk, { ...this.location!, t: out.t, phase: out.phase });
-        this.transport.publish(ev);
-        this.openPick = { t: out.t, id: ev.id };
-      }
+      if (ev) this.openPick = { t: out.t, id: ev.id };
       return;
     }
-    this.openPick = null;
-    if (out.kind === 'reject' && pickId) {
-      this.transport.publish(signRetraction(this.sk, pickId, out.reason));
-      published = true;
-    }
     if (out.kind === 'trigger') this.confirmed.push(out.t);
-    if (out.kind === 'trigger' && this.canPublish) {
-      this.transport.publish(signTrigger(this.sk, { ...this.location!, t: out.t, phase: out.phase, pga: out.pga, dur: out.durS }, pickId));
-      published = true;
-    }
-    this.log = [{ at: Date.now(), out, published }, ...this.log].slice(0, 30);
+    this.log = [{ at: Date.now(), out, published: !!ev }, ...this.log].slice(0, 30);
     this.emit();
   }
 
