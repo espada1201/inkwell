@@ -136,7 +136,7 @@ export function networkView(ctx: NetworkCtx) {
           'section',
           { class: 'warn-card', role: 'alert', 'data-testid': 'provisional' },
           h('header', {}, h('b', {}, 'Provisional detection'), h('span', { class: 'mono' }, ago(e.time))),
-          h('p', {}, `${e.triggers.length} phones picked a P wave that fits one source near ${coord(e.lat, e.lon)}, and no quiet phone nearby objects. Waiting for the phones to confirm.`),
+          h('p', {}, `${e.triggers.length} phones felt shaking start in a pattern that fits one source near ${coord(e.lat, e.lon)}, and no quiet phone nearby objects. Waiting for the phones to confirm.`),
         ),
       ),
       detail ?? '',
@@ -222,7 +222,7 @@ export function networkView(ctx: NetworkCtx) {
       h(
         'p',
         { class: 'small muted' },
-        'Any Nostr relay works. Tremor events are kind 4579 (triggers) and 34579 (heartbeats), tagged #tremor.',
+        'Any Nostr relay works. Tremor events are tagged #tremor: kind 4578 picks, kind 5 retractions, kind 4579 confirmed triggers and kind 34579 heartbeats.',
       ),
       h(
         'button',

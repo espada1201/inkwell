@@ -121,7 +121,7 @@ export function sensorView(s: SensorNode) {
                   {},
                   h('span', {}, new Date(l.out.t).toLocaleTimeString()),
                   l.out.kind === 'trigger'
-                    ? h('span', { class: 'tag trig' }, `TRIGGER ${l.out.pga.toFixed(2)} m/s²${l.published ? ' · sent' : ' · not sent'}`)
+                    ? h('span', { class: 'tag trig' }, `TRIGGER ${l.out.pga.toFixed(2)} m/s² · ${l.out.phase} wave${l.published ? ' · sent' : ' · not sent'}`)
                     : h('span', { class: 'tag rej' }, `ignored: ${REASONS[l.out.reason]}`),
                 ),
               ),

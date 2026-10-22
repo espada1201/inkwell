@@ -55,7 +55,7 @@ test.describe('be a sensor', () => {
     // The provisional pick goes out the moment the P wave arrives...
     await expect.poll(() => relay.events().filter((e) => e.kind === 4578).length, { timeout: 20_000 }).toBe(1);
     // ...and the vetted trigger about 15 s later, linked to it.
-    await expect(page.getByTestId('sensor-log')).toContainText(/TRIGGER [\d.]+ m\/s² · sent/, { timeout: 40_000 });
+    await expect(page.getByTestId('sensor-log')).toContainText(/TRIGGER [\d.]+ m\/s² · P wave · sent/, { timeout: 40_000 });
     const events = relay.events();
     const pick = events.find((e) => e.kind === 4578)!;
     const trigger = events.find((e) => e.kind === 4579)!;
@@ -64,6 +64,8 @@ test.describe('be a sensor', () => {
     // Only the 1 km grid cell ever leaves the phone.
     expect(JSON.parse(heartbeat.content)).toMatchObject({ lat: 37.77, lon: -122.42, sps: 50 });
     expect(JSON.parse(trigger.content).pga).toBeGreaterThan(0.3);
+    // The phone lay flat and the quake's first wave shook it up and down: a P wave.
+    expect(JSON.parse(pick.content).ph).toBe('P');
   });
 
   test('nothing is published until the user opts in', async ({ page, relay }) => {

@@ -9,15 +9,15 @@ export function aboutView() {
       'ol',
       { class: 'steps' },
       h('li', {}, h('span', {}, h('b', {}, 'Feel. '), 'The phone samples its accelerometer, strips out gravity, and runs an STA/LTA trigger, the same short-term over long-term average test used by real seismometers.')),
-      h('li', {}, h('span', {}, h('b', {}, 'Doubt. '), 'Before telling anyone, it checks the shaking: phone rotated means someone picked it up, under a second is a bump or a door, a train of short knocks is footsteps.')),
-      h('li', {}, h('span', {}, h('b', {}, 'Tell. '), 'Surviving triggers are signed with a key made on the phone and published to public Nostr relays, with location rounded to about a kilometre.')),
-      h('li', {}, h('span', {}, h('b', {}, 'Agree. '), 'Any browser watching the relays groups triggers that could be one wave (no faster than P-waves travel), then finds the epicentre that best explains the arrival times.')),
+      h('li', {}, h('span', {}, h('b', {}, 'Tell at once. '), 'Within half a second it publishes a pick: shaking started here, signed with a key made on the phone, location rounded to about a kilometre. It also says which wave it felt. The first, P, shakes the ground up and down; the stronger S wave shakes it side to side, and gravity tells the phone which way is down.')),
+      h('li', {}, h('span', {}, h('b', {}, 'Doubt. '), 'Then it checks the shaking. Phone rotated means someone picked it up, under a second is a bump or a door, a train of short knocks is footsteps. Bad picks are withdrawn; good ones are confirmed with their peak shaking.')),
+      h('li', {}, h('span', {}, h('b', {}, 'Agree. '), 'Any browser watching the relays groups picks that could be one wavefront and finds the epicentre that best explains their arrival times. It only declares a quake if the quiet phones agree too: those close enough to have felt it by now must mostly have.')),
       h('li', {}, h('span', {}, h('b', {}, 'Check. '), 'Every detection is compared against the official USGS feed so the network keeps itself honest.')),
     ),
     h(
       'section',
       { class: 'honest' },
-      h('p', {}, h('b', {}, 'What it is not. '), 'Not an earthquake warning system. Phones only detect strong shaking close by, clocks are only accurate to a fraction of a second, and magnitudes are rough (±0.5–1). Public relays are open, so a determined person could publish fake triggers. Use official alerts from your national seismic service.'),
+      h('p', {}, h('b', {}, 'What it is not. '), 'Not an official warning system. Phones only feel fairly strong shaking, their clocks are only good to a fraction of a second, and magnitudes are rough (±0.5–1). Public relays are open, so a determined person could publish fake picks. Use official alerts from your national seismic service.'),
     ),
     h(
       'section',
@@ -29,7 +29,7 @@ export function aboutView() {
       'section',
       {},
       h('h2', {}, 'Open protocol'),
-      h('p', { class: 'small' }, 'Triggers are Nostr kind 4579 and heartbeats kind 34579, tagged #tremor, with a small JSON body. Anyone can build their own viewer or detector on the same events.'),
+      h('p', { class: 'small' }, 'Ordinary signed Nostr events tagged #tremor, each with a small JSON body: picks are kind 4578, retractions kind 5, confirmed triggers kind 4579 and heartbeats kind 34579. Anyone can build their own viewer or detector on the same events.'),
     ),
   );
   return { el, dispose: () => {} };

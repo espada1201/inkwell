@@ -66,7 +66,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const firstPick = Math.min(...r.nodes.flatMap((n) => n.picks.filter((p) => p.t >= after).map((p) => p.at)));
     const rows: [string, number | null, string][] = [
       ['Rupture', truth ? ORIGIN_OFFSET_S * 1000 : null, truth ? `M${truth.mag.toFixed(1)}, ${truth.depthKm} km deep` : 'no earthquake in this scenario'],
-      ['First phone picks', Number.isFinite(firstPick) && firstPick <= r.vt ? firstPick : null, truth ? 'P wave felt; sent instantly, before any vetting' : 'a disturbance; sent instantly, before any vetting'],
+      ['First phone picks', Number.isFinite(firstPick) && firstPick <= r.vt ? firstPick : null, truth ? 'first wave felt; sent within half a second, before any vetting' : 'a disturbance; sent within half a second, before any vetting'],
       ['Network declares', r.declared?.at ?? null, r.declared ? `${r.declared.event.triggers.length} phones agree, none of the quiet ones object` : 'needs 4 picks that fit one wavefront'],
       ['Confirmed and sized', r.confirmedAt, r.events.length ? `${r.events[0].triggers.length} vetted triggers, magnitude from their peak shaking` : 'each phone vets its shaking for ~15 s first'],
     ];
@@ -101,7 +101,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
         ),
       );
     }
-    if (!w) return h('section', { class: 'warn-card pending', 'data-testid': 'warning' }, h('b', {}, 'Early warning'), h('p', {}, 'Waiting for enough phones to pick the P wave…'));
+    if (!w) return h('section', { class: 'warn-card pending', 'data-testid': 'warning' }, h('b', {}, 'Early warning'), h('p', {}, 'Waiting for enough phones to feel the first waves…'));
     const felt = w.warnings.length;
     const sorted = [...w.warnings].sort((a, b) => b - a);
     const max = Math.max(1, ...sorted.map((x) => Math.abs(x)));

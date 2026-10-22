@@ -107,7 +107,7 @@ function route() {
       : view === 'replay'
       ? [
           ['var(--ink)', 'phone'],
-          ['#e58a7c', 'picked a P wave'],
+          ['#e58a7c', 'felt shaking, still checking'],
           ['var(--red)', 'confirmed / Tremor epicentre'],
           ['var(--amber)', 'caught on-device'],
           ['transparent;border:2px solid var(--ink)', 'USGS epicentre'],

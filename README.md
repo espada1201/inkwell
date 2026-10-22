@@ -1,9 +1,9 @@
 # Tremor
 
-A citizen seismometer network with no server. A phone lying on a table becomes a seismometer in
-the browser. It signs what it feels and publishes it over public [Nostr](https://nostr.com) relays.
-Any browser watching those relays finds the quakes, locates them, and checks itself against the
-official USGS feed. Old phones become community infrastructure.
+A citizen seismometer network with no server. A phone lying on a table becomes a seismometer in the
+browser. It signs what it feels and publishes it over public [Nostr](https://nostr.com) relays. Any
+browser watching them finds the quakes, locates them, and checks itself against the official USGS
+feed. Old phones become community infrastructure.
 
 ## Run on your Mac
 
@@ -21,20 +21,23 @@ phone flat, plug it in, tap **Start sensor**, set a rough location and switch sh
 ## What it does
 
 - **Be a sensor**: accelerometer → gravity removal → 1–10 Hz bandpass → STA/LTA trigger with an
-  adaptive threshold. A provisional *pick* goes out the instant shaking starts; the phone then
+  adaptive threshold. A provisional *pick* goes out within half a second, labelled P or S by
+  which way the phone shakes (P waves are mostly up and down, S side to side). The phone then
   vets it for 15 s (rotated = picked up, under 1 s = door slam, many short knocks = footsteps)
   and either confirms it as a *trigger* or retracts it. Screen wake lock, battery readout, dim mode.
 - **Network**: live map of phones, picks, detections and USGS quakes. Four picks that fit one
-  P wave, and that the phones which stayed quiet do not contradict, declare a provisional quake
-  within seconds. Vetted triggers then give the epicentre (grid search on arrival times), a rough
-  magnitude, a crowd shaking map and a side-by-side check against USGS.
+  wavefront, and that the phones which stayed quiet do not contradict, declare a provisional
+  quake within seconds. Vetted triggers then give the epicentre (grid search on arrival times),
+  a rough magnitude, a crowd shaking map and a side-by-side check against USGS.
 - **Replay**: real historical quakes (Napa 2014, Ridgecrest 2019, Christchurch 2011) and a
   concert night with no quake, played into simulated phones that run the same detector, with a
   record section, a timeline and how many seconds of warning each phone would have had.
+- **Plan**: how many phones does a city need? 24 simulated quakes and 12 busy quake-free minutes
+  per network size, 10 to 1,000 phones, through the same detector and network code.
 
-**Wire format**: signed Nostr events tagged `#tremor`: pick (kind 4578), trigger (4579),
-heartbeat (34579, replaceable) and retraction (NIP-09 deletion). Locations are snapped to a
-0.01° (~1 km) grid on the phone and again on every receiver. Relays are editable in the app.
+**Wire format**: signed Nostr events tagged `#tremor`: pick (kind 4578, `ph` = P or S), trigger
+(4579), heartbeat (34579, replaceable) and retraction (NIP-09 deletion). Locations are snapped
+to a 0.01° (~1 km) grid on the phone and again on every receiver. Relays are editable in the app.
 
 ## Honest limits
 
@@ -42,7 +45,8 @@ heartbeat (34579, replaceable) and retraction (NIP-09 deletion). Locations are s
   magnitudes are rough (±0.5–1). Use the alerts from your national seismic service.
 - Browsers pause sensors in background tabs: a node must stay open on screen, ideally plugged in.
 - The detector is tuned on synthetic phone records; replays use real epicentres, simulated phones.
-- Public relays are open, so a determined person could publish fake triggers.
+  The planner adds uniform ground and one attenuation curve: read it as scale, not a forecast.
+- Public relays are open, so a determined person could publish fake picks.
 
 ## Develop
 
@@ -53,5 +57,4 @@ heartbeat (34579, replaceable) and retraction (NIP-09 deletion). Locations are s
 
 The Pages workflow deploys `main` once Pages is switched on (Settings → Pages → Source: GitHub
 Actions). Pages needs a public repository. This repo may be renamed to `tremor`; links follow.
-
 MIT licence.
