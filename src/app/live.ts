@@ -158,6 +158,8 @@ export class LiveNetwork extends Emitter {
       const held = this.pending.filter((p) => p.node === m.node);
       this.pending = this.pending.filter((p) => p.node !== m.node);
       held.forEach((p) => this.receive(p));
+      // Which phones are listening, and where, decides what their silence vetoes, so a phone first heard after the picks still has its say.
+      this.queueRecompute();
     } else if (m.type !== 'felt' && !this.nodes.has(m.node)) {
       // Picks, triggers and retractions count only from phones that have announced themselves.
       this.pending = [...this.pending, m].slice(-500);
