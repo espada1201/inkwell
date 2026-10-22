@@ -10,6 +10,9 @@ import { upperMedian } from './stats';
  *    so you see how hard the ground shook where people are, not just where the fault broke.
  */
 
+/** Phones count toward the warning time once they feel at least light shaking (intensity 2). */
+const FELT_LEVEL = 2;
+
 /** Surface distance at which the S wave arrives `tS` seconds after origin. */
 export const sRadiusKm = (tS: number, depthKm: number) => waveRadiusKm(VS_KMS, tS, depthKm);
 
@@ -23,16 +26,9 @@ export interface WarningSummary {
   median: number | null;
 }
 
-export function warningSummary(
-  phones: (LatLon & { pga: number })[],
-  epicentre: LatLon,
-  depthKm: number,
-  declaredS: number,
-  alertLatencyS = 1,
-): WarningSummary {
-  const alertAt = declaredS + alertLatencyS;
+export function warningSummary(phones: (LatLon & { pga: number })[], epicentre: LatLon, depthKm: number, alertAt: number): WarningSummary {
   const warnings = phones
-    .filter((p) => intensityLevel(p.pga) >= 2)
+    .filter((p) => intensityLevel(p.pga) >= FELT_LEVEL)
     .map((p) => hypocentralKm(distanceKm(epicentre, p), depthKm) / VS_KMS - alertAt);
   const pos = warnings.filter((w) => w > 0);
   return {

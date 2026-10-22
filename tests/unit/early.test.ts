@@ -1,45 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import { Replay } from '../../src/app/replay';
 import type { Trigger } from '../../src/core/associate';
 import { confirmedEvents, earlyDetect, type Listener } from '../../src/core/early';
 import { coarsen, distanceKm, offset, type LatLon } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
-import { SCENARIOS, simulate } from '../../src/core/scenarios';
+import { SCENARIOS, sinceOrigin } from '../../src/core/scenarios';
 
-/** Replay picks and retractions in arrival order (1 s relay latency), as a browser would see them, judging every 100 ms. */
+/** The Replay tab's own run of a scenario, start to finish: when and where the network first declared it. */
 function firstDeclaration(id: string) {
   const s = SCENARIOS.find((x) => x.id === id)!;
-  const sim = simulate(s, 0);
-  const arrivals: { at: number; retract: boolean; tr: Trigger }[] = [];
-  for (const n of sim.nodes)
-    for (const o of n.outputs) {
-      const tr = { id: `${n.id}:${o.t}`, node: n.id, lat: n.lat, lon: n.lon, t: o.t, pga: 0, phase: o.kind === 'pick' ? o.phase : undefined };
-      if (o.kind === 'pick') arrivals.push({ at: o.at + 1000, retract: false, tr });
-      if (o.kind === 'reject') arrivals.push({ at: o.at + 1000, retract: true, tr });
-    }
-  arrivals.sort((a, b) => a.at - b.at);
-  const active = new Map<string, Trigger>();
-  let declarations = 0;
-  let first: { sinceOrigin: number; errKm: number | null } | null = null;
-  let i = 0;
-  for (let now = arrivals[0].at; i < arrivals.length; now += 100) {
-    for (; i < arrivals.length && arrivals[i].at <= now; i++) {
-      const a = arrivals[i];
-      if (a.retract) active.delete(a.tr.id);
-      else active.set(a.tr.id, a.tr);
-    }
-    const { events } = earlyDetect([...active.values()], sim.nodes, now);
-    if (!events.length) continue;
-    declarations++;
-    first ??= { sinceOrigin: (now - sim.origin) / 1000, errKm: s.truth ? distanceKm(events[0], s.truth) : null };
-  }
-  return { first, declarations };
+  const r = new Replay();
+  r.load(s);
+  r.seek(r.duration);
+  return r.declared && { sinceOrigin: sinceOrigin(r.declared.at), errKm: s.truth ? distanceKm(r.declared.event, s.truth) : null };
 }
 
 describe('early detection from raw picks', () => {
   for (const [id, maxS] of [['napa-2014', 8], ['ridgecrest-2019', 12], ['christchurch-2011', 5]] as const) {
     it(`${id}: declared within ${maxS} s of origin, close to the truth`, () => {
-      const { first } = firstDeclaration(id);
+      const first = firstDeclaration(id);
       expect(first).not.toBeNull();
       expect(first!.sinceOrigin).toBeLessThan(maxS);
       expect(first!.errKm!).toBeLessThan(15);
@@ -47,7 +27,7 @@ describe('early detection from raw picks', () => {
   }
 
   it('concert night: footsteps and slams all evening never add up to a quake', () => {
-    expect(firstDeclaration('stadium-night').declarations).toBe(0);
+    expect(firstDeclaration('stadium-night')).toBeNull();
   });
 
   it('phones that stayed quiet veto an epicentre next to them', () => {

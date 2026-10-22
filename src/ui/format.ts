@@ -24,6 +24,8 @@ export const utc = (ms: number) => new Date(ms).toISOString().replace('T', ' ').
 export const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%`);
 export const secs = (v: number | null) => (v === null ? '—' : `${v.toFixed(1)} s`);
 export const km = (v: number | null) => (v === null ? '—' : `${v.toFixed(1)} km`);
+/** A count and its noun, singular or plural: 1 phone, 3 phones. */
+export const many = (n: number, one: string, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
 
 /** Felt intensity in words, by level (see `intensityLevel`). */
 export const INTENSITY_WORDS = ['not felt', 'weak', 'light', 'moderate', 'strong', 'very strong', 'severe'] as const;

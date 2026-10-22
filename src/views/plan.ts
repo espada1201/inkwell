@@ -1,9 +1,10 @@
+import type { LiveNetwork } from '../app/live';
 import type { PlanMessage, PlanRequest } from '../app/planner.worker';
-import { offset, type LatLon } from '../core/geo';
-import { DISTURBED_PER_MINUTE, type PlanResult, type Summary } from '../core/planner';
+import { coarsen, distanceKm, offset, type LatLon } from '../core/geo';
+import { DISTURBED_PER_MINUTE, RELIABLY, enoughPhones, type PlanResult, type Summary } from '../core/planner';
 import { sweepChart } from '../ui/chart';
-import { h } from '../ui/dom';
-import { km, pct, secs } from '../ui/format';
+import { h, keepFocus } from '../ui/dom';
+import { coord, km, many, pct, secs } from '../ui/format';
 import { NODE_COLORS, type QuakeMap, type Swatch } from '../ui/map';
 
 interface City extends LatLon {
@@ -21,8 +22,10 @@ const CITIES: City[] = [
   { id: 'mexico-city', name: 'Mexico City', lat: 19.43, lon: -99.13, radiusKm: 25, note: 'An M7.1 earthquake shook the city in September 2017.' },
   { id: 'bay-area', name: 'San Francisco Bay', lat: 37.8, lon: -122.27, radiusKm: 25, note: 'The Hayward Fault runs under the East Bay.' },
 ];
+/** "Here" plans for the phones within this distance of one spot: a saved location or typed coordinates. */
+const HERE_KM = 20;
 const SETTINGS = {
-  under: { label: 'Beneath the city', words: 'beneath the city', km: [0, 10] },
+  under: { label: 'Directly beneath', words: 'beneath the city', km: [0, 10] },
   near: { label: 'Nearby fault', words: 'on a nearby fault', km: [15, 50] },
   far: { label: 'Far away', words: '60 to 150 km away', km: [60, 150] },
 } as const;
@@ -33,6 +36,13 @@ const PHONES = [5, 10, 15, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1
 const SWEEP = [10, 25, 50, 100, 250, 500, 1000];
 const QUAKES = 24;
 
+/** A spot typed or linked as "lat, lon", snapped to the grid phones publish on; null unless both are in range. */
+function parseSpot(text: string): LatLon | null {
+  const m = text.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
+  if (!m) return null;
+  const [lat, lon] = [Number(m[1]), Number(m[2])];
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? coarsen({ lat, lon }) : null;
+}
 
 export const PLAN_LEGEND: Swatch[] = [
   [NODE_COLORS.idle, 'phone (one simulation)'],
@@ -40,18 +50,52 @@ export const PLAN_LEGEND: Swatch[] = [
   ['transparent;border:1.5px solid var(--muted)', 'simulated quake, missed'],
 ];
 
-export function planView(map: QuakeMap, arg: string | undefined) {
+export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwork, saved: LatLon | null) {
+  const mine = saved && coarsen(saved);
+  const isMine = (p: LatLon) => !!mine && mine.lat === p.lat && mine.lon === p.lon;
+  const herePlace = (p: LatLon): City => ({
+    id: `${p.lat},${p.lon}`,
+    name: 'Here',
+    ...p,
+    radiusKm: HERE_KM,
+    note: `Within ${HERE_KM} km of ${coord(p.lat, p.lon)}${isMine(p) ? ', your saved location' : ''}. Phones listening right now are counted from the relays this browser follows.`,
+  });
   const [c, m, d, p] = (arg ?? '').split('/');
+  const spot = parseSpot(c ?? '');
+  const phones = Number(p);
   const state = {
-    city: CITIES.find((x) => x.id === c) ?? CITIES[0],
+    city: CITIES.find((x) => x.id === c) ?? (spot ? herePlace(spot) : CITIES[0]),
     mag: MAGS.includes(Number(m)) ? Number(m) : 6,
     // Not `in`: that would also accept inherited names like "toString".
     setting: SETTING_KEYS.find((k) => k === d) ?? 'near',
-    phones: PHONES.includes(Number(p)) ? Number(p) : 200,
+    // Any whole count the slider spans, so a link can carry the phones listening at a spot.
+    phones: Number.isInteger(phones) && phones >= 1 && phones <= PHONES[PHONES.length - 1] ? phones : 200,
   };
+  const here = () => !CITIES.includes(state.city);
+  /** In Here, the plan runs at the phones listening right now until the reader picks a count. */
+  let follow = false;
   const root = h('div', { class: 'panel-inner' });
-  const cityButtons = h('div', { class: 'scenarios', role: 'group', 'aria-label': 'City' });
+  const cityButtons = h('div', { class: 'scenarios', role: 'group', 'aria-label': 'Place' });
   const cityNote = h('p', { class: 'small muted' });
+  const spotInput = h('input', { 'aria-label': 'Latitude, longitude', placeholder: '37.77, -122.42', autocomplete: 'off', spellcheck: 'false', 'data-testid': 'here-spot' });
+  const spotMsg = h('p', { class: 'small muted', role: 'status' });
+  const hereForm = h(
+    'form',
+    {
+      class: 'here-form',
+      hidden: true,
+      onsubmit: (e: Event) => {
+        e.preventDefault();
+        const at = parseSpot(spotInput.value);
+        spotMsg.textContent = at ? '' : 'Type a latitude from −90 to 90 and a longitude from −180 to 180, like 37.77, -122.42.';
+        if (at) goHere(at);
+      },
+    },
+    spotInput,
+    h('button', { class: 'btn', type: 'submit' }, 'Plan here'),
+    spotMsg,
+  );
+  const gap = h('p', { class: 'plan-gap', 'aria-live': 'polite', 'data-testid': 'plan-gap', hidden: true });
   const magSeg = h('span', { class: 'seg', role: 'group', 'aria-label': 'Magnitude' });
   const settingSeg = h('span', { class: 'seg', role: 'group', 'aria-label': 'Where the quake strikes' });
   const slider = h('input', { type: 'range', min: 0, max: PHONES.length - 1, step: 1, class: 'scrub', 'aria-label': 'Phones listening', 'data-testid': 'phones' });
@@ -61,6 +105,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
   const chart = h('div', {});
   let result: PlanResult | null = null;
   let points: Summary[] = [];
+  let sweep = SWEEP;
   let jobId = 0;
   let debounce: ReturnType<typeof setTimeout> | undefined;
 
@@ -69,7 +114,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
     const msg = e.data;
     if (msg.id !== jobId) return;
     if (msg.type === 'progress') {
-      status.textContent = msg.phones === state.phones && !result ? `Simulating ${QUAKES} earthquakes on ${state.phones} phones… ${pct(msg.value)}` : `Drawing the curve: ${msg.phones} phones… ${pct(msg.value)}`;
+      status.textContent = msg.phones === state.phones && !result ? `Simulating ${QUAKES} earthquakes on ${many(state.phones, 'phone')}… ${pct(msg.value)}` : `Drawing the curve: ${many(msg.phones, 'phone')}… ${pct(msg.value)}`;
     } else if (msg.type === 'result') {
       result = msg.result;
       status.textContent = 'Drawing the curve…';
@@ -79,6 +124,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
       points = [...points.filter((x) => x.phones !== msg.summary.phones), msg.summary];
       if (SWEEP.every((n) => points.some((x) => x.phones === n))) status.textContent = `Done: ${QUAKES} quakes and a busy hour per network size.`;
       renderChart();
+      renderGap();
     }
   };
   worker.onerror = () => (status.textContent = 'The planner stopped unexpectedly. Reload the page to try again.');
@@ -90,23 +136,69 @@ export function planView(map: QuakeMap, arg: string | undefined) {
         const id = ++jobId;
         result = null;
         points = [];
+        sweep = SWEEP.includes(state.phones) ? SWEEP : [...SWEEP, state.phones].sort((a, b) => a - b);
         const req: PlanRequest = {
           id,
           input: { city: state.city, radiusKm: state.city.radiusKm, phones: state.phones, mag: state.mag, distanceKm: [...SETTINGS[state.setting].km], quakes: QUAKES },
-          sweep: SWEEP.includes(state.phones) ? SWEEP : [...SWEEP, state.phones].sort((a, b) => a - b),
+          sweep,
         };
         worker.postMessage(req);
-        status.textContent = `Simulating ${QUAKES} earthquakes on ${state.phones} phones…`;
+        status.textContent = `Simulating ${QUAKES} earthquakes on ${many(state.phones, 'phone')}…`;
         renderResults();
         renderChart();
+        renderGap();
       },
       now ? 0 : 250,
     );
     history.replaceState(null, '', `#plan/${state.city.id}/${state.mag}/${state.setting}/${state.phones}`);
   }
 
+  /** Phones heard from right now within the Here radius. */
+  const listening = () => [...live.nodes.values()].filter((n) => live.isOnline(n) && distanceKm(n, state.city) <= HERE_KM).length;
+
+  /** While following, take the phones listening now as the plan's count; true if it changed. */
+  function adopt() {
+    const n = listening();
+    if (!follow || n === 0 || n === state.phones) return false;
+    state.phones = n;
+    return true;
+  }
+
+  function goHere(at: LatLon) {
+    state.city = herePlace(at);
+    follow = true;
+    adopt();
+    renderControls();
+    frame();
+    run(true);
+  }
+
+  /** Where the phones are and where the quakes strike, in words: a city by name, or a spot. */
+  function words() {
+    const { city, setting } = state;
+    if (!here()) return { area: `across ${city.name}`, where: SETTINGS[setting].words };
+    const who = isMine(city) ? 'you' : coord(city.lat, city.lon);
+    return { area: `within ${HERE_KM} km of ${who}`, where: setting === 'under' ? `beneath ${who}` : SETTINGS[setting].words };
+  }
+
   function renderControls() {
     cityButtons.replaceChildren(
+      h(
+        'button',
+        {
+          class: 'scenario',
+          'aria-pressed': String(here()),
+          'data-city': 'here',
+          onclick: () => {
+            if (mine) return goHere(mine);
+            hereForm.hidden = false;
+            spotMsg.textContent = 'Type coordinates, or save your location under Be a sensor.';
+            spotInput.focus();
+          },
+        },
+        h('b', {}, 'Here'),
+        h('span', {}, mine ? `${HERE_KM * 2} km across` : 'type a spot'),
+      ),
       ...CITIES.map((x) =>
         h(
           'button',
@@ -116,6 +208,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
             'data-city': x.id,
             onclick: () => {
               state.city = x;
+              follow = false;
               renderControls();
               frame();
               run(true);
@@ -127,6 +220,8 @@ export function planView(map: QuakeMap, arg: string | undefined) {
       ),
     );
     cityNote.textContent = state.city.note;
+    if (here()) spotInput.value = `${state.city.lat}, ${state.city.lon}`;
+    hereForm.hidden = !here();
     magSeg.replaceChildren(
       ...MAGS.map((v) => h('button', { 'aria-pressed': String(v === state.mag), onclick: () => ((state.mag = v), renderControls(), run(true)) }, `M${v}`)),
     );
@@ -135,19 +230,67 @@ export function planView(map: QuakeMap, arg: string | undefined) {
         h('button', { 'aria-pressed': String(k === state.setting), onclick: () => ((state.setting = k), renderControls(), frame(), run(true)) }, SETTINGS[k].label),
       ),
     );
-    slider.value = String(PHONES.indexOf(state.phones));
     showPhones();
   }
 
   function showPhones() {
-    phonesOut.textContent = `${state.phones} phones`;
+    // A count between the slider's steps (the phones listening at a spot) sits at the next step up.
+    const i = PHONES.findIndex((v) => v >= state.phones);
+    slider.value = String(i < 0 ? PHONES.length - 1 : i);
+    phonesOut.textContent = many(state.phones, 'phone');
     slider.setAttribute('aria-valuetext', phonesOut.textContent);
   }
 
   slider.addEventListener('input', () => {
     state.phones = PHONES[Number(slider.value)];
+    follow = false;
     showPhones();
     run();
+  });
+
+  /** Here only: the phones listening now beside the count that would catch the chosen quake, never one without the other. */
+  function renderGap() {
+    gap.hidden = !here();
+    if (gap.hidden) return;
+    const { area, where } = words();
+    const quake = `an M${state.mag} ${where}`;
+    const enough = enoughPhones(sweep, points);
+    const n = listening();
+    const now = `Right now ${n ? many(n, 'phone listens', 'phones listen') : 'no phones listen'} ${area}; `;
+    let text = `Working out how many phones would catch ${quake}…`;
+    let link: HTMLElement | null = null;
+    if (enough) {
+      text = `${now}about ${enough.phones} would catch ${quake} ${Math.round(RELIABLY * 10)} times in 10, alerting phones about ${secs(enough.medianAlertS)} after it begins.`;
+      link = h(
+        'a',
+        {
+          href: `#plan/${state.city.id}/${state.mag}/${state.setting}/${enough.phones}`,
+          onclick: (e: Event) => {
+            e.preventDefault();
+            state.phones = enough.phones;
+            follow = false;
+            showPhones();
+            run(true);
+          },
+        },
+        `Plan with ${enough.phones} phones here`,
+      );
+    } else if (enough === null) {
+      const most = points.find((s) => s.phones === sweep[sweep.length - 1])!;
+      text = `${now}even ${most.phones} would catch only ${pct(most.detected)} of simulated M${state.mag} quakes ${where}.`;
+    }
+    if (gap.dataset.text === text) return;
+    gap.dataset.text = text;
+    keepFocus(gap, () => gap.replaceChildren(text, ...(link ? [' ', link] : [])));
+  }
+
+  const off = live.on(() => {
+    if (!here()) return;
+    if (adopt()) {
+      showPhones();
+      run();
+    }
+    renderGap();
   });
 
   function tile(label: string, value: string, sub: string, testid?: string) {
@@ -162,22 +305,23 @@ export function planView(map: QuakeMap, arg: string | undefined) {
     const s = result.summary;
     const n = result.trials.length;
     const caught = Math.round(s.detected * n);
-    const where = SETTINGS[state.setting].words;
+    const { area, where } = words();
+    const listeners = `${many(state.phones, 'phone')} listening ${area}`;
     const story =
       caught === 0
-        ? `With ${state.phones} phones listening across ${state.city.name}, none of the ${n} simulated M${state.mag} quakes ${where} was detected: too few phones felt them strongly enough. Try more phones.`
-        : `With ${state.phones} phones listening across ${state.city.name}, the network caught ${caught} of ${n} simulated M${state.mag} quakes ${where}, typically ${s.medianDeclaredS!.toFixed(1)} s after they began. ` +
+        ? `With ${listeners}, none of the ${n} simulated M${state.mag} quakes ${where} was detected: too few phones felt them strongly enough. Try more phones.`
+        : `With ${listeners}, the network caught ${caught} of ${n} simulated M${state.mag} quakes ${where}, and its first alert typically reached phones ${s.medianAlertS!.toFixed(1)} s after they began. ` +
           (s.warned === null
-            ? 'No part of the city would shake more than lightly, so there is nothing to warn about.'
+            ? 'No part of the area would shake more than lightly, so there is nothing to warn about.'
             : s.warned > 0
-              ? `Across the part of the city that shook at least moderately, ${pct(s.warned)} would have been alerted before the strong shaking arrived${s.medianWarningS !== null ? `, with a median of ${s.medianWarningS.toFixed(1)} s to drop, cover and hold on` : ''}.`
+              ? `Across the part of the area that shook at least moderately, ${pct(s.warned)} would have been alerted before the strong shaking arrived${s.medianWarningS !== null ? `, with a median of ${s.medianWarningS.toFixed(1)} s to drop, cover and hold on` : ''}.`
               : 'The strong shaking reached everyone before any alert could: this is the blind zone every warning system has close to the epicentre.');
     results.replaceChildren(
       h(
         'div',
         { class: 'kpis', 'data-testid': 'kpis' },
         tile('Detected', `${caught}/${n}`, 'simulated quakes', 'kpi-detected'),
-        tile('First alert', secs(s.medianDeclaredS), 'after the rupture'),
+        tile('First alert', secs(s.medianAlertS), 'at the phones, after the rupture', 'kpi-alert'),
         tile('Warned in time', pct(s.warned), 'of the shaken area', 'kpi-warned'),
         tile('Warning', secs(s.medianWarningS), 'median, if warned'),
         tile('Located within', km(s.medianErrKm), 'median, once confirmed'),
@@ -207,8 +351,8 @@ export function planView(map: QuakeMap, arg: string | undefined) {
 
   map.clear();
   root.append(
-    h('div', {}, h('h1', {}, 'Plan a network'), h('p', { class: 'lede' }, 'How many phones does a city need? Pick a place and an earthquake. Tremor throws dozens of simulated quakes at simulated phones that behave like the real detector, through the same network code as the live map.')),
-    h('section', { class: 'plan-controls' }, cityButtons, cityNote, h('div', { class: 'transport' }, magSeg, settingSeg), h('label', { class: 'phones' }, h('span', {}, 'Phones listening at the moment it strikes'), phonesOut), slider),
+    h('div', {}, h('h1', {}, 'Plan a network'), h('p', { class: 'lede' }, 'How many phones does a city, or your own area, need? Pick a place and an earthquake. Tremor throws dozens of simulated quakes at simulated phones that behave like the real detector, through the same network code as the live map.')),
+    h('section', { class: 'plan-controls' }, cityButtons, cityNote, hereForm, gap, h('div', { class: 'transport' }, magSeg, settingSeg), h('label', { class: 'phones' }, h('span', {}, 'Phones listening at the moment it strikes'), phonesOut), slider),
     status,
     results,
     h('section', {}, chart),
@@ -224,6 +368,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
   return {
     el: root,
     dispose: () => {
+      off();
       clearTimeout(debounce);
       worker.terminate();
       map.setRings([]);

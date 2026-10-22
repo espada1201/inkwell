@@ -295,3 +295,16 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ── replay-plan: Plan for Here, recent quakes in Replay ── */
+.here-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.here-form[hidden] { display: none; }
+.here-form input { width: 100%; min-width: 0; background: var(--card); border: 1px solid var(--ink); padding: 8px; font: 13px var(--mono); border-radius: 2px; }
+.here-form p { grid-column: 1 / -1; margin: 0; }
+.plan-gap { margin: 0; font-size: 15px; border-left: 3px solid var(--ink); padding: 2px 0 2px 12px; }
+.recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.recent li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: baseline; border: 1px solid var(--rule); background: var(--card); padding: 8px 10px; border-radius: 2px; }
+.recent li.muted { display: block; border: 0; background: none; padding: 0; }
+.recent small { color: var(--muted); }
+.recent .btn { grid-column: 1 / -1; justify-self: start; min-height: 36px; padding: 6px 12px; font-size: 13px; }
+.recent .btn[aria-pressed='true'] { background: var(--ink); color: var(--paper); }

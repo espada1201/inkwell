@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
-import { calibrate, simulatePlan, type PhoneModel, type PlanInput, type PlanResult, type Summary } from '../core/planner';
+import { calibrate, type PhoneModel } from '../core/phonemodel';
+import { simulatePlan, type PlanInput, type PlanResult, type Summary } from '../core/planner';
 
 export interface PlanRequest {
   id: number;

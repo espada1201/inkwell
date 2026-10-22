@@ -1,10 +1,11 @@
 import type { DetectedEvent, Trigger } from '../core/associate';
-import { confirmedEvents, earlyDetect, type EarlyEvent, type Onset } from '../core/early';
-import { Bandpass } from '../core/filters';
+import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS, waveRadiusKm, type Phase } from '../core/physics';
-import { FS, ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
+import { ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
 import type { RejectReason } from '../core/sensor';
+import { FS, alertS, arrivalsOf, type Arrival } from '../core/simnet';
+import type { NodeState } from '../ui/map';
 import { Emitter } from './emitter';
 
 export interface ReplayNodeView {
@@ -20,15 +21,8 @@ export interface ReplayNodeView {
   rejects: { t: number; at: number; reason: RejectReason }[];
 }
 
-/** What a browser watching the relays receives, in order. */
-interface Arrival {
-  at: number;
-  kind: 'pick' | 'retract' | 'trigger';
-  tr: Trigger;
-}
-
-/** Assumed phone → relay → browser latency, ms. */
-export const RELAY_LATENCY_MS = 1000;
+/** A withdrawn pick stays drawn as withdrawn this long. */
+const WITHDRAWN_SHOWN_MS = 8000;
 
 /**
  * Plays a bundled scenario on a virtual clock. Every phone's synthetic record has already
@@ -51,6 +45,8 @@ export class Replay extends Emitter {
   declared: { at: number; event: EarlyEvent } | null = null;
   /** When the first confirmed event formed (scenario ms). */
   confirmedAt: number | null = null;
+  /** When the first pick went out (scenario ms): the first from the quake itself, or any without one. */
+  firstPickAt: number | null = null;
   private arrivedTriggers: Trigger[] = [];
   private queue: Arrival[] = [];
   private next = 0;
@@ -65,29 +61,25 @@ export class Replay extends Emitter {
 
   load(s: Scenario) {
     this.pause();
-    const start = s.truth?.date ? Date.parse(s.truth.date) - ORIGIN_OFFSET_S * 1000 : Date.UTC(2025, 6, 4, 21, 30);
+    const start = s.truth ? Date.parse(s.truth.date) - ORIGIN_OFFSET_S * 1000 : Date.UTC(2025, 6, 4, 21, 30);
     const sim = simulate(s, start);
     this.sim = sim;
     this.queue = [];
     this.nodes = sim.nodes.map((n) => {
-      const bp = [new Bandpass(1, 10, FS), new Bandpass(1, 10, FS), new Bandpass(1, 10, FS)];
-      const trace = new Float32Array(n.samples.length);
-      n.samples.forEach((smp, i) => {
-        trace[i] = Math.hypot(bp[0].step(smp.x), bp[1].step(smp.y), bp[2].step(smp.z));
-      });
-      trace.fill(0, 0, FS);
-      const view: ReplayNodeView = { id: n.id, lat: n.lat, lon: n.lon, distKm: n.distKm, trace, picks: [], trigger: null, rejects: [] };
+      const view: ReplayNodeView = { id: n.id, lat: n.lat, lon: n.lon, distKm: n.distKm, trace: n.trace, picks: [], trigger: null, rejects: [] };
       for (const o of n.outputs) {
-        const tr: Trigger = { id: `${n.id}@${o.t}`, node: n.id, lat: n.lat, lon: n.lon, t: o.t, pga: o.kind === 'trigger' ? o.pga : 0, phase: o.kind === 'reject' ? undefined : o.phase };
         const rel = { t: o.t - start, at: o.at - start };
         if (o.kind === 'pick') view.picks.push({ ...rel, phase: o.phase });
         else if (o.kind === 'trigger') view.trigger ??= { ...rel, pga: o.pga, phase: o.phase };
         else view.rejects.push({ ...rel, reason: o.reason });
-        this.queue.push({ at: rel.at + RELAY_LATENCY_MS, kind: o.kind === 'reject' ? 'retract' : o.kind, tr });
       }
+      this.queue.push(...arrivalsOf(n, n.outputs, start));
       return view;
     });
     this.queue.sort((a, b) => a.at - b.at);
+    const after = s.truth ? ORIGIN_OFFSET_S * 1000 : -Infinity;
+    const first = Math.min(...this.nodes.flatMap((n) => n.picks.filter((p) => p.t >= after).map((p) => p.at)));
+    this.firstPickAt = Number.isFinite(first) ? first : null;
     this.seek(0);
   }
 
@@ -95,9 +87,9 @@ export class Replay extends Emitter {
     return (this.sim?.durationS ?? 0) * 1000;
   }
 
-  /** Seconds since origin time (negative before the quake). */
-  get sinceOrigin() {
-    return sinceOrigin(this.vt);
+  /** The replay clock at scenario ms `at`, s: since the quake's origin (negative before it), or since the start when there is no quake. */
+  clockAt(at: number) {
+    return this.sim?.scenario.truth ? sinceOrigin(at) : at / 1000;
   }
 
   play() {
@@ -118,7 +110,9 @@ export class Replay extends Emitter {
 
   pause() {
     this.playing = false;
-    cancelAnimationFrame(this.raf);
+    // Frame handles are never 0, so this skips nothing scheduled, and a Replay runs without a browser.
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
     this.emit();
   }
 
@@ -188,12 +182,36 @@ export class Replay extends Emitter {
     if (this.early && !this.declared) this.declared = { at, event: this.early };
   }
 
+  /** The provisional event to show: unless a confirmed one already explains it, as on the live map. */
+  get provisional(): EarlyEvent[] {
+    return unconfirmed(this.early ? [this.early] : [], this.events);
+  }
+
   /** Warning-time analysis for the first declaration (needs a real quake). */
   warning(): WarningSummary | null {
     const truth = this.sim?.scenario.truth;
     if (!truth || !this.declared) return null;
     const phones = this.sim!.nodes.map((n) => ({ lat: n.lat, lon: n.lon, pga: n.pga }));
-    return warningSummary(phones, truth, truth.depthKm, sinceOrigin(this.declared.at), RELAY_LATENCY_MS / 1000);
+    return warningSummary(phones, truth, truth.depthKm, alertS(sinceOrigin(this.declared.at)));
+  }
+
+  /** How a phone is drawn now: confirmed, withdrawn a moment ago, still checking a pick, or idle. */
+  nodeState(n: ReplayNodeView): NodeState {
+    const vt = this.vt;
+    if (n.trigger && n.trigger.at <= vt) return 'trigger';
+    if (n.rejects.some((x) => x.at <= vt && vt - x.at < WITHDRAWN_SHOWN_MS)) return 'reject';
+    const pick = n.picks.filter((p) => p.at <= vt).pop();
+    if (!pick) return 'idle';
+    // Only the latest pick's own verdict ends its check, not one on an earlier pick.
+    const verdict = n.trigger?.t === pick.t ? n.trigger : n.rejects.find((x) => x.t === pick.t);
+    return verdict && verdict.at <= vt ? 'idle' : 'pick';
+  }
+
+  /** Phones whose own checks confirmed their shaking so far, and the picks phones withdrew so far, in all and by reason. */
+  counts() {
+    const why = new Map<RejectReason, number>();
+    for (const n of this.nodes) for (const x of n.rejects) if (x.at <= this.vt) why.set(x.reason, (why.get(x.reason) ?? 0) + 1);
+    return { confirmed: this.nodes.filter((n) => n.trigger && n.trigger.at <= this.vt).length, withdrawn: [...why.values()].reduce((a, b) => a + b, 0), why };
   }
 
   /** Current shaking at a node (0..1 for display). */
@@ -211,7 +229,7 @@ export class Replay extends Emitter {
 
   waves() {
     const t = this.sim?.scenario.truth;
-    const s = this.sinceOrigin;
+    const s = sinceOrigin(this.vt);
     if (!t || s <= 0) return null;
     return { center: t, pKm: waveRadiusKm(VP_KMS, s, t.depthKm), sKm: waveRadiusKm(VS_KMS, s, t.depthKm) };
   }

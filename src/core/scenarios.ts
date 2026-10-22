@@ -1,7 +1,8 @@
-import { coarsen, distanceKm, offset, type LatLon } from './geo';
+import { coarsen, distanceKm, type LatLon } from './geo';
 import { VP_KMS, VS_KMS, hypocentralKm, pgaFor } from './physics';
 import { gauss, rng } from './rng';
-import { NodeDetector, type DetectorOutput, type Sample } from './sensor';
+import { NodeDetector, type DetectorOutput } from './sensor';
+import { CLOCK_SIGMA_MS, FS, codaS, phoneNoise, pointInDisk, siteScatter } from './simnet';
 import { synthesize } from './synth';
 
 export interface Scenario {
@@ -9,8 +10,8 @@ export interface Scenario {
   title: string;
   place: string;
   blurb: string;
-  /** Reference hypocentre (from the USGS catalogue for real events). null = no quake. */
-  truth: (LatLon & { depthKm: number; mag: number; usgsId?: string; date?: string }) | null;
+  /** The quake as the USGS catalogue has it, with its event id and origin time (ISO). null = no quake. */
+  truth: (LatLon & { depthKm: number; mag: number; usgsId: string; date: string }) | null;
   /** Where the simulated phones live. */
   city: LatLon;
   radiusKm: number;
@@ -71,11 +72,38 @@ export const SCENARIOS: Scenario[] = [
   },
 ];
 
+/** What a replay needs to know of a quake, so a link to it still works once it has left the USGS feed. */
+export interface QuakeRef extends LatLon {
+  /** USGS event id. */
+  id: string;
+  /** Origin time, ms since epoch. */
+  time: number;
+  depthKm: number;
+  mag: number;
+}
+
+/** Weaker quakes are not offered for replay: phones barely feel them. */
+export const MIN_REPLAY_MAG = 4;
+
+/** The path after #replay/ that names a quake. */
+export const quakeLink = (q: QuakeRef) => ['usgs', q.id, q.time, q.lat, q.lon, q.depthKm, q.mag].join('/');
+
+/** The quake a path from `quakeLink` names; null if it is not one, or a number is missing or out of range. */
+export function parseQuakeLink(path: string): QuakeRef | null {
+  const [kind, id = '', ...fields] = path.split('/');
+  const [time, lat, lon, depthKm, mag] = fields.map((f) => (f === '' ? NaN : Number(f)));
+  const ok =
+    kind === 'usgs' && /^[\w-]+$/.test(id) && fields.length === 5 && [time, lat, lon, depthKm, mag].every(Number.isFinite) &&
+    Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && depthKm >= -10 && depthKm <= 800 && mag >= MIN_REPLAY_MAG && mag <= 10;
+  return ok ? { id, time, lat, lon, depthKm, mag } : null;
+}
+
 export interface SimNode extends LatLon {
   id: string;
   distKm: number | null;
   pga: number;
-  samples: Sample[];
+  /** What the detector heard: bandpassed shaking magnitude per sample, m/s², silent while its filters settle. */
+  trace: Float32Array;
   outputs: DetectorOutput[];
 }
 
@@ -91,8 +119,6 @@ export interface Simulation {
 export const ORIGIN_OFFSET_S = 25;
 /** Scenario ms (since the scenario started) → seconds since the quake's origin. */
 export const sinceOrigin = (scenarioMs: number) => scenarioMs / 1000 - ORIGIN_OFFSET_S;
-/** Samples per second of every simulated phone record. */
-export const FS = 50;
 
 /** Build a phone network around the city and synthesise every phone's accelerometer record. */
 export function simulate(s: Scenario, start: number): Simulation {
@@ -101,35 +127,35 @@ export function simulate(s: Scenario, start: number): Simulation {
   const nodes: SimNode[] = [];
   const kinds = ['footsteps', 'slam', 'pickup'] as const;
   for (let i = 0; i < s.nodes; i++) {
-    const ang = r() * 2 * Math.PI;
-    const rad = s.radiusKm * Math.sqrt(r());
-    const loc = coarsen(offset(s.city, rad * Math.cos(ang), rad * Math.sin(ang)));
+    const loc = coarsen(pointInDisk(s.city, s.radiusKm, r));
     const distKm = s.truth ? distanceKm(s.truth, loc) : null;
     const hyp = distKm === null ? null : hypocentralKm(distKm, s.truth!.depthKm);
     const tP = hyp === null ? null : ORIGIN_OFFSET_S + hyp / VP_KMS;
     const tS = hyp === null ? null : ORIGIN_OFFSET_S + hyp / VS_KMS;
-    const pga = hyp === null ? 0 : pgaFor(s.truth!.mag, hyp) * 10 ** (0.15 * gauss(r));
+    const pga = hyp === null ? 0 : pgaFor(s.truth!.mag, hyp) * siteScatter(r);
     const disturbance = r() < s.disturbed ? kinds[Math.floor(r() * 3)] : null;
     const dT = 8 + r() * (durationS - 30);
-    const clockErr = 0.15 * gauss(r);
+    const clockMs = CLOCK_SIGMA_MS * gauss(r);
     const samples = synthesize({
       fs: FS,
-      start: start + clockErr * 1000,
+      start: start + clockMs,
       durationS,
       seed: s.seed * 1000 + i,
-      noise: 0.008 + 0.01 * r(),
-      quake: tP !== null && tS !== null ? { tP, tS, pga, decayS: 2 + s.truth!.mag - 4 } : undefined,
+      noise: phoneNoise(r),
+      quake: tP !== null && tS !== null ? { tP, tS, pga, decayS: codaS(s.truth!.mag) } : undefined,
       footsteps: disturbance === 'footsteps' ? { t: dT, count: 6 + Math.floor(r() * 8) } : undefined,
       slam: disturbance === 'slam' ? { t: dT } : undefined,
       pickup: disturbance === 'pickup' ? { t: dT } : undefined,
     });
     const det = new NodeDetector(FS);
+    const trace = new Float32Array(samples.length);
     const outputs: DetectorOutput[] = [];
-    for (const smp of samples) {
+    samples.forEach((smp, k) => {
       const o = det.push(smp);
       if (o) outputs.push(o);
-    }
-    nodes.push({ id: `${s.id}-${i}`, ...loc, distKm, pga, samples, outputs });
+      if (k >= FS) trace[k] = det.level;
+    });
+    nodes.push({ id: `${s.id}-${i}`, ...loc, distKm, pga, trace, outputs });
   }
   return { scenario: s, start, origin: start + ORIGIN_OFFSET_S * 1000, durationS, nodes };
 }
