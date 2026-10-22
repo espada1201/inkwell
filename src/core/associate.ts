@@ -85,10 +85,16 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
   const words = (n + 31) >>> 5;
   const compat = new Uint32Array(n * words);
   for (let a = 0; a < n; a++) {
-    for (let b = a + 1; b < n && sorted[b].t - sorted[a].t <= maxSpan; b++) {
-      const d = distanceKm(sorted[a], sorted[b]);
-      const phase = sorted[a].phase ?? 'P';
-      if (phase === (sorted[b].phase ?? 'P') && d <= MAX_DISTANCE_KM && (sorted[b].t - sorted[a].t) / 1000 <= d / speedOf(phase) + TOLERANCE_S) {
+    const A = sorted[a];
+    const phase = A.phase ?? 'P';
+    for (let b = a + 1; b < n && sorted[b].t - A.t <= maxSpan; b++) {
+      const B = sorted[b];
+      if (phase !== (B.phase ?? 'P')) continue;
+      const dt = (B.t - A.t) / 1000;
+      // Within the slack any distance fits the times, and a degree apart is well inside the limit.
+      const near = dt <= TOLERANCE_S && Math.abs(B.lat - A.lat) <= 1 && Math.abs(B.lon - A.lon) <= 1;
+      const d = near ? 0 : distanceKm(A, B);
+      if (near || (d <= MAX_DISTANCE_KM && dt <= d / speedOf(phase) + TOLERANCE_S)) {
         compat[a * words + (b >>> 5)] |= 1 << (b & 31);
         compat[b * words + (a >>> 5)] |= 1 << (a & 31);
       }
