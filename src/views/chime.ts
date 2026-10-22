@@ -2,7 +2,6 @@ import type { LiveNetwork } from '../app/live';
 import { NEAR_MS, alerts, nearYou, type Place } from '../app/near';
 import { h } from '../ui/dom';
 
-/** What every chime says, on the page and in the notification. */
 const CHIME_TEXT = 'Shaking reported near you. Not an official warning.';
 /** Older shaking is not news. USGS lists quakes abroad up to about 20 minutes after them. */
 const RECENT_MS = 30 * 60_000;
@@ -15,7 +14,6 @@ const RECENT_MS = 30 * 60_000;
 export function chime(live: LiveNetwork, place: Place) {
   let on = false;
   let audio: AudioContext | null = null;
-  /** When the shaking it chimed for happened. */
   let told: number[] = [];
   const note = h(
     'div',
@@ -24,7 +22,6 @@ export function chime(live: LiveNetwork, place: Place) {
     h('button', { class: 'btn', onclick: () => (note.hidden = true) }, 'Dismiss'),
   );
 
-  /** When each recent shaking near you happened that is worth an alert. */
   const shaking = () => {
     const now = Date.now();
     const you = place.location;
@@ -36,7 +33,6 @@ export function chime(live: LiveNetwork, place: Place) {
 
   function ring() {
     if (audio) {
-      // A bell-like tone: struck, then fading over a second and a half.
       const t = audio.currentTime;
       const osc = audio.createOscillator();
       const gain = audio.createGain();
@@ -74,7 +70,6 @@ export function chime(live: LiveNetwork, place: Place) {
     set(next: boolean) {
       on = next;
       if (!on) return;
-      // Only what is reported after the tap chimes.
       told = shaking();
       // A page may start sound, and ask to notify, only from a tap like this one.
       audio ??= typeof AudioContext === 'function' ? new AudioContext() : null;

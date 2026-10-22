@@ -6,7 +6,6 @@ import type { SensorNode } from './sensor';
 /** This browser's rough location, which the sensor screen sets too, and whether this phone shares it as a sensor. */
 export type Place = Pick<SensorNode, 'location' | 'setLocation' | 'canPublish'>;
 
-/** Tremor detections this close to you in the last ten minutes are near you, as are felt reports this close and USGS quakes this close in their feed. */
 const NEAR_KM = 100;
 export const NEAR_MS = 10 * 60_000;
 const NEAR_USGS_KM = 300;

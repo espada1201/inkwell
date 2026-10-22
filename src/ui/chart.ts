@@ -33,14 +33,12 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
   const x = (n: number) => M.l + ((Math.log(n) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))) * (W - M.l - M.r);
   const y = (v: number) => M.t + (1 - v) * (H - M.t - M.b);
   const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'group', 'aria-label': 'Quakes detected and shaken area warned in time, by number of phones' });
-  // Drawn for the eye; screen readers get one band per phone count, below, and the Numbers table.
   const art = el('g', { 'aria-hidden': 'true' });
   svg.append(art);
   for (const v of [0, 0.5, 1]) {
     art.append(el('line', { x1: M.l, x2: W - M.r, y1: y(v), y2: y(v), class: 'grid' }));
     art.append(el('text', { x: M.l - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, `${v * 100}%`));
   }
-  // The axis ends are labelled too, unless the label would land on a neighbour's.
   const ticks = [...new Set([lo, ...counts, hi])].filter((n) => counts.includes(n) || counts.every((k) => Math.abs(x(k) - x(n)) >= 20));
   for (const n of ticks) art.append(el('text', { x: x(n), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, fmtN(n)));
   art.append(el('line', { x1: x(current), x2: x(current), y1: M.t - 6, y2: H - M.b, class: 'you' }));

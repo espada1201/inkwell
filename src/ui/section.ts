@@ -28,9 +28,7 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
   const depth = truth?.depthKm ?? DEFAULT_DEPTH_KM;
   const nodes = [...r.nodes].sort((a, b) => (a.distKm ?? 0) - (b.distKm ?? 0));
   const maxD = truth ? Math.max(20, ...nodes.map((n) => n.distKm ?? 0)) * 1.05 : nodes.length;
-  // Time on the replay clock: from just before the origin, or across a whole replay with no quake.
   const [tMin, tMax] = truth ? [-5, sim.durationS - ORIGIN_OFFSET_S - 5] : [0, sim.durationS];
-  /** Scenario seconds at which the clock reads zero. */
   const zero = -r.clockAt(0);
   const x = (t: number) => padL + ((t - tMin) / (tMax - tMin)) * pw;
   const y = (d: number) => padT + (d / maxD) * ph;
