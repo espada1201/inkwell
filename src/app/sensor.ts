@@ -268,6 +268,7 @@ export class SensorNode extends Emitter {
   }
 
   private saveListened(now = Date.now()) {
+    // shortcut: two tabs listening at once each keep their own count and the last to save wins; add per-tab counts if people run several.
     try {
       safeStorage()?.setItem(LISTENED_KEY, JSON.stringify({ week: weekStart(now), ms: this.listened(now).week }));
     } catch {

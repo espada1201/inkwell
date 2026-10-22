@@ -64,6 +64,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   function quakeScenario(q: QuakeRef): Scenario {
     const home = saved && distanceKm(saved, q) <= NEAR_HOME_KM ? saved : null;
     const where = live.usgs.find((x) => x.id === q.id)?.place ?? coord(q.lat, q.lon);
+    // shortcut: every replayed quake gets 40 phones within 30 km, not the density of real phones there; derive it from Tremor's own network once it has one.
     return {
       id: quakeLink(q),
       title: mag(q.mag),

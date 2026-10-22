@@ -371,6 +371,8 @@ export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
   };
   include(ax, ay, DEPTHS_KM.indexOf(DEFAULT_DEPTH_KM));
   for (const p of fine) if (p.cost <= top) include(p.x, p.y, p.k);
+  // shortcut: one stretch per ray, and rays 5° apart, so a second patch farther along a ray or a
+  // sliver between rays is missed; widen if the calibration test's coverage ever drops.
   for (const ray of rays) {
     if (ray.cost > top) continue;
     const m = (r: number) => probs[ray.k].misfit(r * ray.c, r * ray.s, top + 1, false).cost;

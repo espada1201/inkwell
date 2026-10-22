@@ -143,6 +143,7 @@ export class LiveNetwork extends Emitter {
     if (m.type === 'heartbeat') {
       const prev = this.nodes.get(m.node);
       if (prev && prev.lastSeen > m.at) return;
+      // shortcut: a linear scan for the quietest phone once full; keep phones ordered by lastSeen if floods of new keys make it slow.
       if (!prev && this.nodes.size >= MAX_NODES) this.nodes.delete([...this.nodes.values()].reduce((a, b) => (b.lastSeen < a.lastSeen ? b : a)).id);
       const resumed = !prev || prev.sps === 0 || m.at - prev.lastSeen > NODE_STALE_MS;
       this.nodes.set(m.node, { ...m.data, id: m.node, firstSeen: resumed ? m.at : prev.firstSeen, lastSeen: m.at, lastTrigger: prev?.lastTrigger ?? null });

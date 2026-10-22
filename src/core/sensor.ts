@@ -222,6 +222,8 @@ export class NodeDetector {
       return { kind: 'reject', t: c.t0, at: t, reason };
     }
     this.holdUntil = t + 10000;
+    // shortcut: footsteps still being checked when a quake arrives are confirmed with the
+    // footsteps' onset time; split the candidate at a fresh onset if replays show early outliers.
     return { kind: 'trigger', t: c.t0, at: t, phase: c.phase!, pga: c.peak, durS: activeS };
   }
 

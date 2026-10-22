@@ -71,6 +71,7 @@ export const RELIABLY = 0.9;
  * while a smaller count is still being simulated, null once none of them does.
  */
 export function enoughPhones(sweep: number[], points: Summary[]): Summary | null | undefined {
+  // shortcut: the answer is one of the sweep's steps, not a search between them; bisect between the last miss and the first hit when a sharper count is wanted.
   for (const n of sweep) {
     const s = points.find((p) => p.phones === n);
     if (!s) return undefined;
