@@ -5,7 +5,6 @@ import type { GeometryCollection, Topology } from 'topojson-specification';
 import { offset, type LatLon } from '../core/geo';
 import { h } from './dom';
 
-
 const BASEMAP_URL = 'https://tiles.openfreemap.org/styles/positron';
 
 /** pick: felt shaking, still checking; trigger: confirmed; reject: withdrawn by the phone. */
