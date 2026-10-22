@@ -73,7 +73,9 @@ export function networkView(ctx: NetworkCtx) {
 
   /**
    * A part of the panel, swapped in only when what it shows has changed: the parts that did not
-   * change keep focus, are not read out again, and keep whatever is being typed into them.
+   * change keep focus, are not read out again, and keep whatever is being typed into them. They
+   * also keep their old handlers, so a handler looks up what it acts on when it runs, by id,
+   * rather than holding what the render that drew it saw.
    */
   const part = (parent: HTMLElement = root) => {
     let shown: ChildNode = parent.appendChild(document.createComment(''));
