@@ -123,6 +123,27 @@ test.describe('recent quakes from the USGS feed', () => {
   });
 });
 
+test('a quake 140 km from the saved location plays on until the phones there have checked its S wave', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 37.85, lon: -120.63 })));
+  await page.goto(`/?speed=10#replay/usgs/nc-far/${Date.UTC(2026, 9, 1, 12)}/37.85/-122.22/8/6.8`);
+  await expect(page.getByText(/The quake is real; the phones are simulated, around your saved location\./)).toBeVisible();
+  await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
+  // Past the 55 s after the origin that phones around the epicentre need.
+  const clock = page.getByTestId('clock');
+  const end = Number((await clock.innerText()).match(/^T\+(\d+)\.0 s$/)![1]);
+  expect(end).toBeGreaterThan(55);
+  await expect(page.locator('.timeline li.done')).toHaveCount(4);
+  await expect(page.getByTestId('replay-status')).toHaveText(/^Replay finished: declared at T\+\d+\.\d s, confirmed at T\+\d+\.\d s\.$/);
+  // The scrubber spans the whole record.
+  const scrub = page.getByRole('slider', { name: 'Replay position' });
+  await scrub.focus();
+  await page.keyboard.press('Home');
+  await expect(clock).toHaveText('T−25.0 s');
+  await page.keyboard.press('End');
+  await expect(clock).toHaveText(`T+${end}.0 s`);
+  await expect(scrub).toHaveAttribute('aria-valuetext', `${end} seconds after the quake began`);
+});
+
 test('a replay link cut short plays the first quake and says why', async ({ page }) => {
   await page.goto(`/?speed=10#replay/${berkeleyLink.split('/').slice(0, 4).join('/')}`);
   await expect(page.locator('[data-scenario="napa-2014"]')).toHaveAttribute('aria-pressed', 'true');
