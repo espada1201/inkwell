@@ -3,7 +3,7 @@ import type { Place } from '../app/near';
 import { FELT_EVERY_MS, type Felt } from '../core/felt';
 import { loadIdentity } from '../net/identity';
 import { reach } from '../net/transport';
-import { matchUsgs } from '../net/usgs';
+import { matchFelt } from '../net/usgs';
 import { h } from '../ui/dom';
 import { INTENSITY_WORDS, clock, coord } from '../ui/format';
 import { placeForm } from './place';
@@ -23,7 +23,7 @@ export function feltDialog(live: LiveNetwork, place: Place) {
 
   /** A report is out: what it said, and where else to tell. */
   function sent(f: Felt) {
-    const m = matchUsgs({ ...f, time: f.t }, live.usgs);
+    const m = matchFelt(f, live.usgs);
     const out = reach(live.transport.statuses()) === 'open' ? 'It is on its way to the relays.' : 'No relay is connected yet: it goes out once one is, while this page stays open.';
     return [
       h('p', { role: 'status' }, `Thanks. You reported ${INTENSITY_WORDS[f.lvl]} shaking at ${clock(f.t)}. ${out} You can report again from ${clock(f.t + FELT_EVERY_MS)}.`),

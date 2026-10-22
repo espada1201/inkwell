@@ -227,8 +227,8 @@ test('a felt report made with no relay connected says it is waiting to go out', 
 });
 
 test('a felt report sent from the header reaches the relay, and offers to tell USGS about the quake it matches', async ({ page, relay }) => {
-  // USGS listed a quake half a minute ago, a few kilometres from this browser.
-  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed([{ id: 'nc-felt', mag: 4.2, place: '3 km E of Cobb, CA', time: Date.now() - 30_000, lat: 38.82, lon: -122.69 }]) }));
+  // USGS lists a quake from six minutes ago (it posts minutes after one), a few kilometres from this browser.
+  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed([{ id: 'nc-felt', mag: 4.2, place: '3 km E of Cobb, CA', time: Date.now() - 6 * 60_000, lat: 38.82, lon: -122.69 }]) }));
   await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
   await page.goto(`/?relays=${relay.url}#network`);
   await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
