@@ -190,6 +190,8 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
         ),
       );
     }
+    if (!w && r.vt >= r.duration)
+      return h('section', { class: 'warn-card calm', 'data-testid': 'warning' }, h('b', {}, 'No alert'), h('p', {}, 'These phones never declared the quake, so they would have sent no warning.'));
     if (!w) return h('section', { class: 'warn-card pending', 'data-testid': 'warning' }, h('b', {}, 'Early warning'), h('p', {}, 'Waiting for enough phones to feel the first waves…'));
     const felt = w.warnings.length;
     const sorted = [...w.warnings].sort((a, b) => b - a);

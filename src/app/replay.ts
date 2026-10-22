@@ -98,7 +98,8 @@ export class Replay extends Emitter {
     this.last = performance.now();
     const step = (now: number) => {
       if (!this.playing) return;
-      this.advance(Math.min(now - this.last, 1000) * this.speed);
+      // A frame's time can come before the moment play was pressed.
+      this.advance(Math.max(0, Math.min(now - this.last, 1000)) * this.speed);
       this.last = now;
       if (this.vt >= this.duration) this.pause();
       else this.raf = requestAnimationFrame(step);
