@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
-import { LiveNetwork, MAX_NODES } from '../../src/app/live';
+import { LiveNetwork, MAX_NODES, WINDOW_MS } from '../../src/app/live';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { ORIGIN_OFFSET_S, simulate } from '../../src/core/scenarios';
@@ -89,7 +89,8 @@ describe('live network model', () => {
     const hex = (i: number) => i.toString(16).padStart(64, '0');
     const spammers = Array.from({ length: 200 }, () => generateSecretKey());
     for (const sk of spammers) live.ingest(signHeartbeat(sk, { lat: 0, lon: 0, noise: 0.01, sps: 60 }));
-    for (let i = 0; i < 5000; i++) live.receive({ id: hex(i), node: getPublicKey(spammers[i % 200]), at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
+    const spamming = spammers.map((sk) => getPublicKey(sk));
+    for (let i = 0; i < 5000; i++) live.receive({ id: hex(i), node: spamming[i % 200], at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
     live.recompute();
     const [d] = live.provisional;
     expect(d.outcome).toBe('withdrawn');
@@ -170,6 +171,37 @@ describe('live network model', () => {
       for (let i = 0; i < 6000; i++) live.receive({ id: hex(i), node, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
       live.ingest(pick);
       expect(live.picks.has(pick.id)).toBe(false);
+    }
+  });
+
+  it('a phone whose old withdrawals have expired keeps withdrawing picks', () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+    try {
+      const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+      live.start();
+      const a = phones[0];
+      const node = getPublicKey(a.sk);
+      const beat = () => live.ingest(signHeartbeat(a.sk, { ...a, noise: 0.01, sps: 60 }));
+      const hex = (i: number) => i.toString(16).padStart(64, '0');
+      const retract = (from: number, to: number) => {
+        for (let i = from; i < to; i++) live.receive({ id: hex(i), node, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
+      };
+      beat();
+      retract(0, 20);
+      vi.advanceTimersByTime(WINDOW_MS / 2);
+      beat();
+      retract(20, 30);
+      // The first 20 expire; the phone then sends far more than it may keep.
+      vi.advanceTimersByTime(WINDOW_MS / 2 + 30_000);
+      beat();
+      retract(30, 100);
+      const pick = signPick(a.sk, a);
+      live.ingest(signRetraction(a.sk, pick.id, 'footsteps'));
+      live.ingest(pick);
+      expect(live.picks.has(pick.id)).toBe(false);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
     }
   });
 

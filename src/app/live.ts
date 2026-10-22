@@ -87,6 +87,8 @@ export class LiveNetwork extends Emitter {
    * pick shows.
    */
   private withdrawals = new Map<string, Withdrawal & { node: string }>();
+  /** Each phone's withdrawals, oldest first. */
+  private withdrawnBy = new Map<string, string[]>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
   private recomputeQueued = false;
@@ -160,10 +162,13 @@ export class LiveNetwork extends Emitter {
       const p = this.picks.get(m.pick);
       if (p && p.node !== m.node) return;
       const key = `${m.pick}:${m.node}`;
-      const own = this.withdrawals.has(key) ? [] : [...this.withdrawals].filter(([, w]) => w.node === m.node);
-      if (own.length >= MAX_WITHDRAWALS_PER_NODE) this.withdrawals.delete(own[0][0]);
+      if (!this.withdrawals.has(key)) {
+        const own = this.withdrawnBy.get(m.node) ?? [];
+        if (own.length >= MAX_WITHDRAWALS_PER_NODE) this.forget(own[0]);
+        if (this.withdrawals.size >= MAX_WITHDRAWALS) this.forget(this.withdrawals.keys().next().value!);
+        this.withdrawnBy.set(m.node, [...(this.withdrawnBy.get(m.node) ?? []), key]);
+      }
       this.withdrawals.set(key, { reason: m.reason, at: m.at, node: m.node });
-      if (this.withdrawals.size > MAX_WITHDRAWALS) this.withdrawals.delete(this.withdrawals.keys().next().value!);
       this.picks.delete(m.pick);
       this.queueRecompute();
     } else if (m.type === 'felt') {
@@ -213,6 +218,14 @@ export class LiveNetwork extends Emitter {
   private hear(t: Trigger) {
     this.heard.push({ node: t.node, t: t.t });
     if (this.heard.length > MAX_TRIGGERS + MAX_PICKS) this.heard.shift();
+  }
+
+  private forget(withdrawal: string) {
+    const { node } = this.withdrawals.get(withdrawal)!;
+    this.withdrawals.delete(withdrawal);
+    const rest = this.withdrawnBy.get(node)!.filter((k) => k !== withdrawal);
+    if (rest.length) this.withdrawnBy.set(node, rest);
+    else this.withdrawnBy.delete(node);
   }
 
   /** Simple per-node rate limit so one broken or hostile phone cannot flood the detector. */
@@ -283,7 +296,7 @@ export class LiveNetwork extends Emitter {
     this.felt = this.felt.filter((f) => now - f.t < WINDOW_MS);
     for (const [k, p] of this.picks) if (now - p.t > 5 * 60_000) this.picks.delete(k);
     for (const [k, n] of this.nodes) if (now - n.lastSeen > WINDOW_MS) this.nodes.delete(k);
-    for (const [k, w] of this.withdrawals) if (now - w.at > WINDOW_MS) this.withdrawals.delete(k);
+    for (const [k, w] of this.withdrawals) if (now - w.at > WINDOW_MS) this.forget(k);
     this.queueRecompute();
   }
 
