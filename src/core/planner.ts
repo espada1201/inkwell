@@ -111,6 +111,8 @@ export interface PlanInput {
   distanceKm: [number, number];
   depthKm?: number;
   quakes?: number;
+  /** Quake-free minutes of bumps in which to count false alerts. */
+  quietMinutes?: number;
   seed?: number;
   /** Also locate from vetted triggers (slower; the sweep skips it). */
   confirm?: boolean;
@@ -185,27 +187,30 @@ function bump(node: Node, r: () => number, fromS: number, toS: number): [Arrival
   ];
 }
 
-/** Watch arrivals the way a browser does and return the first declaration at or after `from`. */
+/** Watch arrivals the way a browser does, frame by frame, and return the first declaration at or after `from`. */
 function firstDeclaration(arrivals: Arrival[], nodes: Node[], from = -Infinity) {
+  if (!arrivals.length) return null;
   arrivals.sort((a, b) => a.at - b.at);
   const picks = new Map<string, Trigger>();
-  let frame: number | null = null;
   let fresh = false;
-  for (let i = 0; i < arrivals.length; i++) {
-    const a = arrivals[i];
-    if (a.kind === 'pick') {
-      picks.set(a.tr.id, a.tr);
-      fresh = true;
-    } else picks.delete(a.tr.id);
-    frame ??= a.at;
-    const next = arrivals[i + 1];
-    if (next && next.at - frame < FRAME_MS) continue;
-    frame = null;
-    // Skip frames that only withdrew picks: they hold less evidence than the frame before.
-    if (!fresh || picks.size < 4 || a.at < from) continue;
+  let waiting = false;
+  let i = 0;
+  for (let t = arrivals[0].at; i < arrivals.length || waiting; t += FRAME_MS) {
+    for (; i < arrivals.length && arrivals[i].at <= t; i++) {
+      const a = arrivals[i];
+      if (a.kind === 'pick') {
+        picks.set(a.tr.id, a.tr);
+        fresh = true;
+      } else picks.delete(a.tr.id);
+    }
+    // Only frames with new picks, or quiet phones newly due, can change the verdict.
+    if (!(fresh || waiting) || t < from) continue;
     fresh = false;
-    const ev = earlyDetect([...picks.values()], nodes, a.at)[0];
-    if (ev) return { at: a.at, ev };
+    waiting = false;
+    if (picks.size < 4) continue;
+    const r = earlyDetect([...picks.values()], nodes, t);
+    if (r.events.length) return { at: t, ev: r.events[0] };
+    waiting = r.waiting;
   }
   return null;
 }
@@ -258,7 +263,7 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
     if (intensityLevel(pgaFor(input.mag, hyp)) >= 3) warnings.push(hyp / VS_KMS - alertAt);
   }
   let errKm: number | null = null;
-  if (input.confirm && triggers.length >= 3) {
+  if (input.confirm && triggers.length >= 4) {
     const sample = triggers.length > MAX_CONFIRM ? triggers.filter((_, i) => i % Math.ceil(triggers.length / MAX_CONFIRM) === 0) : triggers;
     const ev = associate(sample).sort((a, b) => b.triggers.length - a.triggers.length)[0];
     if (ev) errKm = distanceKm(ev, epi);
@@ -279,7 +284,7 @@ export function* simulatePlan(input: PlanInput, model: PhoneModel): Generator<nu
   const r = rng(input.seed ?? 1);
   const people = residents(input.city, input.radiusKm);
   const n = input.quakes ?? 24;
-  const quietMinutes = Math.ceil(n / 2);
+  const quietMinutes = input.quietMinutes ?? 60;
   const trials: Trial[] = [];
   let phones: LatLon[] = [];
   for (let k = 0; k < n; k++) {

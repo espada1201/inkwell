@@ -26,3 +26,6 @@ export function coarsen(p: LatLon): LatLon {
   const snap = (v: number) => Math.round(v / COARSE_DEG) * COARSE_DEG;
   return { lat: +snap(p.lat).toFixed(2), lon: +snap(p.lon).toFixed(2) };
 }
+
+/** The grid cell a point is published in. Phones that share one may share a building. */
+export const cellOf = (p: LatLon) => `${Math.round(p.lat / COARSE_DEG)},${Math.round(p.lon / COARSE_DEG)}`;

@@ -11,8 +11,11 @@ const safeMatch = (filters, ev) => {
   }
 };
 
-/** `verify: false` makes a hostile relay that forwards anything, to test client-side checks. */
-export function startRelay(port = 0, { verify = true } = {}) {
+/**
+ * `verify: false` makes a hostile relay that forwards anything, to test client-side checks;
+ * `junk` is sent as it is to every subscription before the stored events.
+ */
+export function startRelay(port = 0, { verify = true, junk = [] } = {}) {
   const wss = new WebSocketServer({ port, host: '127.0.0.1' });
   let events = [];
   const subs = new Map();
@@ -43,6 +46,7 @@ export function startRelay(port = 0, { verify = true } = {}) {
       } else if (type === 'REQ') {
         const [id, ...filters] = rest;
         subs.get(ws).set(id, filters);
+        for (const ev of junk) ws.send(JSON.stringify(['EVENT', id, ev]));
         for (const ev of events) if (safeMatch(filters, ev)) ws.send(JSON.stringify(['EVENT', id, ev]));
         ws.send(JSON.stringify(['EOSE', id]));
       } else if (type === 'CLOSE') {

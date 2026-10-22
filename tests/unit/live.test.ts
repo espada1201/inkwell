@@ -68,6 +68,36 @@ describe('live network model', () => {
     expect(live.picks.has(pick.id)).toBe(false);
   });
 
+  it('a retraction that arrives before its pick counts only from the pick\'s author', () => {
+    const [a, b] = phones;
+    for (const author of [b, a]) {
+      const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+      for (const p of [a, b]) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+      const pick = signPick(a.sk, a);
+      live.ingest(signRetraction(author.sk, pick.id, 'footsteps'));
+      live.ingest(pick);
+      expect(live.picks.has(pick.id)).toBe(author === b);
+    }
+  });
+
+  it('a few triggers that line up by chance are no quake when the phones around them heard nothing', () => {
+    // A grid of phones 2 km apart; five near the middle trigger as if on one wavefront.
+    const city = Array.from({ length: 100 }, (_, i) => ({ sk: generateSecretKey(), ...offset(src, 2 * ((i % 10) - 4.5), 2 * (Math.floor(i / 10) - 4.5)) }));
+    const five = [44, 45, 54, 55, 66].map((i) => city[i]);
+    const listening = T0 - 600_000;
+    const confirmed = (heartbeat: (p: (typeof city)[number]) => Event) => {
+      const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+      for (const p of city) live.ingest(five.includes(p) ? signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60, since: listening }) : heartbeat(p));
+      for (const p of five) live.ingest(signTrigger(p.sk, { ...p, t: T0 + (hypocentralKm(distanceKm(src, p)) / VP_KMS) * 1000, pga: 0.3, dur: 4 }));
+      live.recompute();
+      return live.events.length;
+    };
+    expect(confirmed((p) => signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60, since: listening }))).toBe(0);
+    // Phones that were not listening when it struck have no say: they started after, or had stopped.
+    expect(confirmed((p) => signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60, since: T0 + 5000 }))).toBe(1);
+    expect(confirmed((p) => signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 0, since: listening }, Math.floor((T0 - 60_000) / 1000)))).toBe(1);
+  });
+
   it('reports the USGS feed as unavailable when it fails', async () => {
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     await live.refreshUsgs();

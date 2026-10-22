@@ -39,10 +39,19 @@ describe('protocol', () => {
     expect(parse(ev)).toBeNull();
   });
 
-  it('heartbeats parse', () => {
-    const m = parse(signHeartbeat(sk, { lat: -43.53, lon: 172.62, noise: 0.012, sps: 60 }))! as Extract<Message, { type: 'heartbeat' }>;
+  it('heartbeats say since when the phone has listened, and when it has stopped', () => {
+    const since = Date.now() - 600_000;
+    const m = parse(signHeartbeat(sk, { lat: -43.53, lon: 172.62, noise: 0.012, sps: 60, since }))! as Extract<Message, { type: 'heartbeat' }>;
     expect(m.type).toBe('heartbeat');
-    expect(m.data).toMatchObject({ lat: -43.53, lon: 172.62, sps: 60 });
+    expect(m.data).toMatchObject({ lat: -43.53, lon: 172.62, sps: 60, since });
+    expect(parse(signHeartbeat(sk, { lat: -43.53, lon: 172.62, noise: 0.012, sps: 0, since }))).toMatchObject({ data: { sps: 0, since } });
+  });
+
+  it('refuses events dated far ahead, which would never expire', () => {
+    const now = Math.floor(Date.now() / 1000);
+    expect(parse(signHeartbeat(sk, { lat: 1, lon: 2, noise: 0.01, sps: 60 }, now + 3600))).toBeNull();
+    // A phone clock a minute fast is fine.
+    expect(parse(signHeartbeat(sk, { lat: 1, lon: 2, noise: 0.01, sps: 60 }, now + 60))).not.toBeNull();
   });
 
   it('picks, retractions and pick-linked triggers round-trip', () => {
@@ -97,6 +106,33 @@ describe('relay pool against a local fake relay', () => {
     const lateGot: string[] = [];
     late.subscribe(filters(Date.now() - 60_000), (e) => lateGot.push(e.id));
     await until(() => lateGot.length === 1);
+  });
+
+  it('drops structurally broken events from a hostile relay, and still delivers the good ones', async () => {
+    const good = signTrigger(sk, { lat: 1, lon: 2, t: Date.now(), pga: 0.3, dur: 2 });
+    const junk = [{ ...good, tags: [null] }, { ...good, tags: 'tremor' }, { ...good, tags: undefined }, { ...good, kind: '4579' }, { ...good, id: 7 }];
+    const relay = await startRelay(0, { verify: false, junk: [...junk, good] });
+    cleanup.push(relay.close);
+    const p = new RelayPool([relay.url]);
+    cleanup.push(() => p.close());
+    const got: string[] = [];
+    p.subscribe(filters(Date.now() - 60_000), (ev) => got.push(ev.id));
+    await until(() => got.length > 0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(got).toEqual([good.id]);
+  });
+
+  it('a doctored copy sent first cannot shadow the real event', async () => {
+    const good = signTrigger(sk, { lat: 1, lon: 2, t: Date.now(), pga: 0.3, dur: 2 });
+    const relay = await startRelay(0, { verify: false, junk: [{ ...good, content: good.content.replace('0.3', '0.9') }, good] });
+    cleanup.push(relay.close);
+    const p = new RelayPool([relay.url]);
+    cleanup.push(() => p.close());
+    const got: string[] = [];
+    p.subscribe(filters(Date.now() - 60_000), (ev) => got.push(ev.content));
+    await until(() => got.length > 0);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(got).toEqual([good.content]);
   });
 
   it('keeps only the newest heartbeat per node', async () => {

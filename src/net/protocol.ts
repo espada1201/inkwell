@@ -1,4 +1,4 @@
-import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure';
+import { finalizeEvent, validateEvent, verifyEvent, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { coarsen } from '../core/geo';
 import type { Phase } from '../core/physics';
@@ -9,8 +9,9 @@ import type { Phase } from '../core/physics';
  *    the wave the phone felt first (ph: P or S; events without it count as P).
  *  - retraction (kind 5, NIP-09 deletion of a pick): "that was footsteps / a door / my hand".
  *  - trigger (kind 4579): the phone's confirmed verdict, with peak acceleration.
- *  - heartbeat (kind 34579, parameterised-replaceable): "I'm alive, here, this noisy".
- *    Relays keep only the latest per node, so late viewers see the whole network at once.
+ *  - heartbeat (kind 34579, parameterised-replaceable): "I'm alive, here, this noisy, and
+ *    listening since". Relays keep only the latest per node, so late viewers see the whole
+ *    network at once. One with sps 0 says the phone has stopped listening.
  */
 export const KIND_PICK = 4578;
 export const KIND_TRIGGER = 4579;
@@ -18,14 +19,18 @@ export const KIND_HEARTBEAT = 34579;
 export const KIND_DELETION = 5;
 export const TAG = 'tremor';
 export const HEARTBEAT_EVERY_MS = 60_000;
+/** Events dated further ahead than this are refused: they would never expire. */
+const MAX_FUTURE_MS = 5 * 60_000;
 
 export interface Heartbeat {
   lat: number;
   lon: number;
   /** Background noise RMS, m/s². */
   noise: number;
-  /** Samples per second the phone delivers. */
+  /** Samples per second the phone delivers; 0 once it has stopped listening. */
   sps: number;
+  /** When the phone started listening without a break, ms since epoch. */
+  since?: number;
 }
 
 export interface PickReport {
@@ -64,7 +69,7 @@ export function signHeartbeat(sk: Uint8Array, hb: Heartbeat, at = nowS()): Event
       kind: KIND_HEARTBEAT,
       created_at: at,
       tags: [['d', TAG], ['t', TAG]],
-      content: JSON.stringify({ v: 1, ...coarsen(hb), noise: +hb.noise.toFixed(4), sps: Math.round(hb.sps) }),
+      content: JSON.stringify({ v: 1, ...coarsen(hb), noise: +hb.noise.toFixed(4), sps: Math.round(hb.sps), since: hb.since && Math.round(hb.since) }),
     },
     sk,
   );
@@ -103,7 +108,7 @@ const KINDS = [KIND_PICK, KIND_TRIGGER, KIND_HEARTBEAT, KIND_DELETION];
 
 /** Verify signature and shape. Anything malformed, forged or implausible returns null. */
 export function parse(ev: Event): Message | null {
-  if (!ev || !KINDS.includes(ev.kind) || !Array.isArray(ev.tags)) return null;
+  if (!validateEvent(ev) || !KINDS.includes(ev.kind) || ev.created_at * 1000 > Date.now() + MAX_FUTURE_MS) return null;
   if (!ev.tags.some((t) => t[0] === 't' && t[1] === TAG)) return null;
   // Verify a plain copy: nostr-tools caches a "verified" flag on event objects it has seen.
   const { id, pubkey, created_at, kind, tags, content, sig } = ev;
@@ -123,8 +128,9 @@ export function parse(ev: Event): Message | null {
   // Re-coarsen on receipt too: a modified client cannot make us display a precise home location.
   const loc = coarsen({ lat: c.lat, lon: c.lon });
   if (ev.kind === KIND_HEARTBEAT) {
-    if (!inRange(c.noise, 0, 50) || !inRange(c.sps, 1, 1000)) return null;
-    return { ...base, type: 'heartbeat', data: { ...loc, noise: c.noise, sps: c.sps } };
+    if (!inRange(c.noise, 0, 50) || !inRange(c.sps, 0, 1000)) return null;
+    const since = inRange(c.since, 0, base.at + MAX_FUTURE_MS) ? c.since : undefined;
+    return { ...base, type: 'heartbeat', data: { ...loc, noise: c.noise, sps: c.sps, since } };
   }
   if (!finite(c.t) || Math.abs(c.t - base.at) > 120_000) return null;
   const phase = c.ph ?? 'P';

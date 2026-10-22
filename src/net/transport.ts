@@ -1,4 +1,4 @@
-import type { Event } from 'nostr-tools/pure';
+import { getEventHash, validateEvent, type Event } from 'nostr-tools/pure';
 import { matchFilters, type Filter } from 'nostr-tools/filter';
 
 export type RelayState = 'connecting' | 'open' | 'closed';
@@ -11,7 +11,8 @@ export interface RelayStatus {
 /** The seam between Tremor and the outside world. Production: public Nostr relays. Tests: a local fake. */
 export interface Transport {
   publish(ev: Event): void;
-  subscribe(filters: Filter[], onEvent: (ev: Event) => void): () => void;
+  /** Filters given as a function are worked out afresh on every (re)subscription. */
+  subscribe(filters: Filter[] | (() => Filter[]), onEvent: (ev: Event) => void): () => void;
   statuses(): RelayStatus[];
   onStatus(cb: () => void): void;
   close(): void;
@@ -21,9 +22,12 @@ export const DEFAULT_RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://r
 
 interface Sub {
   id: string;
+  make: () => Filter[];
   filters: Filter[];
   onEvent: (ev: Event) => void;
 }
+
+const req = (s: Sub) => ['REQ', s.id, ...(s.filters = s.make())];
 
 /** Minimal NIP-01 client: one socket per relay, reconnect with backoff, resubscribe, de-duplicate. */
 class RelayConn {
@@ -57,7 +61,7 @@ class RelayConn {
     ws.onopen = () => {
       this.backoff = 1000;
       this.setState('open');
-      for (const s of this.subs.values()) ws.send(JSON.stringify(['REQ', s.id, ...s.filters]));
+      for (const s of this.subs.values()) ws.send(JSON.stringify(req(s)));
       for (const m of this.queue.splice(0)) ws.send(m);
     };
     ws.onmessage = (m) => {
@@ -122,9 +126,13 @@ export class RelayPool implements Transport {
 
   private deliver(subId: string, ev: Event) {
     const sub = this.subs.get(subId);
-    if (!sub || typeof ev.id !== 'string' || this.seen.has(`${subId}:${ev.id}`)) return;
-    if (!matchFilters(sub.filters, ev)) return;
-    this.seen.add(`${subId}:${ev.id}`);
+    // Relays can send anything: check the shape before nostr-tools touches it, and that the id
+    // is the event's hash, so a doctored copy cannot take the real one's place. `parse` checks
+    // signatures; a copy with a bad one is told apart from the real one by it.
+    if (!sub || !validateEvent(ev) || typeof ev.id !== 'string' || typeof ev.sig !== 'string') return;
+    const key = `${subId}:${ev.id}:${ev.sig}`;
+    if (this.seen.has(key) || getEventHash(ev) !== ev.id || !matchFilters(sub.filters, ev)) return;
+    this.seen.add(key);
     if (this.seen.size > 20_000) this.seen.clear();
     sub.onEvent(ev);
   }
@@ -137,10 +145,11 @@ export class RelayPool implements Transport {
     for (const c of this.conns) c.publish(ev);
   }
 
-  subscribe(filters: Filter[], onEvent: (ev: Event) => void) {
+  subscribe(filters: Filter[] | (() => Filter[]), onEvent: (ev: Event) => void) {
     const id = `tremor-${++this.n}`;
-    this.subs.set(id, { id, filters, onEvent });
-    for (const c of this.conns) c.send(['REQ', id, ...filters], false);
+    const sub: Sub = { id, make: typeof filters === 'function' ? filters : () => filters, filters: [], onEvent };
+    this.subs.set(id, sub);
+    for (const c of this.conns) c.send(req(sub), false);
     return () => {
       this.subs.delete(id);
       for (const c of this.conns) c.send(['CLOSE', id], false);

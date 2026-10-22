@@ -1,5 +1,5 @@
 import { associate, type DetectedEvent, type Trigger } from '../core/associate';
-import { earlyDetect, type EarlyEvent } from '../core/early';
+import { corroborated, earlyDetect, type EarlyEvent } from '../core/early';
 import { Bandpass } from '../core/filters';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS } from '../core/physics';
@@ -56,6 +56,11 @@ export class Replay extends Emitter {
   private queue: Arrival[] = [];
   private next = 0;
   private picks = new Map<string, Trigger>();
+  /** Onsets heard so far: picks, withdrawn or not, and triggers. */
+  private heard: Trigger[] = [];
+  /** A provisional candidate holds for now, but phones the wave is still reaching could overturn it. */
+  private waiting = false;
+  private lastEval = 0;
   private raf = 0;
   private last = 0;
 
@@ -122,6 +127,9 @@ export class Replay extends Emitter {
     this.vt = 0;
     this.next = 0;
     this.picks.clear();
+    this.heard = [];
+    this.waiting = false;
+    this.lastEval = 0;
     this.arrivedTriggers = [];
     this.events = [];
     this.early = null;
@@ -138,29 +146,49 @@ export class Replay extends Emitter {
     let triggersChanged = false;
     while (this.next < this.queue.length && this.queue[this.next].at <= this.vt) {
       const a = this.queue[this.next++];
+      this.catchUp(a.at);
       if (a.kind === 'trigger') {
         this.arrivedTriggers.push(a.tr);
+        this.heard.push(a.tr);
         triggersChanged = true;
         if (this.confirmedAt === null) {
-          this.events = associate(this.arrivedTriggers);
+          this.events = this.confirmed(a.at);
           if (this.events.length) this.confirmedAt = a.at;
         }
         continue;
       }
-      if (a.kind === 'pick') this.picks.set(a.tr.id, a.tr);
-      else this.picks.delete(a.tr.id);
+      if (a.kind === 'pick') {
+        this.picks.set(a.tr.id, a.tr);
+        this.heard.push(a.tr);
+      } else this.picks.delete(a.tr.id);
       picksChanged = true;
       // Until the first declaration, evaluate after every single arrival so its time is exact.
       if (!this.declared) this.evaluateEarly(a.at);
     }
-    if (triggersChanged && this.confirmedAt !== null) this.events = associate(this.arrivedTriggers);
+    this.catchUp(this.vt);
+    if (triggersChanged && this.confirmedAt !== null) this.events = this.confirmed(this.vt);
     if (picksChanged && this.declared) this.evaluateEarly(this.vt);
     this.emit();
   }
 
+  /** While a candidate waits on quiet phones, look again every 100 ms of scenario time. */
+  private catchUp(to: number) {
+    while (!this.declared && this.waiting && this.lastEval + 100 <= to) this.evaluateEarly(this.lastEval + 100);
+  }
+
+  /** Events located from the vetted triggers so far that the quiet phones do not contradict. */
+  private confirmed(at: number) {
+    return associate(this.arrivedTriggers).filter((e) => {
+      const felt = new Set(this.heard.filter((h) => h.t >= e.time - 10_000 && h.t <= e.time + 180_000).map((h) => h.node));
+      return corroborated(e, this.nodes, felt, this.sim!.start + at);
+    });
+  }
+
   private evaluateEarly(at: number) {
-    const evs = earlyDetect([...this.picks.values()], this.nodes, this.sim!.start + at);
-    this.early = evs[0] ?? null;
+    const r = earlyDetect([...this.picks.values()], this.nodes, this.sim!.start + at);
+    this.early = r.events[0] ?? null;
+    this.waiting = r.waiting;
+    this.lastEval = at;
     if (this.early && !this.declared) this.declared = { at, event: this.early };
   }
 

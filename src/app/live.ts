@@ -1,8 +1,8 @@
 import type { Event } from 'nostr-tools/pure';
 import { associate, type DetectedEvent, type Trigger } from '../core/associate';
-import { earlyDetect, type EarlyEvent } from '../core/early';
+import { corroborated, earlyDetect, type EarlyEvent } from '../core/early';
 import { distanceKm } from '../core/geo';
-import { filters, parse, type Heartbeat } from '../net/protocol';
+import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
 import { Emitter } from '../ui/dom';
@@ -14,8 +14,12 @@ export interface LiveNode extends Heartbeat {
 }
 
 const WINDOW_MS = 2 * 3600_000;
-const NODE_STALE_MS = 10 * 60_000;
+/** A phone that has missed three heartbeats is offline. */
+const NODE_STALE_MS = 3 * HEARTBEAT_EVERY_MS;
 const MAX_PER_NODE_HOUR = 30;
+/** Keys are free, so the per-phone limit alone does not bound memory: keep the newest. */
+const MAX_TRIGGERS = 5000;
+const MAX_PICKS = 5000;
 
 /**
  * The live citizen network as seen from this browser: every heartbeat, pick and trigger on
@@ -34,8 +38,12 @@ export class LiveNetwork extends Emitter {
   usgsState: 'loading' | 'ok' | 'error' = 'loading';
   usgsWindow: UsgsWindow;
   private pending: { node: string; ev: Event }[] = [];
-  private retracted = new Set<string>();
+  /** Retracted pick → the phone that retracted it. Only a pick's own author may. */
+  private retracted = new Map<string, string>();
+  /** Every onset heard, withdrawn or not: which phones felt something, and when. */
+  private heard: { node: string; t: number }[] = [];
   private recomputeQueued = false;
+  private recheck: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     readonly transport: Transport,
@@ -47,7 +55,7 @@ export class LiveNetwork extends Emitter {
   }
 
   start() {
-    this.transport.subscribe(filters(Date.now() - WINDOW_MS), (ev) => this.ingest(ev));
+    this.transport.subscribe(() => filters(Date.now() - WINDOW_MS), (ev) => this.ingest(ev));
     this.transport.onStatus(() => this.emit());
     this.refreshUsgs();
     setInterval(() => this.refreshUsgs(), 120_000);
@@ -85,7 +93,7 @@ export class LiveNetwork extends Emitter {
       // NIP-09: only the author may retract their own pick.
       const p = this.picks.get(m.pick);
       if (p && p.node !== m.node) return;
-      this.retracted.add(m.pick);
+      this.retracted.set(m.pick, m.node);
       this.picks.delete(m.pick);
       this.queueRecompute();
     } else {
@@ -93,19 +101,31 @@ export class LiveNetwork extends Emitter {
         this.pending = [...this.pending, { node: m.node, ev }].slice(-500);
         return;
       }
+      if (m.data.t < Date.now() - WINDOW_MS) return;
       const t: Trigger = { id: m.id, node: m.node, lat: m.data.lat, lon: m.data.lon, t: m.data.t, pga: m.type === 'trigger' ? m.data.pga : 0, phase: m.data.phase };
       const n = this.nodes.get(m.node)!;
       if (m.type === 'pick') {
-        if (this.picks.has(t.id) || this.retracted.has(t.id) || this.burst(m.node, [...this.picks.values()])) return;
+        if (this.picks.has(t.id) || this.burst(m.node, [...this.picks.values()])) return;
+        this.hear(t);
+        // A retraction can arrive before its pick.
+        if (this.retracted.get(t.id) === t.node) return;
         this.picks.set(t.id, t);
+        if (this.picks.size > MAX_PICKS) this.picks.delete(this.picks.keys().next().value!);
       } else {
         if (this.triggers.some((x) => x.id === t.id) || this.burst(m.node, this.triggers)) return;
+        this.hear(t);
         this.triggers.push(t);
+        if (this.triggers.length > MAX_TRIGGERS) this.triggers.shift();
         n.lastTrigger = Math.max(n.lastTrigger ?? 0, t.t);
       }
       this.queueRecompute();
     }
     this.emit();
+  }
+
+  private hear(t: Trigger) {
+    this.heard.push({ node: t.node, t: t.t });
+    if (this.heard.length > MAX_TRIGGERS + MAX_PICKS) this.heard.shift();
   }
 
   /** Simple per-node rate limit so one broken or hostile phone cannot flood the detector. */
@@ -125,23 +145,48 @@ export class LiveNetwork extends Emitter {
   }
 
   recompute(now = Date.now()) {
-    this.events = associate(this.triggers);
-    const online = [...this.nodes.values()].filter((n) => this.isOnline(n, now));
-    this.early = earlyDetect([...this.picks.values()], online, now).filter(
-      (e) => !this.events.some((c) => distanceKm(c, e) < 80 && Math.abs(c.time - e.time) < 60_000),
+    clearTimeout(this.recheck);
+    const nodes = [...this.nodes.values()];
+    // Confirmed events face the phones that were listening when they struck, and stayed quiet.
+    this.events = associate(this.triggers).filter((e) => {
+      const felt = new Set(this.heard.filter((h) => h.t >= e.time - 10_000 && h.t <= e.time + 180_000).map((h) => h.node));
+      return corroborated(
+        e,
+        nodes.filter((n) => this.isOnline(n, e.time)),
+        felt,
+        now,
+      );
+    });
+    const early = earlyDetect(
+      [...this.picks.values()],
+      nodes.filter((n) => this.isOnline(n, now)),
+      now,
     );
+    this.early = early.events.filter((e) => !this.events.some((c) => distanceKm(c, e) < 80 && Math.abs(c.time - e.time) < 60_000));
+    // A candidate holds for now, but phones the wave is still reaching could overturn it.
+    if (early.waiting)
+      this.recheck = setTimeout(() => {
+        this.recompute();
+        this.emit();
+      }, 500);
   }
 
   private prune() {
     const now = Date.now();
     this.triggers = this.triggers.filter((t) => now - t.t < WINDOW_MS);
+    this.heard = this.heard.filter((h) => now - h.t < WINDOW_MS);
     for (const [k, p] of this.picks) if (now - p.t > 5 * 60_000) this.picks.delete(k);
     for (const [k, n] of this.nodes) if (now - n.lastSeen > WINDOW_MS) this.nodes.delete(k);
     if (this.retracted.size > 5000) this.retracted.clear();
     this.queueRecompute();
   }
 
-  isOnline(n: LiveNode, now = Date.now()) {
-    return now - n.lastSeen < NODE_STALE_MS;
+  /**
+   * Whether a phone was listening at time t: it had started by then, and was heard from after
+   * it, or shortly before without saying it had stopped.
+   */
+  isOnline(n: LiveNode, t = Date.now()) {
+    if ((n.since ?? n.lastSeen) > t) return false;
+    return n.lastSeen >= t || (n.sps > 0 && t - n.lastSeen < NODE_STALE_MS);
   }
 }

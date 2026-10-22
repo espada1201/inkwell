@@ -55,6 +55,11 @@ describe('network planner', () => {
     expect(plan({ phones: 100, quakes: 16 }).falseAlerts).toBe(0);
   });
 
+  // Was about one an hour: the picks were judged before any of the quiet phones around them was due.
+  it('a busy hour of bumps in a dense town raises no false alert', () => {
+    for (const seed of [1, 2]) expect(plan({ phones: 300, radiusKm: 5, quakes: 0, quietMinutes: 60, seed })).toMatchObject({ falseAlerts: 0, quietMinutes: 60 });
+  });
+
   it('is reproducible for the same inputs', () => {
     expect(plan({ phones: 30 })).toEqual(plan({ phones: 30 }));
   });
