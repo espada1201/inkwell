@@ -29,7 +29,8 @@ export interface MapEvent extends LatLon {
 export interface MapRing {
   center: LatLon;
   km: number;
-  kind: 'blind' | 'iso';
+  /** The zone warned too late, a warning-time line, or how far off a located quake could be. */
+  kind: 'blind' | 'iso' | 'error';
   label?: string;
 }
 export interface MapCell extends LatLon {

@@ -1,5 +1,6 @@
 import type { LiveNetwork } from '../app/live';
 import type { Replay } from '../app/replay';
+import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid, sRadiusKm } from '../core/impact';
 import { MIN_REPLAY_MAG, ORIGIN_OFFSET_S, SCENARIOS, parseQuakeLink, quakeLink, type QuakeRef, type Scenario } from '../core/scenarios';
@@ -9,7 +10,7 @@ import { h, keepFocus } from '../ui/dom';
 import { ago, clockT, coord, mag, many, utc } from '../ui/format';
 import { NODE_COLORS, type MapRing, type QuakeMap, type Swatch } from '../ui/map';
 import { drawSection } from '../ui/section';
-import { compareCard } from './compare';
+import { compareCard, give } from './compare';
 
 const ISOCHRONS = [5, 10, 20];
 /** Why phones withdrew their picks, in the sensor log's words. */
@@ -28,6 +29,7 @@ export const REPLAY_LEGEND: Swatch[] = [
   [NODE_COLORS.reject, 'withdrawn by the phone'],
   ['transparent;border:2px solid var(--red)', 'provisional detection'],
   ['transparent;border:2px solid var(--ink)', 'USGS epicentre'],
+  ['transparent;border:1px dashed var(--ink)', 'where a detection could be'],
   ['transparent;border:1.5px dashed var(--muted)', 'P and S wavefronts'],
 ];
 
@@ -285,7 +287,8 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
             ...ISOCHRONS.map((s) => ({ center: truth, km: sRadiusKm(w.alertAt + s, truth.depthKm), kind: 'iso' as const, label: `${s} s warning` })),
           ]
         : [];
-    map.setRings(rings);
+    const located = r.events[0];
+    map.setRings(located ? [...rings, { center: located, km: eventUncertainty(located).km, kind: 'error', label: give(eventUncertainty(located)) }] : rings);
     drawSection(canvas, r);
 
     const key = `${r.events.length}|${r.declared?.at}|${trig}|${r.vt >= r.duration}|${r.playing}|${Math.floor(r.vt / 1000)}`;

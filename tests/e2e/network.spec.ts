@@ -62,6 +62,7 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   await send(relay.url, napa.picks);
   await expect(page.getByTestId('provisional')).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Provisional earthquake detection');
+  await expect(page.getByTestId('provisional')).toContainText(/± \d+ km/);
   await expect(page.getByTestId('no-events')).toHaveText('No confirmed detections yet.');
   const ours = page.getByTestId('near-item').filter({ hasText: 'Tremor detection' });
   await expect(ours).toContainText(['Provisional Tremor detection']);
@@ -86,6 +87,10 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   const est = { lat: Number(await loc.getAttribute('data-lat')), lon: Number(await loc.getAttribute('data-lon')) };
   expect(distanceKm(est, truth)).toBeLessThan(15);
   await expect(page.getByTestId('verdict')).toContainText('Off by');
+  // It says how far off it could be, and USGS's epicentre is inside that.
+  const km = Number((await page.getByTestId('est-km').innerText()).match(/^± (\d+) km/)![1]);
+  expect(distanceKm(est, truth)).toBeLessThanOrEqual(km);
+  await expect(page.getByTestId('est-mag')).toHaveText(/^M\d\.\d–\d\.\d$/);
 });
 
 test('a provisional detection its phones withdraw stays listed as not confirmed, with their reasons', async ({ page, relay }) => {

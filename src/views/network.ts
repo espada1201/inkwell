@@ -1,5 +1,6 @@
 import { NODE_STALE_MS, SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
 import type { SensorNode } from '../app/sensor';
+import { eventUncertainty } from '../core/associate';
 import type { FeltCluster } from '../core/felt';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid } from '../core/impact';
@@ -10,7 +11,7 @@ import { matchUsgs, type UsgsQuake } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
 import { INTENSITY_WORDS, ago, coord, mag, magBadge } from '../ui/format';
 import { NODE_COLORS, SHAKE_COLORS, type QuakeMap, type Swatch } from '../ui/map';
-import { compareCard } from './compare';
+import { compareCard, give } from './compare';
 
 /** The map key for the live network (also shown behind the sensor and About screens). */
 export const NETWORK_LEGEND: Swatch[] = [
@@ -18,6 +19,7 @@ export const NETWORK_LEGEND: Swatch[] = [
   [NODE_COLORS.pick, 'felt shaking, still checking'],
   [NODE_COLORS.trigger, 'confirmed shaking / Tremor detection'],
   ['transparent;border:2px solid var(--red)', 'provisional detection'],
+  ['transparent;border:1px dashed var(--ink)', 'where a detection could be'],
   ['transparent;border:1.5px solid var(--ink)', 'USGS earthquake'],
   [`${SHAKE_COLORS[3]};border:1px solid var(--ink)`, 'people felt shaking'],
   [NODE_COLORS.offline, 'phone offline'],
@@ -188,6 +190,8 @@ export function networkView(ctx: NetworkCtx) {
     map.setUsgs(live.usgs.map((q) => ({ id: q.id, lat: q.lat, lon: q.lon, mag: q.mag, age: Math.min(1, (now - q.time) / winMs) })));
     map.setNodes(live.nodeStates(now));
     map.setFelt(live.feltClusters.flatMap((c) => c.reports));
+    const sel = selected?.kind === 'event' ? live.events.find((e) => e.id === selected!.id) : null;
+    map.setRings([...(sel ? [sel] : []), ...live.early].map((e) => ({ center: e, km: eventUncertainty(e).km, kind: 'error' as const, label: give(eventUncertainty(e)) })));
     map.setEvents([
       ...live.events.map((e) => ({
         id: e.id,
@@ -199,7 +203,6 @@ export function networkView(ctx: NetworkCtx) {
       })),
       ...live.early.map((e) => ({ id: e.id, lat: e.lat, lon: e.lon, mag: null, provisional: true, selected: true, members: e.triggers })),
     ]);
-    const sel = selected?.kind === 'event' ? live.events.find((e) => e.id === selected!.id) : null;
     map.setShake(sel ? shakeGrid(sel.triggers) : []);
     const newest = live.early[0] ?? live.events[live.events.length - 1];
     if (!flewToData && newest) {
@@ -298,7 +301,7 @@ export function networkView(ctx: NetworkCtx) {
           'section',
           { class: 'warn-card', 'data-testid': 'provisional' },
           h('header', {}, h('b', {}, 'Provisional detection'), h('span', { class: 'mono' }, ago(e.time))),
-          h('p', {}, `${e.triggers.length} phones felt shaking start in a pattern that fits one source near ${coord(e.lat, e.lon)}, and the phones nearby that stayed quiet do not outvote them. Waiting for the phones to confirm.`),
+          h('p', {}, `${e.triggers.length} phones felt shaking start in a pattern that fits one source near ${coord(e.lat, e.lon)} (${give(eventUncertainty(e))}), and the phones nearby that stayed quiet do not outvote them. Waiting for the phones to confirm.`),
         ),
       ),
       ended.length

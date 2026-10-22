@@ -18,6 +18,10 @@ test('Napa replay: phones declare early, locate near USGS, and show warning time
   const est = { lat: Number(await loc.getAttribute('data-lat')), lon: Number(await loc.getAttribute('data-lon')) };
   expect(distanceKm(est, truth)).toBeLessThan(15);
   await expect(page.getByTestId('verdict')).toContainText('Off by');
+  // It says how far off it could be, and the catalogue's epicentre is inside that.
+  const km = Number((await page.getByTestId('est-km').innerText()).match(/^± (\d+) km/)![1]);
+  expect(distanceKm(est, truth)).toBeLessThanOrEqual(km);
+  await expect(page.getByTestId('est-mag')).toHaveText(/^M\d\.\d–\d\.\d$/);
 
   const [warned, felt] = (await page.getByTestId('warned').innerText()).split('/').map(Number);
   expect(felt).toBeGreaterThan(10);
