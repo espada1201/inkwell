@@ -9,7 +9,7 @@ Plan answers "how many phones would my city need?". It simulates 24 quakes of th
 - `plan-kpis` shows the quakes detected (`n/24`), the first alert at the phones, the shaken area warned in time, the location error and the false alarms (`n/60`), with a story sentence that matches them.
 - `plan-curve` draws the sweep, point by point, as the worker finishes each network size.
 - `plan-here` plans within 20 km of the saved location or a typed `lat, lon`, follows the phones listening there now until the reader picks a count, and links to the count that would catch the quake 9 times in 10.
-- `plan-link` reopens a plan from `#plan/<city or lat,lon>/<mag>/<setting>/<phones>`; nonsense parts fall back to defaults.
+- `plan-link` reopens a plan from `#plan/<city or lat,lon>/<mag>/<setting>/<phones>`; nonsense parts fall back to defaults, and an address edited in place is followed.
 
 ## How to get to it (user POV)
 
@@ -26,7 +26,7 @@ Preconditions: the baseline. Each run takes several seconds in a worker; allow 3
 - **Curve (`plan-curve`).** `getByTestId('sweep')` gains `circle`s as sizes finish; `plan-status` ends `Done: 24 quakes and a busy hour per network size.`
 - **Here, saved location (`plan-here`).** Save a location on the sensor screen (`Latitude` 37.8, `Longitude` −122.27, `Set`), then press `data-city="here"`: the address becomes `#plan/37.8,-122.27/…` and `plan-gap` reads `Right now no phones listen within 20 km of you; about N would catch …`. Publish three heartbeats within 20 km and one 60 km away (`app('/src/net/protocol.ts').signHeartbeat` with fresh keys, `send` from `/tests/e2e/publish.ts`): the gap line and `output` follow to `3 phones`. Press the gap's link: `output` reads the target count and the address matches the link.
 - **Here, typed (`plan-here`).** From a fresh profile press `here`: the `Latitude, longitude` box takes focus with `Type coordinates, or save your location under Be a sensor.` Type `95, 10` and press Enter: the range message shows and `here` stays unpressed. Type `27.7 85.32` and press `Plan here`: the address ends `#plan/27.7,85.32/6/…`.
-- **Link (`plan-link`).** `open('#plan/x/6/toString/200')` opens the first city with defaults and no console error.
+- **Link (`plan-link`).** `open('#plan/x/6/toString/200')` opens the first city with defaults and no console error. Then set `location.hash` to `#plan/lima/7/far/100`: Lima, M7, far and `100 phones` show; pressing the `Plan` tab keeps them.
 
 ## Gotchas
 

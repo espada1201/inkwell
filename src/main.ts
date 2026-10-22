@@ -127,10 +127,14 @@ type View = keyof typeof TABS;
 let current: { view: View; dispose: () => void } | null = null;
 
 function route() {
-  const [name, ...rest] = location.hash.replace(/^#/, '').split('/');
+  // A query typed after the hash (#replay/napa-2014?speed=10) belongs before it; it is dropped here.
+  const [name, ...rest] = location.hash.replace(/^#/, '').split('?')[0].split('/');
   // Not `in`: that would also accept inherited names like "toString".
   const view: View = Object.hasOwn(TABS, name) ? (name as View) : 'network';
-  if (current?.view === view) return;
+  const arg = rest.join('/') || undefined;
+  // On the same screen, only an address carrying its own state (typed, or a link) starts it afresh;
+  // the screen's own tab link leaves it as it is.
+  if (current?.view === view && !arg) return;
   current?.dispose();
   const tab: Tab = TABS[view];
   tabs.replaceChildren(...(Object.keys(TABS) as View[]).map((v) => h('a', { href: `#${v}`, 'aria-current': v === view ? 'page' : null }, TABS[v].label)));
@@ -140,7 +144,7 @@ function route() {
     ...tab.legend.map(([c, l]) => h('span', {}, h('i', { style: `background:${c}` }), l)),
     ...(tab.shakeKey ? [h('span', { class: 'shake-key' }, h('b', { style: `background:linear-gradient(90deg, ${SHAKE_COLORS.slice(1).join(',')})` }), 'shaking felt')] : []),
   );
-  const v = tab.mount(rest.join('/') || undefined);
+  const v = tab.mount(arg);
   (tab.fullScreen ? sensorEl : panel).replaceChildren(v.el);
   if (!tab.fullScreen) panel.scrollTop = 0;
   current = { view, dispose: v.dispose };

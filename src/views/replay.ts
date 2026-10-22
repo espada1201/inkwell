@@ -337,7 +337,8 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   const off = r.on(update);
   const offLive = live.on(renderRecent);
   const linked = initial ? parseQuakeLink(initial) : null;
-  const start = SCENARIOS.find((s) => s.id === initial) ?? (linked ? quakeScenario(linked) : SCENARIOS[0]);
+  // With no scenario in the address (the Replay tab), the one already loaded carries on.
+  const start = SCENARIOS.find((s) => s.id === initial) ?? (linked ? quakeScenario(linked) : (!initial && r.sim?.scenario) || SCENARIOS[0]);
   if (r.sim?.scenario.id !== start.id) choose(start);
   else {
     // Back on the scenario already loaded: pick up where it was.

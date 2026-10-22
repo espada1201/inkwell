@@ -4,13 +4,13 @@ Replay plays a real quake into a network of simulated phones: each phone's recor
 
 ## Sub-features
 
-- `replay-scenario` plays a bundled quake (Napa M6.0, Ridgecrest M7.1, Christchurch M6.1) to a declaration, a confirmation and a warning-time card.
+- `replay-scenario` plays a bundled quake (Napa M6.0, Ridgecrest M7.1, Christchurch M6.1) to a declaration, a confirmation and a warning-time card. Leaving for another tab and coming back by the Replay tab carries on with the quake that was loaded.
 - `replay-compare` compares the simulated phones' location, time and magnitude with the USGS catalogue, with a link to its event page. It says how far off the location could be (`± N km`, also a dashed ring on the map) and gives the magnitude as a range, and notes that real phones size quakes more roughly than simulated ones.
 - `replay-no-quake` plays Concert night, which raises no alert, and counts the withdrawn picks by the phone's reason.
 - `replay-controls` plays, pauses, changes speed and scrubs, by pointer and by keyboard.
 - `replay-milestones` tells screen readers each milestone once (declared, confirmed, finished), not every second.
 - `replay-recent` lists the newest M4 or larger quakes in the USGS feed and replays one with simulated phones, around the saved location when it is within 150 km.
-- `replay-link` reopens any replay from its address, including a recent quake after it leaves the feed; a mangled link plays Napa.
+- `replay-link` reopens any replay from its address, including a recent quake after it leaves the feed, and follows an address edited in place; a mangled link plays Napa.
 
 ## How to get to it (user POV)
 
@@ -29,11 +29,11 @@ Preconditions: the baseline; `open('#replay/napa-2014', 'speed=10')` unless a st
 - **Controls (`replay-controls`).** Press `Pause` (the clock stops), the `10×` button in `Playback speed` (its `aria-pressed` turns true), then focus the `Replay position` slider and press `Home` and `ArrowRight`: the clock and the timeline follow.
 - **Milestones (`replay-milestones`).** Record `replay-status` text every 250 ms through a Napa run: no more than four distinct lines, ending in `Replay finished: declared at …, confirmed at …`.
 - **Recent quake (`replay-recent`).** `usgs([{ id: 'nc1', mag: 4.8, place: '10 km E of Test, CA', time: Date.now() - 3600e3, lat: 37.8, lon: -122.2 }])`, then `open('#replay')`. Under `Recent quakes` press `Replay with simulated phones` for it: the blurb says the quake is real and the phones simulated, around the epicentre; the address becomes `#replay/usgs/nc1/…`.
-- **Link (`replay-link`).** Reopen that address in the same run: the same quake plays. `open('#replay/usgs/x/1e20/37.8/-122.2/8/4.6')` plays Napa instead and logs no error.
+- **Link (`replay-link`).** Reopen that address in the same run: the same quake plays. `open('#replay/usgs/x/1e20/37.8/-122.2/8/4.6')` plays Napa instead and logs no error. Set `location.hash` to `#replay/ridgecrest-2019`: Ridgecrest plays. Open `#replay/christchurch-2011`, press the `About` tab, then the `Replay` tab: Christchurch is still the one pressed.
 
 ## Gotchas
 
-- `speed` is a query parameter, before the hash; in a hash it is ignored.
+- `speed` is a query parameter, before the hash; typed after it, it is ignored and the scenario still plays.
 - `replay-status` is visually hidden on purpose; read it with `innerText`, don't expect to see it in a shot.
 - Without a quake the clock counts `m:ss` into the replay; with one it counts `T±s` from the origin.
 - A recent quake is offered only at M4 or more, and only while it is in the feed; the link keeps working after.

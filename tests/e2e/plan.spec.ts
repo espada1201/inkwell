@@ -82,3 +82,13 @@ test('a planned spot opens from its link without a saved location, and any spot 
   await expect(page).toHaveURL(/#plan\/27\.7,85\.32\/6\/under\/25$/);
   await expect(page.locator('.plan-story')).toContainText('With 25 phones listening within 20 km of 27.70°N 85.32°E', { timeout: 60_000 });
 });
+
+test('a plan follows an address edited in place, and its tab keeps the plan as it is', async ({ page }) => {
+  await page.goto('/#plan/kathmandu/6/near/50');
+  await expect(page.locator('[data-city="kathmandu"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.evaluate(() => (location.hash = '#plan/lima/7/far/100'));
+  await expect(page.locator('[data-city="lima"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('output')).toHaveText('100 phones');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Plan' }).click();
+  await expect(page.locator('[data-city="lima"]')).toHaveAttribute('aria-pressed', 'true');
+});

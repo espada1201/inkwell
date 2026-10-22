@@ -148,3 +148,15 @@ test('the recent list says when the feed is unreachable, or has nothing phones c
   await page.reload();
   await expect(page.getByTestId('recent')).toHaveText('No quake of M4 or more in the USGS feed for the past day: phones would barely feel smaller ones.');
 });
+
+test('a replay carries on after a visit to another tab, and follows an address edited in place', async ({ page }) => {
+  await page.goto('/#replay/christchurch-2011');
+  await expect(page.locator('[data-scenario="christchurch-2011"]')).toHaveAttribute('aria-pressed', 'true');
+  const tabs = page.getByRole('navigation', { name: 'Sections' });
+  await tabs.getByRole('link', { name: 'About' }).click();
+  await tabs.getByRole('link', { name: 'Replay' }).click();
+  await expect(page.locator('[data-scenario="christchurch-2011"]')).toHaveAttribute('aria-pressed', 'true');
+  await page.evaluate(() => (location.hash = '#replay/ridgecrest-2019?speed=10'));
+  await expect(page.locator('[data-scenario="ridgecrest-2019"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText(/link is incomplete/)).toHaveCount(0);
+});
