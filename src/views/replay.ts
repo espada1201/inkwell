@@ -67,7 +67,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const rows: [string, number | null, string][] = [
       ['Rupture', truth ? ORIGIN_OFFSET_S * 1000 : null, truth ? `M${truth.mag.toFixed(1)}, ${truth.depthKm} km deep` : 'no earthquake in this scenario'],
       ['First phone picks', Number.isFinite(firstPick) && firstPick <= r.vt ? firstPick : null, truth ? 'first wave felt; sent within half a second, before any vetting' : 'a disturbance; sent within half a second, before any vetting'],
-      ['Network declares', r.declared?.at ?? null, r.declared ? `${r.declared.event.triggers.length} phones agree and the quiet ones do not outvote them` : 'needs 4 picks that fit one wavefront'],
+      ['Network declares', r.declared?.at ?? null, r.declared ? `${r.declared.event.triggers.length} phones agree and the quiet ones do not outvote them` : 'needs picks from 4 phones in 3 places that fit one wavefront'],
       ['Confirmed and sized', r.confirmedAt, r.events.length ? `${r.events[0].triggers.length} vetted triggers, magnitude from their peak shaking` : 'each phone checks its shaking for 15–30 s first'],
     ];
     steps.replaceChildren(
