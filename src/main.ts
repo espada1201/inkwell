@@ -108,15 +108,19 @@ function route() {
       ? [
           ['var(--ink)', 'phone'],
           ['#e58a7c', 'felt shaking, still checking'],
-          ['var(--red)', 'confirmed / Tremor epicentre'],
-          ['var(--amber)', 'caught on-device'],
+          ['var(--red)', 'confirmed shaking / Tremor epicentre'],
+          ['var(--amber)', 'withdrawn by the phone'],
+          ['transparent;border:2px solid var(--red)', 'provisional detection'],
           ['transparent;border:2px solid var(--ink)', 'USGS epicentre'],
+          ['transparent;border:1.5px dashed var(--muted)', 'P and S wavefronts'],
         ]
       : [
-          ['var(--ink)', 'phone (node)'],
+          ['var(--ink)', 'phone'],
+          ['#e58a7c', 'felt shaking, still checking'],
+          ['var(--red)', 'confirmed shaking / Tremor detection'],
           ['transparent;border:2px solid var(--red)', 'provisional detection'],
-          ['var(--red)', 'Tremor detection'],
           ['transparent;border:1.5px solid var(--ink)', 'USGS earthquake'],
+          ['#a19d92', 'phone offline'],
         ];
   legendBody.replaceChildren(
     ...swatches.map(([c, l]) => h('span', {}, h('i', { style: `background:${c}` }), l)),

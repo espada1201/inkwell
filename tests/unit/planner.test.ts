@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { calibrate, runPlan, type PlanInput } from '../../src/core/planner';
+import { calibrate, simulatePlan, type PhoneModel, type PlanInput, type PlanResult } from '../../src/core/planner';
+
+function runPlan(input: PlanInput, model: PhoneModel): PlanResult {
+  const steps = simulatePlan(input, model);
+  for (;;) {
+    const s = steps.next();
+    if (s.done) return s.value;
+  }
+}
 
 const m6 = calibrate(6);
 const m5 = calibrate(5);

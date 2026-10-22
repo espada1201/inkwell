@@ -25,20 +25,21 @@ const SERIES = [
 /**
  * "How many phones are enough?": detection rate and the share of the shaken area warned
  * before the S wave, against the number of phones listening (log scale). Points fill in
- * as the planner finishes them; `current` marks the user's own choice.
+ * as the planner finishes them; `current` marks the user's own choice, which the axis
+ * stretches to include.
  */
 export function sweepChart(counts: number[], points: Summary[], current: number) {
-  const x = (n: number) => M.l + ((Math.log(n) - Math.log(counts[0])) / (Math.log(counts[counts.length - 1]) - Math.log(counts[0]))) * (W - M.l - M.r);
+  const lo = Math.min(counts[0], current);
+  const hi = Math.max(counts[counts.length - 1], current);
+  const x = (n: number) => M.l + ((Math.log(n) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))) * (W - M.l - M.r);
   const y = (v: number) => M.t + (1 - v) * (H - M.t - M.b);
   const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': 'Quakes detected and shaken area warned in time, by number of phones' });
   for (const v of [0, 0.5, 1]) {
     svg.append(el('line', { x1: M.l, x2: W - M.r, y1: y(v), y2: y(v), class: 'grid' }));
     svg.append(el('text', { x: M.l - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, `${v * 100}%`));
   }
-  for (const n of counts) svg.append(el('text', { x: x(n), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, fmtN(n)));
-  if (current >= counts[0] && current <= counts[counts.length - 1]) {
-    svg.append(el('line', { x1: x(current), x2: x(current), y1: M.t - 6, y2: H - M.b, class: 'you' }));
-  }
+  for (const n of new Set([lo, ...counts, hi])) svg.append(el('text', { x: x(n), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, fmtN(n)));
+  svg.append(el('line', { x1: x(current), x2: x(current), y1: M.t - 6, y2: H - M.b, class: 'you' }));
 
   const sorted = [...points].sort((a, b) => a.phones - b.phones);
   const ends: { y: number; label: string }[] = [];
@@ -51,7 +52,7 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
     svg.append(el('polyline', { points: pts.map((p) => `${x(p.n)},${y(p.v)}`).join(' '), fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
     for (const p of pts) svg.append(el('circle', { cx: x(p.n), cy: y(p.v), r: 4, fill: s.color, class: 'dot' }));
     const last = pts[pts.length - 1];
-    if (last.n === counts[counts.length - 1]) ends.push({ y: y(last.v), label: s.key });
+    if (last.n === hi) ends.push({ y: y(last.v), label: s.key });
   }
   // Direct labels at the line ends, unless they would collide (the legend still names both).
   if (ends.length === 2 ? Math.abs(ends[0].y - ends[1].y) > 13 : ends.length === 1) {

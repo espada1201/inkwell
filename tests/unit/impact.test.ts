@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { distanceKm, offset } from '../../src/core/geo';
 import { shakeGrid, sRadiusKm, warningSummary } from '../../src/core/impact';
-import { G, VS_KMS, intensity, intensityLevel } from '../../src/core/physics';
+import { G, VS_KMS, intensityLevel } from '../../src/core/physics';
 
 const epi = { lat: 38, lon: -122 };
 
@@ -48,8 +48,8 @@ describe('shaking map', () => {
   });
 
   it('maps PGA to the intensity scale', () => {
-    expect(intensity(0.001)).toBe('not felt');
-    expect(intensityLevel(0.05 * G)).toBe(3);
-    expect(intensity(0.5 * G)).toBe('severe');
+    expect(intensityLevel(0.001)).toBe(0); // not felt
+    expect(intensityLevel(0.05 * G)).toBe(3); // moderate
+    expect(intensityLevel(0.5 * G)).toBe(6); // severe
   });
 });

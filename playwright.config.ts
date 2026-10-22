@@ -22,7 +22,8 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } }, testMatch: /mobile\.spec/ },
   ],
   webServer: {
-    command: 'npx vite build && npx vite preview --port 4173 --strictPort --host 127.0.0.1',
+    // CI has just built the app; locally, build first so the tests never run a stale copy.
+    command: `${process.env.CI ? '' : 'npx vite build && '}npx vite preview --port 4173 --strictPort --host 127.0.0.1`,
     url: 'http://127.0.0.1:4173',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

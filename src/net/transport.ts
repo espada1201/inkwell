@@ -6,7 +6,6 @@ export interface RelayStatus {
   url: string;
   state: RelayState;
   received: number;
-  sent: number;
 }
 
 /** The seam between Tremor and the outside world. Production: public Nostr relays. Tests: a local fake. */
@@ -41,7 +40,7 @@ class RelayConn {
     private readonly deliver: (subId: string, ev: Event) => void,
     private readonly changed: () => void,
   ) {
-    this.status = { url, state: 'connecting', received: 0, sent: 0 };
+    this.status = { url, state: 'connecting', received: 0 };
     this.connect();
   }
 
@@ -99,9 +98,7 @@ class RelayConn {
   }
 
   publish(ev: Event) {
-    this.status.sent++;
     this.send(['EVENT', ev], true);
-    this.changed();
   }
 
   close() {

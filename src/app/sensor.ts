@@ -31,7 +31,6 @@ export class SensorNode extends Emitter {
   fs = 0;
   /** Ring buffer of recent shaking magnitude for the live trace. */
   trace: Float32Array = new Float32Array(0);
-  ratioTrace: Float32Array = new Float32Array(0);
   head = 0;
   noise = 0;
   log: LogEntry[] = [];
@@ -135,14 +134,12 @@ export class SensorNode extends Emitter {
       this.fs = Math.max(10, Math.min(200, Math.round(1000 / ms)));
       this.detector = new NodeDetector(this.fs);
       this.trace = new Float32Array(TRACE_S * this.fs);
-      this.ratioTrace = new Float32Array(TRACE_S * this.fs);
       clearTimeout(this.noDataTimer);
       this.heartbeat();
     }
     const d = this.detector;
     const out = d.push({ t, x: a.x, y: a.y, z: a.z });
     this.trace[this.head] = d.level;
-    this.ratioTrace[this.head] = d.ratio;
     this.head = (this.head + 1) % this.trace.length;
     this.noise += (d.level - this.noise) * 0.002;
     const s: SensorState = d.warmingUp ? 'warming' : 'listening';
@@ -164,7 +161,10 @@ export class SensorNode extends Emitter {
       return;
     }
     this.openPick = null;
-    if (out.kind === 'reject' && pickId) this.transport.publish(signRetraction(this.sk, pickId, out.reason));
+    if (out.kind === 'reject' && pickId) {
+      this.transport.publish(signRetraction(this.sk, pickId, out.reason));
+      published = true;
+    }
     if (out.kind === 'trigger' && this.canPublish) {
       this.transport.publish(signTrigger(this.sk, { ...this.location!, t: out.t, phase: out.phase, pga: out.pga, dur: out.durS }, pickId));
       published = true;

@@ -67,8 +67,8 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const rows: [string, number | null, string][] = [
       ['Rupture', truth ? ORIGIN_OFFSET_S * 1000 : null, truth ? `M${truth.mag.toFixed(1)}, ${truth.depthKm} km deep` : 'no earthquake in this scenario'],
       ['First phone picks', Number.isFinite(firstPick) && firstPick <= r.vt ? firstPick : null, truth ? 'first wave felt; sent within half a second, before any vetting' : 'a disturbance; sent within half a second, before any vetting'],
-      ['Network declares', r.declared?.at ?? null, r.declared ? `${r.declared.event.triggers.length} phones agree, none of the quiet ones object` : 'needs 4 picks that fit one wavefront'],
-      ['Confirmed and sized', r.confirmedAt, r.events.length ? `${r.events[0].triggers.length} vetted triggers, magnitude from their peak shaking` : 'each phone vets its shaking for ~15 s first'],
+      ['Network declares', r.declared?.at ?? null, r.declared ? `${r.declared.event.triggers.length} phones agree and the quiet ones do not outvote them` : 'needs 4 picks that fit one wavefront'],
+      ['Confirmed and sized', r.confirmedAt, r.events.length ? `${r.events[0].triggers.length} vetted triggers, magnitude from their peak shaking` : 'each phone checks its shaking for 15–30 s first'],
     ];
     steps.replaceChildren(
       ...rows.map(([label, at, note]) =>
@@ -97,7 +97,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
           {},
           r.declared
             ? 'The network declared a quake that did not happen. This is the failure mode early warning has to keep rare.'
-            : `${rej} local disturbances were picked up and withdrawn by the phones themselves; the picks never lined up into a wavefront the quiet phones could agree with.`,
+            : `${rej} local disturbances were caught and withdrawn by the phones themselves; the picks never lined up into a wavefront the quiet phones could agree with.`,
         ),
       );
     }
@@ -219,9 +219,9 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
       h(
         'div',
         { class: 'legend-inline' },
-        h('span', {}, h('i', { style: 'background:var(--ink)' }), 'P-wave moveout'),
-        h('span', {}, h('i', { style: 'background:var(--red)' }), 'S-wave · confirmed trigger'),
-        h('span', {}, h('i', { style: 'background:var(--amber)' }), 'caught on-device'),
+        h('span', {}, h('i', { style: 'background:var(--ink)' }), 'P wave · phones that felt it first'),
+        h('span', {}, h('i', { style: 'background:var(--red)' }), 'S wave · phones that felt it first'),
+        h('span', {}, h('i', { style: 'background:var(--amber)' }), 'withdrawn by the phone'),
       ),
       stats,
     ),

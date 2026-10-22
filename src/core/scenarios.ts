@@ -37,7 +37,7 @@ export const SCENARIOS: Scenario[] = [
     id: 'ridgecrest-2019',
     title: 'Ridgecrest M7.1',
     place: 'Mojave Desert, California',
-    blurb: '6 Jul 2019. A sparse desert network: few phones, long distances, strong shaking.',
+    blurb: '5 Jul 2019, evening. A sparse desert network: few phones, long distances, strong shaking.',
     truth: { lat: 35.77, lon: -117.599, depthKm: 8, mag: 7.1, usgsId: 'ci38457511', date: '2019-07-06T03:19:53Z' },
     city: { lat: 35.55, lon: -117.75 },
     radiusKm: 110,
@@ -61,7 +61,7 @@ export const SCENARIOS: Scenario[] = [
     id: 'stadium-night',
     title: 'Concert night, no quake',
     place: 'Downtown Los Angeles',
-    blurb: 'Thousands of footsteps, slammed doors and phones grabbed off tables. The network should stay quiet.',
+    blurb: 'Footsteps, slammed doors and phones grabbed off tables all evening. The network should stay quiet.',
     truth: null,
     city: { lat: 34.05, lon: -118.25 },
     radiusKm: 15,
@@ -74,13 +74,7 @@ export const SCENARIOS: Scenario[] = [
 export interface SimNode extends LatLon {
   id: string;
   distKm: number | null;
-  /** Seconds after scenario start. */
-  tP: number | null;
-  tS: number | null;
   pga: number;
-  /** Phone clock error, seconds: real phones are only NTP-accurate. */
-  clockErr: number;
-  disturbance: 'footsteps' | 'slam' | 'pickup' | null;
   samples: Sample[];
   outputs: DetectorOutput[];
 }
@@ -95,7 +89,8 @@ export interface Simulation {
 }
 
 export const ORIGIN_OFFSET_S = 25;
-const FS = 50;
+/** Samples per second of every simulated phone record. */
+export const FS = 50;
 
 /** Build a phone network around the city and synthesise every phone's accelerometer record. */
 export function simulate(s: Scenario, start: number): Simulation {
@@ -132,7 +127,7 @@ export function simulate(s: Scenario, start: number): Simulation {
       const o = det.push(smp);
       if (o) outputs.push(o);
     }
-    nodes.push({ id: `${s.id}-${i}`, ...loc, distKm, tP, tS, pga, clockErr, disturbance, samples, outputs });
+    nodes.push({ id: `${s.id}-${i}`, ...loc, distKm, pga, samples, outputs });
   }
   return { scenario: s, start, origin: start + ORIGIN_OFFSET_S * 1000, durationS, nodes };
 }

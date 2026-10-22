@@ -19,7 +19,6 @@ export function networkView(ctx: NetworkCtx) {
   const root = h('div', { class: 'panel-inner' });
 
   map.onSelect = (kind, id) => {
-    if (kind === 'node') return;
     selected = { kind, id };
     render();
   };
@@ -28,12 +27,14 @@ export function networkView(ctx: NetworkCtx) {
     const now = Date.now();
     const winMs = live.usgsWindow === 'hour' ? 3600_000 : 86400_000;
     map.setUsgs(live.usgs.map((q) => ({ id: q.id, lat: q.lat, lon: q.lon, mag: q.mag, age: Math.min(1, (now - q.time) / winMs) })));
+    // Phones with a pick still being checked: retracted picks leave the list.
+    const picking = new Set([...live.picks.values()].filter((p) => now - p.t < 60_000).map((p) => p.node));
     map.setNodes(
       [...live.nodes.values()].map((n) => ({
         id: n.id,
         lat: n.lat,
         lon: n.lon,
-        state: !live.isOnline(n, now) ? 'offline' : n.lastTrigger && now - n.lastTrigger < 120_000 ? 'trigger' : 'idle',
+        state: !live.isOnline(n, now) ? 'offline' : n.lastTrigger && now - n.lastTrigger < 120_000 ? 'trigger' : picking.has(n.id) ? 'pick' : 'idle',
       })),
     );
     map.setEvents([
@@ -136,7 +137,7 @@ export function networkView(ctx: NetworkCtx) {
           'section',
           { class: 'warn-card', role: 'alert', 'data-testid': 'provisional' },
           h('header', {}, h('b', {}, 'Provisional detection'), h('span', { class: 'mono' }, ago(e.time))),
-          h('p', {}, `${e.triggers.length} phones felt shaking start in a pattern that fits one source near ${coord(e.lat, e.lon)}, and no quiet phone nearby objects. Waiting for the phones to confirm.`),
+          h('p', {}, `${e.triggers.length} phones felt shaking start in a pattern that fits one source near ${coord(e.lat, e.lon)}, and the phones nearby that stayed quiet do not outvote them. Waiting for the phones to confirm.`),
         ),
       ),
       detail ?? '',
@@ -198,7 +199,7 @@ export function networkView(ctx: NetworkCtx) {
         ),
         usgsBody,
       ),
-      h('p', { class: 'honest' }, 'Community science, not a warning system. Phones only feel strong, nearby shaking, and anyone can publish to public relays. For official alerts use your national seismic service.'),
+      h('p', { class: 'honest' }, 'Community science, not an official warning system. Phones only feel fairly strong shaking, and anyone can publish to public relays. For official alerts use your national seismic service.'),
       relaysBox(),
     );
     syncMap();
@@ -222,7 +223,7 @@ export function networkView(ctx: NetworkCtx) {
       h(
         'p',
         { class: 'small muted' },
-        'Any Nostr relay works. Tremor events are tagged #tremor: kind 4578 picks, kind 5 retractions, kind 4579 confirmed triggers and kind 34579 heartbeats.',
+        'Most public Nostr relays work. Tremor events are tagged #tremor: kind 4578 picks, kind 5 retractions, kind 4579 confirmed triggers and kind 34579 heartbeats.',
       ),
       h(
         'button',
@@ -253,5 +254,12 @@ export function networkView(ctx: NetworkCtx) {
   });
   const tick = setInterval(render, 15_000);
   render();
-  return { el: root, dispose: () => (off(), clearInterval(tick)) };
+  return {
+    el: root,
+    dispose: () => {
+      off();
+      clearInterval(tick);
+      map.onSelect = () => {};
+    },
+  };
 }

@@ -34,7 +34,7 @@ export interface AssociateOptions {
  * their time difference is no larger than that wave's travel time between the nodes (plus slack).
  *  1. From every unused trigger, grow a cluster of pairwise-compatible triggers (one per node).
  *  2. Locate the largest cluster by grid search, dropping bad clocks.
- *  3. If it holds one wave only, try adding the largest cluster of the other wave: from outside
+ *  3. Try adding the largest cluster of the other wave: from outside
  *     the network a quake's distance trades off against its origin time, and the gap between
  *     its P and S arrivals is what pins it.
  *  4. Re-gather every unused trigger the solution explains as an arrival of its own wave, and

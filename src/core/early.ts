@@ -27,9 +27,9 @@ export interface EarlyEvent extends DetectedEvent {
  * only declared when the phones that stayed quiet agree too: every listening phone closer to
  * the epicentre than the farthest phone that picked a wave, once that wave has had time to
  * reach it, must mostly have picked as well (the "not-yet-arrived" idea used by real
- * early-warning systems). A handful of picks could be a coincidence of bumps, so nearly every
- * quiet phone must agree. Dozens of phones on one wavefront cannot be a coincidence, and a
- * weak wave is only noticed by some phones, so then a third will do.
+ * early-warning systems). The minimum handful of picks could be a coincidence of bumps, so
+ * then nearly every quiet phone must agree. Four times as many phones on one wavefront cannot
+ * be a coincidence, and a weak wave is only noticed by some phones, so then a third will do.
  */
 export function earlyDetect(picks: Trigger[], nodes: (LatLon & { id: string })[], now: number, o: EarlyOptions = {}): EarlyEvent[] {
   const minPicks = o.minPicks ?? 4;

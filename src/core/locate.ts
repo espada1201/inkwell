@@ -194,8 +194,8 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
   const n = arr.length;
   const r = new Float64Array(n);
 
-  // Costs only grow term by term, so a trial point stops being evaluated as soon as it is
-  // already worse than the best so far: exact, and most grid points are far from the best.
+  // Costs only grow term by term, so summing stops as soon as a trial point is already worse
+  // than the best so far: exact, and most grid points are far from the best.
   const misfit = (px: number, py: number, bound = Infinity) => {
     let farP2 = -1;
     let farS2 = -1;
@@ -209,7 +209,7 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
     }
     const t0 = quickMedian(r, n);
     let cost = 0;
-    for (let i = 0; i < n; i++) cost += Math.abs(r[i] - t0);
+    for (let i = 0; i < n && cost < bound; i++) cost += Math.abs(r[i] - t0);
     if (useSilent && cost < bound) {
       for (let k = 0; k < S.x.length && cost < bound; k++) {
         const dx = px - S.x[k];

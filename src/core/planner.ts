@@ -44,7 +44,6 @@ interface Response {
 }
 
 export interface PhoneModel {
-  mag: number;
   /** [shaking level][S−P time][run] */
   cells: Response[][][];
 }
@@ -80,7 +79,7 @@ export function calibrate(mag: number): PhoneModel {
       }),
     ),
   );
-  return { mag, cells };
+  return { cells };
 }
 
 /** Draw one phone's behaviour for a given true shaking level and S−P time. */
@@ -121,9 +120,8 @@ export interface Trial {
   epicentre: LatLon;
   /** Seconds after the rupture that a watching browser declared the quake; null = missed. */
   declaredS: number | null;
-  earlyErrKm: number | null;
+  /** Distance from the epicentre the vetted triggers point to, km; null = not located. */
   errKm: number | null;
-  mag: number | null;
   /** Per resident who felt at least moderate shaking: seconds of warning (≤ 0: none in time). */
   warnings: number[];
 }
@@ -260,16 +258,12 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
     if (intensityLevel(pgaFor(input.mag, hyp)) >= 3) warnings.push(hyp / VS_KMS - alertAt);
   }
   let errKm: number | null = null;
-  let mag: number | null = null;
   if (input.confirm && triggers.length >= 3) {
     const sample = triggers.length > MAX_CONFIRM ? triggers.filter((_, i) => i % Math.ceil(triggers.length / MAX_CONFIRM) === 0) : triggers;
     const ev = associate(sample).sort((a, b) => b.triggers.length - a.triggers.length)[0];
-    if (ev) {
-      errKm = distanceKm(ev, epi);
-      mag = ev.mag;
-    }
+    if (ev) errKm = distanceKm(ev, epi);
   }
-  const trial: Trial = { epicentre: epi, declaredS, earlyErrKm: dec && distanceKm(dec.ev, epi), errKm, mag, warnings };
+  const trial: Trial = { epicentre: epi, declaredS, errKm, warnings };
   return { trial, phones };
 }
 
@@ -317,12 +311,4 @@ export function* simulatePlan(input: PlanInput, model: PhoneModel): Generator<nu
       quietMinutes,
     },
   };
-}
-
-export function runPlan(input: PlanInput, model: PhoneModel): PlanResult {
-  const steps = simulatePlan(input, model);
-  for (;;) {
-    const s = steps.next();
-    if (s.done) return s.value;
-  }
 }

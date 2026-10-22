@@ -27,16 +27,13 @@ export function magnitudeFrom(pga: number, rKm: number): number {
   return (Math.log10(pga / G) + 1.5 * Math.log10(rKm + 10) + 0.5) / 0.3;
 }
 
-/** Felt intensity (rough Modified Mercalli mapping from PGA): thresholds in g, and labels. */
+/** Felt intensity (rough Modified Mercalli mapping from PGA): thresholds in g. */
 const MMI_G = [0.0017, 0.014, 0.039, 0.092, 0.18, 0.34];
-export const INTENSITY = ['not felt', 'weak', 'light', 'moderate', 'strong', 'very strong', 'severe'] as const;
 
-/** 0 = not felt … 6 = severe. */
+/** 0 = not felt, 1 weak, 2 light, 3 moderate, 4 strong, 5 very strong, 6 severe. */
 export function intensityLevel(pga: number): number {
   const g = pga / G;
   let k = 0;
   while (k < MMI_G.length && g >= MMI_G[k]) k++;
   return k;
 }
-
-export const intensity = (pga: number) => INTENSITY[intensityLevel(pga)];

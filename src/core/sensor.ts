@@ -13,10 +13,10 @@ export interface Sample {
 export type RejectReason = 'handling' | 'impulse' | 'footsteps';
 
 export type DetectorOutput =
-  /** Provisional: shaking just started. Sent within a second so the network can react fast. */
+  /** Provisional: shaking just started. Sent within half a second so the network can react fast. */
   | { kind: 'pick'; t: number; at: number; phase: Phase }
-  | { kind: 'trigger'; t: number; at: number; phase: Phase; pga: number; durS: number; ratio: number }
-  | { kind: 'reject'; t: number; at: number; reason: RejectReason; pga: number };
+  | { kind: 'trigger'; t: number; at: number; phase: Phase; pga: number; durS: number }
+  | { kind: 'reject'; t: number; at: number; reason: RejectReason };
 
 export interface DetectorOptions {
   staS?: number;
@@ -41,8 +41,8 @@ const DEG = 180 / Math.PI;
  *     P waves shake the ground mostly up and down, S waves mostly side to side, and gravity
  *     tells the phone which way is down however it lies.
  *  4. The candidate is judged once shaking has died down: phone rotated → handling; under a
- *     second of strong motion → impulse (door slam, bump); three or more separate bursts →
- *     footsteps. Survivors trigger, with the onset time of the first arrival.
+ *     second of strong motion → impulse (door slam, bump); four or more bursts, mostly under a
+ *     second each → footsteps. Survivors trigger, with the onset time of the first arrival.
  * Each false alarm raises the threshold, which relaxes back over a couple of minutes.
  */
 export class NodeDetector {
@@ -76,7 +76,6 @@ export class NodeDetector {
     lastLoud: number;
     peak: number;
     peakEnv: number;
-    maxRatio: number;
     maxTilt: number;
     envs: number[];
   } | null = null;
@@ -132,7 +131,7 @@ export class NodeDetector {
       if (s.t >= this.holdUntil && this.ratio > this.threshold && Math.sqrt(this.sta) > this.floor) {
         const g0 = this.gHist[0] ?? this.gNow;
         const gm = Math.hypot(...g0) || 1;
-        this.cand = { t0: s.t, g0, down: [g0[0] / gm, g0[1] / gm, g0[2] / gm], ev: 0, eh: 0, phase: null, lastLoud: s.t, peak: a, peakEnv: env, maxRatio: this.ratio, maxTilt: 0, envs: [env] };
+        this.cand = { t0: s.t, g0, down: [g0[0] / gm, g0[1] / gm, g0[2] / gm], ev: 0, eh: 0, phase: null, lastLoud: s.t, peak: a, peakEnv: env, maxTilt: 0, envs: [env] };
         this.polarize(f, e);
       }
       return null;
@@ -147,7 +146,6 @@ export class NodeDetector {
     }
     c.peak = Math.max(c.peak, a);
     c.peakEnv = Math.max(c.peakEnv, env);
-    c.maxRatio = Math.max(c.maxRatio, this.ratio);
     c.maxTilt = Math.max(c.maxTilt, angle(c.g0, this.gNow));
     c.envs.push(env);
     if (env > 0.15 * c.peakEnv) c.lastLoud = s.t;
@@ -185,10 +183,10 @@ export class NodeDetector {
     if (reason) {
       this.threshold = Math.min(this.threshold * 1.25, this.base * 3);
       this.holdUntil = t + (reason === 'handling' ? 30000 : 2000);
-      return { kind: 'reject', t: c.t0, at: t, reason, pga: c.peak };
+      return { kind: 'reject', t: c.t0, at: t, reason };
     }
     this.holdUntil = t + 10000;
-    return { kind: 'trigger', t: c.t0, at: t, phase: c.phase ?? 'P', pga: c.peak, durS: activeS, ratio: c.maxRatio };
+    return { kind: 'trigger', t: c.t0, at: t, phase: c.phase ?? 'P', pga: c.peak, durS: activeS };
   }
 
   private polarize(f: number[], e: number) {

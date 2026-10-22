@@ -199,7 +199,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
   map.setTruth(null);
   map.setNodes([]);
   root.append(
-    h('div', {}, h('h1', {}, 'Plan a network'), h('p', { class: 'lede' }, 'How many phones does a city need? Pick a place and an earthquake. Tremor throws dozens of simulated quakes at a simulated network of phones, using the same detector and network code as the live map.')),
+    h('div', {}, h('h1', {}, 'Plan a network'), h('p', { class: 'lede' }, 'How many phones does a city need? Pick a place and an earthquake. Tremor throws dozens of simulated quakes at simulated phones that behave like the real detector, through the same network code as the live map.')),
     h('section', { class: 'plan-controls' }, cityButtons, cityNote, h('div', { class: 'transport' }, magSeg, settingSeg), h('label', { class: 'phones' }, h('span', {}, 'Phones listening at the moment it strikes'), phonesOut), slider),
     status,
     results,

@@ -3,7 +3,7 @@ import { earlyDetect, type EarlyEvent } from '../core/early';
 import { Bandpass } from '../core/filters';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS } from '../core/physics';
-import { ORIGIN_OFFSET_S, simulate, type Scenario, type Simulation } from '../core/scenarios';
+import { FS, ORIGIN_OFFSET_S, simulate, type Scenario, type Simulation } from '../core/scenarios';
 import type { Phase } from '../core/physics';
 import type { RejectReason } from '../core/sensor';
 import { Emitter } from '../ui/dom';
@@ -17,7 +17,7 @@ export interface ReplayNodeView {
   trace: Float32Array;
   /** Scenario-relative ms (onset t, sent at), and the wave the phone felt. */
   picks: { t: number; at: number; phase: Phase }[];
-  trigger: { t: number; at: number; pga: number } | null;
+  trigger: { t: number; at: number; pga: number; phase: Phase } | null;
   rejects: { t: number; at: number; reason: RejectReason }[];
 }
 
@@ -28,7 +28,6 @@ interface Arrival {
   tr: Trigger;
 }
 
-const FS = 50;
 /** Assumed phone → relay → browser latency, ms. */
 export const RELAY_LATENCY_MS = 1000;
 
@@ -53,8 +52,6 @@ export class Replay extends Emitter {
   declared: { at: number; event: EarlyEvent } | null = null;
   /** When the first confirmed event formed (scenario ms). */
   confirmedAt: number | null = null;
-  /** Provisional alerts that later fell apart (should never happen without a quake). */
-  withdrawn = 0;
   arrivedTriggers: Trigger[] = [];
   private queue: Arrival[] = [];
   private next = 0;
@@ -80,7 +77,7 @@ export class Replay extends Emitter {
         const tr: Trigger = { id: `${n.id}@${o.t}`, node: n.id, lat: n.lat, lon: n.lon, t: o.t, pga: o.kind === 'trigger' ? o.pga : 0, phase: o.kind === 'reject' ? undefined : o.phase };
         const rel = { t: o.t - start, at: o.at - start };
         if (o.kind === 'pick') view.picks.push({ ...rel, phase: o.phase });
-        else if (o.kind === 'trigger') view.trigger ??= { ...rel, pga: o.pga };
+        else if (o.kind === 'trigger') view.trigger ??= { ...rel, pga: o.pga, phase: o.phase };
         else view.rejects.push({ ...rel, reason: o.reason });
         this.queue.push({ at: rel.at + RELAY_LATENCY_MS, kind: o.kind === 'reject' ? 'retract' : o.kind, tr });
       }
@@ -130,7 +127,6 @@ export class Replay extends Emitter {
     this.early = null;
     this.declared = null;
     this.confirmedAt = null;
-    this.withdrawn = 0;
     this.advance(Math.max(0, Math.min(vt, this.duration)));
   }
 
@@ -164,10 +160,8 @@ export class Replay extends Emitter {
 
   private evaluateEarly(at: number) {
     const evs = earlyDetect([...this.picks.values()], this.nodes, this.sim!.start + at);
-    const was = this.early;
     this.early = evs[0] ?? null;
     if (this.early && !this.declared) this.declared = { at, event: this.early };
-    if (was && !this.early && !this.events.length) this.withdrawn++;
   }
 
   /** Warning-time analysis for the first declaration (needs a real quake). */

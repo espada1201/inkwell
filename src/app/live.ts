@@ -11,7 +11,6 @@ export interface LiveNode extends Heartbeat {
   id: string;
   lastSeen: number;
   lastTrigger: number | null;
-  lastPick: number | null;
 }
 
 const WINDOW_MS = 2 * 3600_000;
@@ -36,8 +35,6 @@ export class LiveNetwork extends Emitter {
   usgsWindow: UsgsWindow;
   private pending: { node: string; ev: Event }[] = [];
   private retracted = new Set<string>();
-  private timers: ReturnType<typeof setInterval>[] = [];
-  private unsub: (() => void) | null = null;
   private recomputeQueued = false;
 
   constructor(
@@ -50,16 +47,11 @@ export class LiveNetwork extends Emitter {
   }
 
   start() {
-    this.unsub = this.transport.subscribe(filters(Date.now() - WINDOW_MS), (ev) => this.ingest(ev));
+    this.transport.subscribe(filters(Date.now() - WINDOW_MS), (ev) => this.ingest(ev));
     this.transport.onStatus(() => this.emit());
     this.refreshUsgs();
-    this.timers.push(setInterval(() => this.refreshUsgs(), 120_000));
-    this.timers.push(setInterval(() => this.prune(), 15_000));
-  }
-
-  stop() {
-    this.unsub?.();
-    this.timers.forEach(clearInterval);
+    setInterval(() => this.refreshUsgs(), 120_000);
+    setInterval(() => this.prune(), 15_000);
   }
 
   setUsgsWindow(w: UsgsWindow) {
@@ -85,7 +77,7 @@ export class LiveNetwork extends Emitter {
     if (m.type === 'heartbeat') {
       const prev = this.nodes.get(m.node);
       if (prev && prev.lastSeen > m.at) return;
-      this.nodes.set(m.node, { ...m.data, id: m.node, lastSeen: m.at, lastTrigger: prev?.lastTrigger ?? null, lastPick: prev?.lastPick ?? null });
+      this.nodes.set(m.node, { ...m.data, id: m.node, lastSeen: m.at, lastTrigger: prev?.lastTrigger ?? null });
       const held = this.pending.filter((p) => p.node === m.node);
       this.pending = this.pending.filter((p) => p.node !== m.node);
       held.forEach((p) => this.ingest(p.ev));
@@ -106,7 +98,6 @@ export class LiveNetwork extends Emitter {
       if (m.type === 'pick') {
         if (this.picks.has(t.id) || this.retracted.has(t.id) || this.burst(m.node, [...this.picks.values()])) return;
         this.picks.set(t.id, t);
-        n.lastPick = Math.max(n.lastPick ?? 0, t.t);
       } else {
         if (this.triggers.some((x) => x.id === t.id) || this.burst(m.node, this.triggers)) return;
         this.triggers.push(t);

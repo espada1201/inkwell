@@ -14,7 +14,7 @@ const STATE_COPY: Record<SensorNode['state'], [string, string]> = {
   denied: ['Motion access denied', 'Allow motion and orientation access for this site in your browser settings, then try again.'],
   'no-data': ['No motion data', 'The browser allowed access but no readings arrived. Desktop computers usually have no accelerometer: try a phone.'],
   warming: ['Warming up', 'Learning this spot’s background noise. Keep the phone still.'],
-  listening: ['Listening', 'Watching for strong shaking. Footsteps, bumps and handling are filtered out on this device.'],
+  listening: ['Listening', 'Watching for strong shaking. This phone recognises most footsteps, bumps and handling, and withdraws them.'],
 };
 
 export function sensorView(s: SensorNode) {
@@ -34,7 +34,7 @@ export function sensorView(s: SensorNode) {
     const scale = (v: number) => Math.min(100, (Math.log10(1 + v) / Math.log10(1 + 50)) * 100);
     meterFill.style.width = `${d ? scale(d.ratio) : 0}%`;
     meterThr.style.left = `${d ? scale(d.threshold) : 0}%`;
-    ratioText.textContent = d ? `STA/LTA ${d.ratio.toFixed(1)} · trigger at ${d.threshold.toFixed(1)}` : 'STA/LTA —';
+    ratioText.textContent = d ? `STA/LTA ${d.ratio.toFixed(1)} · threshold ${d.threshold.toFixed(1)}` : 'STA/LTA —';
     raf = dimmed || document.hidden ? 0 : requestAnimationFrame(loop);
   }
 
@@ -122,11 +122,11 @@ export function sensorView(s: SensorNode) {
                   h('span', {}, new Date(l.out.t).toLocaleTimeString()),
                   l.out.kind === 'trigger'
                     ? h('span', { class: 'tag trig' }, `TRIGGER ${l.out.pga.toFixed(2)} m/s² · ${l.out.phase} wave${l.published ? ' · sent' : ' · not sent'}`)
-                    : h('span', { class: 'tag rej' }, `ignored: ${REASONS[l.out.reason]}`),
+                    : h('span', { class: 'tag rej' }, `${l.published ? 'withdrawn' : 'ignored'}: ${REASONS[l.out.reason]}`),
                 ),
               ),
             )
-          : h('p', { class: 'small muted' }, 'Nothing yet. Try tapping the table: the phone should notice and ignore it.'),
+          : h('p', { class: 'small muted' }, 'Nothing yet. Try tapping the table: the phone should notice it, and its verdict appears here 15–30 s later.'),
       ),
     );
     right.replaceChildren(
@@ -134,11 +134,11 @@ export function sensorView(s: SensorNode) {
         'section',
         { class: 'card' },
         h('h2', {}, 'Network'),
-        h('label', { class: 'switch' }, join, h('span', {}, 'Share triggers with the Tremor network')),
+        h('label', { class: 'switch' }, join, h('span', {}, 'Share with the Tremor network')),
         h(
           'p',
           { class: 'small muted', 'data-testid': 'publish-note' },
-          s.canPublish ? 'On. Heartbeats every minute, triggers when confirmed, all signed with this phone’s key.' : !s.joined ? 'Off. Nothing leaves this phone.' : 'Set a location to start sharing.',
+          s.canPublish ? 'On. Shaking goes out at once as a pick, then is confirmed or withdrawn, plus a heartbeat every minute. All signed with this phone’s key.' : !s.joined ? 'Off. Nothing leaves this phone.' : 'Set a location to start sharing.',
         ),
       ),
       locationCard(),

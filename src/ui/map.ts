@@ -9,8 +9,8 @@ export const BASEMAP_URL = 'https://tiles.openfreemap.org/styles/positron';
 
 export interface MapNode extends LatLon {
   id: string;
-  /** idle | trigger | reject | offline | shaking */
-  state: string;
+  /** pick: felt shaking, still checking; trigger: confirmed; reject: withdrawn by the phone. */
+  state: 'idle' | 'pick' | 'trigger' | 'reject' | 'offline';
   /** 0..1 current shaking, drives the halo in replay */
   shake?: number;
 }
@@ -91,7 +91,7 @@ export const SHAKE_COLORS = ['rgba(0,0,0,0)', '#f3e7c4', '#efcf8e', '#e7a65e', '
 
 const INK = '#1d1c1a';
 const RED = '#c8261c';
-const AMBER = '#b7791f';
+const AMBER = '#a56a12';
 const PAPER = '#f4f1e8';
 const MUTED = '#6b675d';
 
@@ -99,7 +99,6 @@ const MUTED = '#6b675d';
 async function fallbackStyle(): Promise<StyleSpecification> {
   const [{ feature }, land] = await Promise.all([import('topojson-client'), import('world-atlas/land-50m.json')]);
   const topo = (land as { default?: unknown }).default ?? land;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const geo = feature(topo as any, (topo as any).objects.land) as unknown as GeoJSON.FeatureCollection;
   return {
     version: 8,
@@ -129,7 +128,7 @@ export class QuakeMap {
   map: MlMap | null = null;
   offline = false;
   readonly ready: Promise<void>;
-  onSelect: (kind: 'event' | 'usgs' | 'node', id: string) => void = () => {};
+  onSelect: (kind: 'event' | 'usgs', id: string) => void = () => {};
   private pending = new Map<string, FC>();
 
   constructor(container: HTMLElement, view: { center: LatLon; zoom: number }) {
@@ -282,7 +281,7 @@ export class QuakeMap {
       source: 'truth',
       paint: { 'circle-radius': 7, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': INK, 'circle-stroke-width': 2.5 },
     });
-    for (const [layer, kind] of [['events', 'event'], ['events-halo', 'event'], ['usgs', 'usgs'], ['nodes', 'node']] as const) {
+    for (const [layer, kind] of [['events', 'event'], ['events-halo', 'event'], ['usgs', 'usgs']] as const) {
       map.on('click', layer, (e: MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.id;
         if (id) this.onSelect(kind, String(id));

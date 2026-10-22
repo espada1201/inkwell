@@ -1,9 +1,8 @@
 import type { Replay } from '../app/replay';
 import { DEFAULT_DEPTH_KM, VP_KMS, VS_KMS } from '../core/physics';
-import { ORIGIN_OFFSET_S } from '../core/scenarios';
+import { FS, ORIGIN_OFFSET_S } from '../core/scenarios';
 import { css, fit } from './canvas';
 
-const FS = 50;
 const T_MIN = -5;
 const T_MAX = 50;
 
@@ -108,7 +107,8 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
       ctx.fillStyle = color;
       ctx.fillRect(x(t) - 1, base - rowH * 0.45, 2, rowH * 0.9);
     };
-    if (n.trigger && n.trigger.at / 1000 - ORIGIN_OFFSET_S <= now) mark(n.trigger.t, red);
+    // A confirmed onset, coloured by the wave the phone said it felt: it should sit on that wave's curve.
+    if (n.trigger && n.trigger.at / 1000 - ORIGIN_OFFSET_S <= now) mark(n.trigger.t, n.trigger.phase === 'S' ? red : ink);
     for (const rj of n.rejects) if (rj.at / 1000 - ORIGIN_OFFSET_S <= now) mark(rj.t, amber);
   });
 

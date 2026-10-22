@@ -36,7 +36,7 @@ test.describe('be a sensor', () => {
     await page.getByLabel('Longitude').fill('-122.41942');
     await page.getByRole('button', { name: 'Set' }).click();
     await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W');
-    await page.getByLabel('Share triggers with the Tremor network').check();
+    await page.getByLabel('Share with the Tremor network').check();
     await expect(page.getByTestId('publish-note')).toContainText('On.');
 
     await page.getByTestId('start').click();
@@ -52,7 +52,7 @@ test.describe('be a sensor', () => {
     });
     expect(inked).toBeGreaterThan(100);
 
-    // The provisional pick goes out the moment the P wave arrives...
+    // The provisional pick goes out within half a second of the P wave...
     await expect.poll(() => relay.events().filter((e) => e.kind === 4578).length, { timeout: 20_000 }).toBe(1);
     // ...and the vetted trigger about 15 s later, linked to it.
     await expect(page.getByTestId('sensor-log')).toContainText(/TRIGGER [\d.]+ m\/s² · P wave · sent/, { timeout: 40_000 });

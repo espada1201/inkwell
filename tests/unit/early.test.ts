@@ -42,7 +42,7 @@ describe('early detection from raw picks', () => {
     });
   }
 
-  it('concert night: thousands of footsteps and slams never add up to a quake', () => {
+  it('concert night: footsteps and slams all evening never add up to a quake', () => {
     expect(firstDeclaration('stadium-night').declarations).toBe(0);
   });
 
