@@ -21,7 +21,7 @@ export type Near = { km: number; time: number; level: number | null } & (
 );
 
 /** What has been reported near you that could have shaken you, nearest first. */
-export function nearYou(live: LiveNetwork, you: LatLon, now = Date.now()): Near[] {
+export function nearYou(live: Pick<LiveNetwork, 'early' | 'events' | 'feltClusters' | 'usgs'>, you: LatLon, now = Date.now()): Near[] {
   const shook = (e: { mag: number | null }, km: number, depthKm?: number) => (e.mag === null ? null : shakingLevel(e.mag, km, depthKm));
   const ours: Near[] = [
     ...live.early.map((e) => ({ kind: 'provisional' as const, e })),

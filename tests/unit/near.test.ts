@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { LiveNetwork } from '../../src/app/live';
 import { alerts, nearYou } from '../../src/app/near';
 import { offset } from '../../src/core/geo';
 import type { UsgsQuake } from '../../src/net/usgs';
@@ -7,7 +6,7 @@ import type { UsgsQuake } from '../../src/net/usgs';
 const you = { lat: 38.3, lon: -122.3 };
 const now = Date.UTC(2026, 9, 22, 8);
 const quake = (id: string, mag: number, km: number, depthKm: number): UsgsQuake => ({ id, mag, depthKm, place: id, time: now - 60_000, url: '', ...offset(you, km, 0) });
-const live = (usgs: UsgsQuake[]) => ({ early: [], events: [], feltClusters: [], usgs }) as unknown as LiveNetwork;
+const live = (usgs: UsgsQuake[]) => ({ early: [], events: [], feltClusters: [], usgs });
 
 describe('shaking near you', () => {
   it('puts a small quake close by at weak at most, and leaves out one too weak to feel here', () => {
