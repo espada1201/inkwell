@@ -228,7 +228,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
       h(
         'p',
         { class: 'small muted' },
-        `Inside ${w.blindKm.toFixed(0)} km the shaking beat the alert (the blind zone). Five seconds is enough to drop, cover and hold on, or to stop a train and open fire-station doors.`,
+        `Inside ${w.blindKm.toFixed(0)} km the shaking beat the alert (the blind zone). Official warning systems use seconds like these to have people drop, cover and hold on, slow trains and open fire-station doors; Tremor reaches only the screens that have it open.`,
       ),
     );
   }
@@ -302,6 +302,13 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
             ev,
             truth ? { lat: truth.lat, lon: truth.lon, time: sim.origin, mag: truth.mag, label: 'USGS catalogue', url: usgsEventUrl(truth.usgsId) } : null,
             'No real earthquake in this scenario, so this would be a false alarm.',
+          )
+        : '',
+      ev && truth
+        ? h(
+            'p',
+            { class: 'small muted' },
+            'Simulated phones shake by the same model Tremor sizes quakes with, so their magnitude matches by design. Real phones are rougher, and big quakes read low: Android’s phone network put Türkiye’s 2023 M7.8 at M4.5–4.9.',
           )
         : '',
     );
