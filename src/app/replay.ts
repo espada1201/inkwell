@@ -5,6 +5,7 @@ import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS, waveRadiusKm, type Phase } from '../core/physics';
 import { FS, ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
 import type { RejectReason } from '../core/sensor';
+import type { NodeState } from '../ui/map';
 import { Emitter } from './emitter';
 
 export interface ReplayNodeView {
@@ -29,6 +30,8 @@ interface Arrival {
 
 /** Assumed phone → relay → browser latency, ms. */
 export const RELAY_LATENCY_MS = 1000;
+/** A withdrawn pick stays drawn as withdrawn this long. */
+const WITHDRAWN_SHOWN_MS = 8000;
 
 /**
  * Plays a bundled scenario on a virtual clock. Every phone's synthetic record has already
@@ -51,6 +54,8 @@ export class Replay extends Emitter {
   declared: { at: number; event: EarlyEvent } | null = null;
   /** When the first confirmed event formed (scenario ms). */
   confirmedAt: number | null = null;
+  /** When the first pick went out (scenario ms): the first from the quake itself, or any without one. */
+  firstPickAt: number | null = null;
   private arrivedTriggers: Trigger[] = [];
   private queue: Arrival[] = [];
   private next = 0;
@@ -88,6 +93,9 @@ export class Replay extends Emitter {
       return view;
     });
     this.queue.sort((a, b) => a.at - b.at);
+    const after = s.truth ? ORIGIN_OFFSET_S * 1000 : -Infinity;
+    const first = Math.min(...this.nodes.flatMap((n) => n.picks.filter((p) => p.t >= after).map((p) => p.at)));
+    this.firstPickAt = Number.isFinite(first) ? first : null;
     this.seek(0);
   }
 
@@ -118,7 +126,9 @@ export class Replay extends Emitter {
 
   pause() {
     this.playing = false;
-    cancelAnimationFrame(this.raf);
+    // Frame handles are never 0, so this skips nothing scheduled, and a Replay runs without a browser.
+    if (this.raf) cancelAnimationFrame(this.raf);
+    this.raf = 0;
     this.emit();
   }
 
@@ -194,6 +204,25 @@ export class Replay extends Emitter {
     if (!truth || !this.declared) return null;
     const phones = this.sim!.nodes.map((n) => ({ lat: n.lat, lon: n.lon, pga: n.pga }));
     return warningSummary(phones, truth, truth.depthKm, sinceOrigin(this.declared.at), RELAY_LATENCY_MS / 1000);
+  }
+
+  /** How a phone is drawn now: confirmed, withdrawn a moment ago, still checking a pick, or idle. */
+  nodeState(n: ReplayNodeView): NodeState {
+    const vt = this.vt;
+    if (n.trigger && n.trigger.at <= vt) return 'trigger';
+    if (n.rejects.some((x) => x.at <= vt && vt - x.at < WITHDRAWN_SHOWN_MS)) return 'reject';
+    const pick = n.picks.filter((p) => p.at <= vt).pop();
+    if (!pick) return 'idle';
+    // Only the latest pick's own verdict ends its check, not one on an earlier pick.
+    const verdict = n.trigger?.t === pick.t ? n.trigger : n.rejects.find((x) => x.t === pick.t);
+    return verdict && verdict.at <= vt ? 'idle' : 'pick';
+  }
+
+  /** Phones whose own checks confirmed their shaking so far, and the picks phones withdrew so far, by reason. */
+  counts() {
+    const withdrawn = new Map<RejectReason, number>();
+    for (const n of this.nodes) for (const x of n.rejects) if (x.at <= this.vt) withdrawn.set(x.reason, (withdrawn.get(x.reason) ?? 0) + 1);
+    return { confirmed: this.nodes.filter((n) => n.trigger && n.trigger.at <= this.vt).length, withdrawn };
   }
 
   /** Current shaking at a node (0..1 for display). */

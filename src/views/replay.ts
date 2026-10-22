@@ -75,12 +75,9 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   function timeline() {
     const sim = r.sim!;
     const truth = sim.scenario.truth;
-    // With a quake, the first pick that came from the quake itself; without one, any pick.
-    const after = truth ? ORIGIN_OFFSET_S * 1000 : -Infinity;
-    const firstPick = Math.min(...r.nodes.flatMap((n) => n.picks.filter((p) => p.t >= after).map((p) => p.at)));
     const rows: [string, number | null, string][] = [
       ['Rupture', truth ? ORIGIN_OFFSET_S * 1000 : null, truth ? `M${truth.mag.toFixed(1)}, ${truth.depthKm} km deep` : 'no earthquake in this scenario'],
-      ['First phone picks', Number.isFinite(firstPick) && firstPick <= r.vt ? firstPick : null, truth ? 'first wave felt; sent within half a second, before any vetting' : 'a disturbance; sent within half a second, before any vetting'],
+      ['First phone picks', r.firstPickAt, truth ? 'first wave felt; sent within half a second, before any vetting' : 'a disturbance; sent within half a second, before any vetting'],
       ['Network declares', r.declared?.at ?? null, r.declared ? `${r.declared.event.triggers.length} phones agree and the quiet ones do not outvote them` : 'needs picks from 4 phones in 3 places that fit one wavefront'],
       ['Confirmed and sized', r.confirmedAt, r.events.length ? `${r.events[0].triggers.length} vetted triggers, magnitude from their peak shaking` : 'each phone checks its shaking for 15–30 s first'],
     ];
@@ -101,7 +98,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const sim = r.sim!;
     const w = r.warning();
     if (!sim.scenario.truth) {
-      const rej = r.nodes.reduce((k, n) => k + n.rejects.filter((x) => x.at <= r.vt).length, 0);
+      const rej = [...r.counts().withdrawn.values()].reduce((a, b) => a + b, 0);
       return h(
         'section',
         { class: 'warn-card calm', 'data-testid': 'warning' },
@@ -166,18 +163,10 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     if (r.playing && now - lastHeavy < 66) return;
     lastHeavy = now;
 
-    const trig = r.nodes.filter((n) => n.trigger && n.trigger.at <= r.vt).length;
-    const rej = r.nodes.reduce((k, n) => k + n.rejects.filter((x) => x.at <= r.vt).length, 0);
+    const { confirmed: trig, withdrawn } = r.counts();
+    const rej = [...withdrawn.values()].reduce((a, b) => a + b, 0);
     stats.textContent = `${r.nodes.length} phones · ${trig} confirmed · ${rej} false alarms caught on-device`;
-    map.setNodes(
-      r.nodes.map((n) => ({
-        id: n.id,
-        lat: n.lat,
-        lon: n.lon,
-        state: n.trigger && n.trigger.at <= r.vt ? 'trigger' : n.rejects.some((x) => x.at <= r.vt && r.vt - x.at < 8000) ? 'reject' : n.picks.some((p) => p.at <= r.vt) && !n.rejects.some((x) => x.at <= r.vt) ? 'pick' : 'idle',
-        shake: r.shake(n),
-      })),
-    );
+    map.setNodes(r.nodes.map((n) => ({ id: n.id, lat: n.lat, lon: n.lon, state: r.nodeState(n), shake: r.shake(n) })));
     map.setWaves(r.waves());
     const truth = sim.scenario.truth;
     map.setTruth(truth && t > 0 ? truth : null);
