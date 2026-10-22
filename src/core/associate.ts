@@ -55,7 +55,8 @@ function locateCached(members: Trigger[], minNodes: number): Solution | null {
  * Space–time association. Two triggers of the same wave can belong to one earthquake only if
  * their time difference is no larger than that wave's travel time between the nodes (plus slack).
  *  1. From every unused trigger, grow a cluster of pairwise-compatible triggers (one per node).
- *  2. Locate the largest cluster by grid search, dropping bad clocks.
+ *  2. Locate the largest cluster by grid search, dropping bad clocks. One wave needs minNodes
+ *     phones; a cluster one phone short only counts together with the other wave.
  *  3. Try adding the largest cluster of the other wave: from outside the network a quake's
  *     distance trades off against its origin time, and the gap between its P and S arrivals is
  *     what pins it.
@@ -113,45 +114,53 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     return sol && { sol, time: ref + sol.t0 * 1000, members: sol.used.map((k) => members[k]) };
   };
 
-  for (;;) {
-    let best: Trigger[] = [];
+  type Fit = NonNullable<ReturnType<typeof solve>>;
+  const good = (f: Fit | null): f is Fit => f !== null && f.sol.rms <= maxRms;
+  /** The largest cluster grown from any trigger not yet used, not a dead seed, and not skipped. */
+  const largest = (skip: (t: Trigger) => boolean) => {
+    let out: Trigger[] = [];
     sorted.forEach((t, i) => {
-      if (used.has(t.id) || deadSeeds.has(t.id)) return;
+      if (used.has(t.id) || deadSeeds.has(t.id) || skip(t)) return;
       const c = grow(i);
-      if (c.length > best.length) best = c;
+      if (c.length > out.length) out = c;
     });
-    if (best.length < minNodes) break;
+    return out;
+  };
 
-    let fit = solve(best);
-    // Clusters hold one wave, as compatibility is only defined within a wave.
-    const phase = best[0].phase ?? 'P';
-    if (fit && fit.sol.rms <= maxRms) {
-      // Two arrivals of the other wave that agree with each other are enough to pin the distance.
-      // They can only be as far from this wave's arrivals as the S−P gap at the largest distance.
-      const ts = fit.members.map((m) => m.t);
-      const gap = (maxD * (1 / VS_KMS - 1 / VP_KMS) + tol) * 1000;
-      const from = Math.min(...ts) - gap;
-      const to = Math.max(...ts) + gap;
-      let partner: Trigger[] = [];
-      sorted.forEach((t, i) => {
-        if (used.has(t.id) || deadSeeds.has(t.id) || (t.phase ?? 'P') === phase || t.t < from || t.t > to) return;
-        const c = grow(i);
-        if (c.length > partner.length) partner = c;
-      });
-      if (partner.length >= 2) {
-        const joint = solve([...fit.members, ...partner].sort((a, b) => a.t - b.t));
-        if (joint && joint.sol.rms <= maxRms && joint.members.length >= 0.8 * (fit.members.length + partner.length)) fit = joint;
-      }
+  for (;;) {
+    // A seed holds one wave, as compatibility is only defined within a wave.
+    const seed = largest(() => false);
+    if (seed.length < minNodes - 1) break;
+    let fit = seed.length >= minNodes ? solve(seed) : null;
+    if (seed.length >= minNodes && !good(fit)) {
+      deadSeeds.add(seed[0].id);
+      continue;
     }
-    if (fit && fit.sol.rms <= maxRms) {
-      const f = fit;
-      const explained = (t: Trigger) => Math.abs((t.t - f.time) / 1000 - hypocentralKm(distanceKm(f.sol, t)) / speedOf(t.phase)) <= 2;
-      const regather = new Map<string, Trigger>();
-      for (const t of sorted) if (!used.has(t.id) && !regather.has(t.node) && explained(t)) regather.set(t.node, t);
-      if (regather.size >= minNodes) fit = solve([...regather.values()].sort((a, b) => a.t - b.t)) ?? fit;
+    const base = fit ? fit.members : seed;
+    // Two arrivals of the other wave that agree with each other are enough to pin the distance.
+    // They can only be as far from this wave's arrivals as the S−P gap at the largest distance.
+    const phase = seed[0].phase ?? 'P';
+    const ts = base.map((m) => m.t);
+    const gap = (maxD * (1 / VS_KMS - 1 / VP_KMS) + tol) * 1000;
+    const from = Math.min(...ts) - gap;
+    const to = Math.max(...ts) + gap;
+    const partner = largest((t) => (t.phase ?? 'P') === phase || t.t < from || t.t > to);
+    if (partner.length >= 2) {
+      const joint = solve([...base, ...partner].sort((a, b) => a.t - b.t));
+      if (good(joint) && joint.members.length >= 0.8 * (base.length + partner.length)) fit = joint;
     }
-    if (!fit || fit.sol.rms > maxRms) {
-      deadSeeds.add(best[0].id);
+    if (!good(fit)) {
+      deadSeeds.add(seed[0].id);
+      continue;
+    }
+    // Re-gather every unused trigger the solution explains, so an unlucky seed cannot bias membership.
+    const f0 = fit;
+    const explained = (t: Trigger) => Math.abs((t.t - f0.time) / 1000 - hypocentralKm(distanceKm(f0.sol, t)) / speedOf(t.phase)) <= 2;
+    const regather = new Map<string, Trigger>();
+    for (const t of sorted) if (!used.has(t.id) && !regather.has(t.node) && explained(t)) regather.set(t.node, t);
+    if (regather.size >= minNodes) fit = solve([...regather.values()].sort((a, b) => a.t - b.t)) ?? fit;
+    if (!good(fit) || fit.members.length < minNodes) {
+      deadSeeds.add(seed[0].id);
       continue;
     }
     const f = fit;

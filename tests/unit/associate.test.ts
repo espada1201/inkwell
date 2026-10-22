@@ -146,6 +146,26 @@ describe('association', () => {
     }
   });
 
+  // Phones near the quake felt its P wave, farther ones only its S wave: neither wave alone
+  // reached four phones, but the S−P gaps pin the distance.
+  it('locates a quake that three phones felt as P and three as S', () => {
+    const src = { lat: 35, lon: -118 };
+    for (let seed = 1; seed <= 10; seed++) {
+      const r = rng(700 + seed);
+      const city = offset(src, 30, 0);
+      const trig: Trigger[] = Array.from({ length: 6 }, (_, i) => {
+        const p = offset(city, (r() - 0.5) * 20, (r() - 0.5) * 20);
+        const hyp = hypocentralKm(distanceKm(src, p));
+        const phase = i < 3 ? ('P' as const) : ('S' as const);
+        return { id: `m${seed}-${i}`, node: `n${i}`, ...p, t: T0 + (hyp / (phase === 'S' ? VS_KMS : VP_KMS) + 0.12 * gauss(r)) * 1000, pga: pgaFor(5, hyp), phase };
+      });
+      const evs = associate(trig);
+      expect(evs).toHaveLength(1);
+      expect(evs[0].triggers).toHaveLength(6);
+      expect(distanceKm(evs[0], src)).toBeLessThan(10);
+    }
+  });
+
   it('puts close P triggers and distant S triggers from one quake into one event', () => {
     const src = { lat: 35, lon: -118 };
     const r = rng(13);
