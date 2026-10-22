@@ -1,11 +1,10 @@
-import { Map as MlMap, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource, type MapLayerMouseEvent, type StyleSpecification } from 'maplibre-gl';
+import type { GeoJSONSource, MapLayerMouseEvent, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import type { GeometryCollection, Topology } from 'topojson-specification';
 import { offset, type LatLon } from '../core/geo';
 import { h } from './dom';
 
-setWorkerUrl(workerUrl);
 
 const BASEMAP_URL = 'https://tiles.openfreemap.org/styles/positron';
 
@@ -129,13 +128,16 @@ export class QuakeMap {
   readonly ready: Promise<void>;
   onSelect: (kind: 'event' | 'usgs', id: string) => void = () => {};
   private pending = new Map<string, FC>();
+  private lib: typeof import('maplibre-gl') | null = null;
 
   constructor(container: HTMLElement, view: { center: LatLon; zoom: number }) {
-    this.ready = pickStyle().then(({ style, offline }) => {
+    // MapLibre is most of Tremor's code: it loads beside the style, so the screens do not wait for it.
+    this.ready = Promise.all([pickStyle(), import('maplibre-gl')]).then(([{ style, offline }, lib]) => {
       this.offline = offline;
+      lib.setWorkerUrl(workerUrl);
       let map: MlMap;
       try {
-        map = new MlMap({
+        map = new lib.Map({
           container,
           style,
           center: [view.center.lon, view.center.lat],
@@ -152,8 +154,9 @@ export class QuakeMap {
       // Tile hiccups are routine on flaky networks; they should not surface as page errors.
       map.on('error', (e) => console.warn('map:', e.error?.message ?? e));
       map.touchZoomRotate.disableRotation();
-      map.addControl(new NavigationControl({ showCompass: false }), 'bottom-right');
+      map.addControl(new lib.NavigationControl({ showCompass: false }), 'bottom-right');
       this.map = map;
+      this.lib = lib;
       return new Promise<void>((resolve) => {
         map.once('load', () => {
           this.addLayers(map);
@@ -162,7 +165,7 @@ export class QuakeMap {
           resolve();
         });
       });
-    });
+    }, () => void container.append(h('div', { class: 'map-error' }, 'The map could not load. Everything else still works.')));
   }
 
   private addLayers(map: MlMap) {
@@ -347,14 +350,15 @@ export class QuakeMap {
   setRings(rings: MapRing[]) {
     this.set('rings', fc(rings.map((r) => (r.kind === 'blind' ? disc(r.center, r.km, { kind: r.kind }) : ring(r.center, r.km, { kind: r.kind })))));
     const key = rings.map((r) => `${r.label}:${r.km.toFixed(1)}`).join('|');
-    if (key === this.labelKey || !this.map) return;
+    const { map, lib } = this;
+    if (key === this.labelKey || !map || !lib) return;
     this.labelKey = key;
     this.labels.forEach((m) => m.remove());
     this.labels = rings
       .filter((r) => r.label)
       .map((r) => {
         const p = offset(r.center, 0, r.km);
-        return new Marker({ element: h('div', { class: `ring-label ${r.kind}` }, r.label!), anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(this.map!);
+        return new lib.Marker({ element: h('div', { class: `ring-label ${r.kind}` }, r.label!), anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map);
       });
   }
 
