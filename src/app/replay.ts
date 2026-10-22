@@ -1,6 +1,5 @@
 import type { DetectedEvent, Trigger } from '../core/associate';
 import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
-import { Bandpass } from '../core/filters';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS, waveRadiusKm, type Phase } from '../core/physics';
 import { FS, ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
@@ -67,13 +66,7 @@ export class Replay extends Emitter {
     this.sim = sim;
     this.queue = [];
     this.nodes = sim.nodes.map((n) => {
-      const bp = [new Bandpass(1, 10, FS), new Bandpass(1, 10, FS), new Bandpass(1, 10, FS)];
-      const trace = new Float32Array(n.samples.length);
-      n.samples.forEach((smp, i) => {
-        trace[i] = Math.hypot(bp[0].step(smp.x), bp[1].step(smp.y), bp[2].step(smp.z));
-      });
-      trace.fill(0, 0, FS);
-      const view: ReplayNodeView = { id: n.id, lat: n.lat, lon: n.lon, distKm: n.distKm, trace, picks: [], trigger: null, rejects: [] };
+      const view: ReplayNodeView = { id: n.id, lat: n.lat, lon: n.lon, distKm: n.distKm, trace: n.trace, picks: [], trigger: null, rejects: [] };
       for (const o of n.outputs) {
         const rel = { t: o.t - start, at: o.at - start };
         if (o.kind === 'pick') view.picks.push({ ...rel, phase: o.phase });

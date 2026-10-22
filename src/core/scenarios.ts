@@ -1,7 +1,7 @@
 import { coarsen, distanceKm, offset, type LatLon } from './geo';
 import { VP_KMS, VS_KMS, hypocentralKm, pgaFor } from './physics';
 import { gauss, rng } from './rng';
-import { NodeDetector, type DetectorOutput, type Sample } from './sensor';
+import { NodeDetector, type DetectorOutput } from './sensor';
 import { synthesize } from './synth';
 
 export interface Scenario {
@@ -75,7 +75,8 @@ export interface SimNode extends LatLon {
   id: string;
   distKm: number | null;
   pga: number;
-  samples: Sample[];
+  /** What the detector heard: bandpassed shaking magnitude per sample, m/s², silent while its filters settle. */
+  trace: Float32Array;
   outputs: DetectorOutput[];
 }
 
@@ -124,12 +125,14 @@ export function simulate(s: Scenario, start: number): Simulation {
       pickup: disturbance === 'pickup' ? { t: dT } : undefined,
     });
     const det = new NodeDetector(FS);
+    const trace = new Float32Array(samples.length);
     const outputs: DetectorOutput[] = [];
-    for (const smp of samples) {
+    samples.forEach((smp, k) => {
       const o = det.push(smp);
       if (o) outputs.push(o);
-    }
-    nodes.push({ id: `${s.id}-${i}`, ...loc, distKm, pga, samples, outputs });
+      if (k >= FS) trace[k] = det.level;
+    });
+    nodes.push({ id: `${s.id}-${i}`, ...loc, distKm, pga, trace, outputs });
   }
   return { scenario: s, start, origin: start + ORIGIN_OFFSET_S * 1000, durationS, nodes };
 }
