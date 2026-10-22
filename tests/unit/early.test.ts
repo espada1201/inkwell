@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Trigger } from '../../src/core/associate';
 import { confirmedEvents, earlyDetect, type Listener } from '../../src/core/early';
-import { distanceKm, offset } from '../../src/core/geo';
+import { coarsen, distanceKm, offset, type LatLon } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
 import { SCENARIOS, simulate } from '../../src/core/scenarios';
@@ -144,5 +144,29 @@ describe('the quiet phones have their say before anything is declared', () => {
     const r = rng(5);
     const picks = phones.slice(0, 16).map((p) => pickAt(p, T + 500 * r()));
     expect(declarations(picks, phones, T + 1000, T + 10_000)).toBe(0);
+  });
+});
+
+describe('the declaration rule at its edges', () => {
+  const T = Date.UTC(2026, 0, 1, 0, 1);
+  const C = { lat: 35, lon: -118 };
+  const arrival = (p: LatLon) => T + (hypocentralKm(distanceKm(C, p)) / VP_KMS) * 1000;
+  const ring = (km: number, n: number, tag: string) =>
+    Array.from({ length: n }, (_, i) => ({ id: `${tag}${i}`, ...coarsen(offset(C, km * Math.cos((i / n) * 2 * Math.PI), km * Math.sin((i / n) * 2 * Math.PI))) }));
+
+  it('picks from four phones in three places declare a quake', () => {
+    // Two of the four share a building, so one coarse cell.
+    const spots = [offset(C, -6, 0), offset(C, 6, 0), offset(C, 0, 6)].map(coarsen);
+    const phones = [0, 1, 2, 2].map((k, i) => ({ id: `f${i}`, ...spots[k] }));
+    const picks: Trigger[] = phones.map((p) => ({ ...p, node: p.id, t: arrival(p), pga: 0 }));
+    expect(earlyDetect(picks, phones, Math.max(...picks.map((p) => p.t)) + 2000).events).toHaveLength(1);
+  });
+
+  it('from sixteen places, a third of the phones that should have felt it is enough', () => {
+    // Sixteen phones in sixteen places felt it; thirty-two closer ones stayed quiet.
+    const felt = ring(12, 16, 'y');
+    const quiet = [...ring(6, 16, 'q'), ...ring(9, 16, 'r')];
+    const triggers: Trigger[] = felt.map((p) => ({ ...p, node: p.id, t: arrival(p), pga: pgaFor(5, hypocentralKm(distanceKm(C, p))), phase: 'P' }));
+    expect(confirmedEvents(triggers, triggers, () => [...felt, ...quiet], T + 60_000)).toHaveLength(1);
   });
 });

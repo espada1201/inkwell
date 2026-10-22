@@ -84,7 +84,9 @@ function verdict(ev: DetectedEvent, listeners: Listener[], felt: Set<string>, no
   const members = ev.triggers.length;
   const cells = new Set(ev.triggers.map(cellOf)).size;
   const agreement = members / (members + due);
-  const needed = MIN_AGREEMENT - (MIN_AGREEMENT - 1 / 3) * Math.min(1, Math.max(0, (cells - MIN_PICKS) / (3 * MIN_PICKS)));
+  // Blended this way round so that four times as many cells needs exactly a third, not a hair over.
+  const f = Math.min(1, Math.max(0, (cells - MIN_PICKS) / (3 * MIN_PICKS)));
+  const needed = (1 - f) * MIN_AGREEMENT + f / 3;
   const passes = cells >= MIN_CELLS && agreement >= needed;
   const holds = members / (members + due + pending) >= needed;
   return { agreement, ok: passes && holds, waiting: passes && !holds };
