@@ -96,7 +96,7 @@ export function networkView(ctx: NetworkCtx) {
       'div',
       {},
       h('h1', {}, 'Live network'),
-      h('p', { class: 'lede' }, 'Phones lying still on tables, wherever someone has set one up, and people saying what they felt. Their reports travel over public Nostr relays and are pieced together right here in your browser. No server.'),
+      h('p', { class: 'lede' }, 'Phones lying still on tables, wherever someone has set one up, and people saying what they felt. Their reports travel over public Nostr relays and are pieced together in your browser, with no server.'),
     ),
   );
   const parts = { near: part(), stats: part(), provisional: part(), detail: part(), detections: part(), felt: part(), usgs: part() };
@@ -216,7 +216,7 @@ export function networkView(ctx: NetworkCtx) {
         h('input', { type: 'checkbox', 'data-key': 'chime', checked: ctx.chime.on, 'aria-describedby': 'chime-help', onchange: (e: Event) => ctx.chime.set((e.target as HTMLInputElement).checked) }),
         h('span', {}, 'Chime when shaking is confirmed near me'),
       ),
-      h('p', { class: 'small muted', id: 'chime-help' }, 'Only while Tremor is open: a closed tab cannot alert you. For light or stronger shaking that phones confirmed or USGS lists; never for provisional detections, or for what people say they felt.'),
+      h('p', { class: 'small muted', id: 'chime-help' }, 'Only while Tremor is open: a closed tab cannot alert you. It chimes for light or stronger shaking that phones confirmed or USGS lists, never for provisional detections or for what people say they felt.'),
       noticed ? h('p', { class: 'small' }, 'If the ground shakes again: Drop, Cover and Hold On.', h('br'), 'Expect aftershocks, sometimes for days.') : null,
       noticed ? h('p', { class: 'small' }, 'Help next time: ', h('a', { href: '#sensor' }, 'leave an old phone on charge with Tremor open'), '.') : null,
     );
