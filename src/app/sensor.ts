@@ -183,7 +183,7 @@ export class SensorNode extends Emitter {
   }
 
   private handle(out: DetectorOutput) {
-    // Picks go out within half a second; the verdict follows once the shaking has been vetted.
+    // Picks go out within a second or so of the shaking; the verdict follows 15–30 s later.
     const pickId = this.openPick?.t === out.t ? this.openPick.id : undefined;
     let published = false;
     if (out.kind === 'pick') {

@@ -1,9 +1,10 @@
 import { synthesize } from '../../src/core/synth';
 import { expect, test } from './fixtures';
 
-/** Feed a recorded accelerometer series to the page as DeviceMotion events, in real time (50 Hz). */
+/** Feed a recorded accelerometer series to the page as DeviceMotion events, in real time (50 Hz). Returns the wall clock time of its start. */
 async function feed(page: import('@playwright/test').Page, record: { x: number; y: number; z: number }[]) {
-  await page.evaluate((rec) => {
+  return page.evaluate((rec) => {
+    const start = Date.now();
     const t0 = performance.now();
     let i = 0;
     const tick = () => {
@@ -15,6 +16,7 @@ async function feed(page: import('@playwright/test').Page, record: { x: number; 
       if (i < rec.length) setTimeout(tick, 10);
     };
     tick();
+    return start;
   }, record);
 }
 
@@ -40,7 +42,7 @@ test.describe('be a sensor', () => {
     await expect(page.getByTestId('publish-note')).toContainText('On.');
 
     await page.getByTestId('start').click();
-    await feed(page, synthesize({ start: 0, durationS: 34, seed: 3, quake: { tP: 10, tS: 13, pga: 0.8 } }));
+    const start = await feed(page, synthesize({ start: 0, durationS: 34, seed: 3, quake: { tP: 10, tS: 13, pga: 0.8 } }));
     await expect(page.getByTestId('sensor-state')).toHaveText('Listening', { timeout: 10_000 });
     // The background it learned while warming up: about 12.5 mm/s² for this record.
     await expect(page.getByTestId('background')).toHaveText(/^1[0-5]\.\d mm\/s²$/);
@@ -54,10 +56,16 @@ test.describe('be a sensor', () => {
     });
     expect(inked).toBeGreaterThan(100);
 
-    // The provisional pick goes out within half a second of the P wave...
+    // The provisional pick marks the onset within a second of the P wave reaching the phone, 10 s in...
     await expect.poll(() => relay.events().filter((e) => e.kind === 4578).length, { timeout: 20_000 }).toBe(1);
-    // ...and the vetted trigger about 15 s later, linked to it.
+    const onset = JSON.parse(relay.events().find((e) => e.kind === 4578)!.content).t - (start + 10_000);
+    expect(onset).toBeGreaterThan(0);
+    expect(onset).toBeLessThan(1000);
+    // ...and the vetted trigger follows 15–30 s after the onset, linked to it.
     await expect(page.getByTestId('sensor-log')).toContainText(/TRIGGER [\d.]+ m\/s² · P wave · sent/, { timeout: 40_000 });
+    const verdict = Date.now() - (start + 10_000 + onset);
+    expect(verdict).toBeGreaterThan(15_000);
+    expect(verdict).toBeLessThan(31_000);
     const events = relay.events();
     const pick = events.find((e) => e.kind === 4578)!;
     const trigger = events.find((e) => e.kind === 4579)!;

@@ -141,7 +141,7 @@ describe('provisional picks', () => {
     const pick = out.find((o) => o.kind === 'pick')!;
     const trig = out.find((o) => o.kind === 'trigger')!;
     expect(pick.t).toBe(trig.t);
-    // Sent half a second after the onset at most: long enough to tell P from S.
+    // Sent 0.4 s after the onset it marks: long enough to tell P from S.
     expect(pick.at - pick.t).toBeLessThanOrEqual(500);
     expect(trig.at - pick.t).toBeGreaterThanOrEqual(15_000);
   });

@@ -148,7 +148,7 @@ export function sensorView(s: SensorNode) {
         h(
           'p',
           { class: 'small muted', 'data-testid': 'publish-note' },
-          s.canPublish ? 'On. Shaking goes out at once as a pick, then is confirmed or withdrawn, plus a heartbeat every minute. All signed with this phone’s key.' : !s.joined ? 'Off. Nothing leaves this phone.' : 'Set a location to start sharing.',
+          s.canPublish ? 'On. Shaking goes out as a pick within about a second, then is confirmed or withdrawn 15–30 s later, plus a heartbeat every minute. All signed with this phone’s key.' : !s.joined ? 'Off. Nothing leaves this phone.' : 'Set a location to start sharing.',
         ),
       ),
       locationCard(),

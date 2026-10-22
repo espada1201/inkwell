@@ -15,7 +15,10 @@ export interface Sample {
 export type RejectReason = 'handling' | 'impulse' | 'footsteps' | 'interrupted';
 
 export type DetectorOutput =
-  /** Provisional: shaking just started. Sent within half a second so the network can react fast. */
+  /**
+   * Provisional: shaking just started. Sent 0.4 s after the onset it marks so the network can react
+   * fast: typically 0.5–1 s after the shaking reached the phone, up to 2 s when it was barely felt.
+   */
   | { kind: 'pick'; t: number; at: number; phase: Phase }
   | { kind: 'trigger'; t: number; at: number; phase: Phase; pga: number; durS: number }
   | { kind: 'reject'; t: number; at: number; reason: RejectReason };
@@ -38,8 +41,8 @@ const DEG = 180 / Math.PI;
  * Per-phone earthquake trigger.
  *  1. Track gravity with a slow low-pass (also tells us the phone's orientation).
  *  2. Bandpass each axis 1–10 Hz and take the vector magnitude.
- *  3. Recursive STA/LTA on signal energy opens a candidate. Within half a second a provisional
- *     "pick" goes out so the network can act fast, labelled with the wave that opened it:
+ *  3. Recursive STA/LTA on signal energy opens a candidate. 0.4 s later a provisional "pick" goes
+ *     out so the network can act fast, labelled with the wave that opened it:
  *     P waves shake the ground mostly up and down, S waves mostly side to side, and gravity
  *     tells the phone which way is down however it lies.
  *  4. The candidate is judged once shaking has died down, against the background from before
