@@ -35,21 +35,20 @@ export interface Uncertainty {
 }
 
 export interface LocateOptions {
-  depthKm?: number;
-  outlierS?: number;
   minArrivals?: number;
   maxOutliers?: number;
   /**
-   * "Not yet arrived" constraint for early locations: nodes that are listening but have not
-   * picked. A trial epicentre is penalised when it implies such a node should already have
-   * felt a wave by `now` (same clock as t): the P wave if it is closer than the farthest
-   * phone that picked a P, else the S wave if closer than the farthest that picked an S.
+   * "Not yet arrived" constraint for early locations: phones that are listening but have not
+   * picked. A trial epicentre is penalised when it implies such a phone should already have
+   * felt a wave by `now` (same clock as t), allowing `slackS` of grace: the P wave if it is
+   * closer than the farthest phone that picked a P, else the S wave if closer than the farthest
+   * that picked an S.
    */
-  silent?: LatLon[];
-  now?: number;
-  /** Seconds of grace before a silent node counts against a trial epicentre. */
-  silentSlackS?: number;
+  silent?: { phones: LatLon[]; now: number; slackS: number };
 }
+
+/** An arrival this many seconds off the fit is a bad clock or another event's. */
+const OUTLIER_S = 2.5;
 
 /** Points projected to a local flat km grid: accurate enough over a few hundred km, and fast. */
 interface Frame {
@@ -112,8 +111,7 @@ function quickMedian(a: Float64Array, n: number): number {
  * Coarse rings around the phones → two refinements, then outlier rejection.
  */
 export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution | null {
-  const depth = opts.depthKm ?? DEFAULT_DEPTH_KM;
-  const outlier = opts.outlierS ?? 2.5;
+  const depth = DEFAULT_DEPTH_KM;
   const minN = opts.minArrivals ?? 3;
   if (arrivals.length < minN) return null;
 
@@ -122,7 +120,7 @@ export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution 
   const maxOut = opts.maxOutliers ?? 2;
   let dropped = 0;
   while (dropped < maxOut) {
-    const bad = used.map((_, k) => k).filter((k) => Math.abs(best.res[k]) > outlier);
+    const bad = used.map((_, k) => k).filter((k) => Math.abs(best.res[k]) > OUTLIER_S);
     bad.sort((a, b) => Math.abs(best.res[b]) - Math.abs(best.res[a]));
     // Dozens of arrivals pin the epicentre well enough to drop every bad clock at once; a
     // handful could be dragged by one, so they lose the worst and try again.
@@ -213,9 +211,9 @@ function problem(all: Arrival[], depth: number, opts: LocateOptions) {
   const isS = arr.map((a) => a.phase === 'S');
   const vp = speedOf('P');
   const vs = speedOf('S');
-  const S = pooled(f, opts.silent ?? []);
-  const useSilent = S.x.length > 0 && opts.now !== undefined;
-  const deadline = (opts.now ?? 0) - (opts.silentSlackS ?? 1.5);
+  const S = pooled(f, opts.silent?.phones ?? []);
+  const useSilent = S.x.length > 0;
+  const deadline = opts.silent ? opts.silent.now - opts.silent.slackS : 0;
   const z2 = depth * depth;
   const n = arr.length;
   const r = new Float64Array(n);

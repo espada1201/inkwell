@@ -129,7 +129,7 @@ export function earlyDetect(picks: Trigger[], listeners: Listener[], now: number
     if (!v.ok && !v.waiting && cand.rms <= MAX_RMS_S && new Set(cand.triggers.map(cellOf)).size >= 2 * MIN_PICKS && shareAmong(cand.triggers, listeners, picked) >= 0.2) {
       const ref = cand.triggers[0].t;
       const silent = listeners.filter((n) => !picked.has(n.id));
-      const sol = locate(arrivalsOf(cand.triggers), { minArrivals: MIN_PICKS, silent, now: (now - ref) / 1000, silentSlackS: SLACK_S });
+      const sol = locate(arrivalsOf(cand.triggers), { minArrivals: MIN_PICKS, silent: { phones: silent, now: (now - ref) / 1000, slackS: SLACK_S } });
       if (sol && sol.rms <= MAX_RMS_S) {
         ev = { ...sol, id: cand.id, time: ref + sol.t0 * 1000, triggers: sol.used.map((i) => cand.triggers[i]) };
         v = verdict(ev, listeners, picked, now);

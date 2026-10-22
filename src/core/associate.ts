@@ -22,12 +22,14 @@ export interface DetectedEvent extends Solution {
 
 export interface AssociateOptions {
   minNodes?: number;
-  /** Allowed slack beyond the travel-time bound, seconds (phone clocks drift). */
-  toleranceS?: number;
-  maxDistanceKm?: number;
-  maxSpanS?: number;
   maxRmsS?: number;
 }
+
+/** Slack allowed beyond the travel time between two phones' triggers, s: phone clocks drift. */
+const TOLERANCE_S = 1.5;
+/** Triggers farther apart than this, km, or than this many seconds, are not one quake's. */
+const MAX_DISTANCE_KM = 400;
+const MAX_SPAN_S = 90;
 
 /**
  * Recent cluster solutions. Callers re-associate nearly the same triggers several times a
@@ -68,9 +70,7 @@ function locateCached(members: Trigger[], minNodes: number): Solution | null {
  */
 export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
   const minNodes = opts.minNodes ?? 4;
-  const tol = opts.toleranceS ?? 1.5;
-  const maxD = opts.maxDistanceKm ?? 400;
-  const maxSpan = (opts.maxSpanS ?? 90) * 1000;
+  const maxSpan = MAX_SPAN_S * 1000;
   const maxRms = opts.maxRmsS ?? 1.5;
 
   const sorted = [...triggers].sort((a, b) => a.t - b.t);
@@ -88,7 +88,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     for (let b = a + 1; b < n && sorted[b].t - sorted[a].t <= maxSpan; b++) {
       const d = distanceKm(sorted[a], sorted[b]);
       const phase = sorted[a].phase ?? 'P';
-      if (phase === (sorted[b].phase ?? 'P') && d <= maxD && (sorted[b].t - sorted[a].t) / 1000 <= d / speedOf(phase) + tol) {
+      if (phase === (sorted[b].phase ?? 'P') && d <= MAX_DISTANCE_KM && (sorted[b].t - sorted[a].t) / 1000 <= d / speedOf(phase) + TOLERANCE_S) {
         compat[a * words + (b >>> 5)] |= 1 << (b & 31);
         compat[b * words + (a >>> 5)] |= 1 << (a & 31);
       }
@@ -143,7 +143,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     // They can only be as far from this wave's arrivals as the S−P gap at the largest distance.
     const phase = seed[0].phase ?? 'P';
     const ts = base.map((m) => m.t);
-    const gap = (maxD * (1 / VS_KMS - 1 / VP_KMS) + tol) * 1000;
+    const gap = (MAX_DISTANCE_KM * (1 / VS_KMS - 1 / VP_KMS) + TOLERANCE_S) * 1000;
     const from = Math.min(...ts) - gap;
     const to = Math.max(...ts) + gap;
     const partner = largest((t) => (t.phase ?? 'P') === phase || t.t < from || t.t > to);
