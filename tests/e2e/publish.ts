@@ -36,13 +36,13 @@ export function scenarioEvents(id: string) {
     let open: Event | null = null;
     for (const o of n.outputs) {
       if (o.kind === 'pick') {
-        open = signPick(sk, { lat: n.lat, lon: n.lon, t: o.t });
+        open = signPick(sk, { lat: n.lat, lon: n.lon, t: o.t, phase: o.phase });
         picks.push(open);
       } else if (o.kind === 'reject') {
         if (open) finals.push(signRetraction(sk, open.id, o.reason, Math.floor(o.at / 1000)));
         open = null;
       } else {
-        finals.push(signTrigger(sk, { lat: n.lat, lon: n.lon, t: o.t, pga: o.pga, dur: o.durS }, open?.id));
+        finals.push(signTrigger(sk, { lat: n.lat, lon: n.lon, t: o.t, phase: o.phase, pga: o.pga, dur: o.durS }, open?.id));
         open = null;
       }
     }

@@ -4,6 +4,7 @@ import { Bandpass } from '../core/filters';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS } from '../core/physics';
 import { ORIGIN_OFFSET_S, simulate, type Scenario, type Simulation } from '../core/scenarios';
+import type { Phase } from '../core/physics';
 import type { RejectReason } from '../core/sensor';
 import { Emitter } from '../ui/dom';
 
@@ -14,8 +15,8 @@ export interface ReplayNodeView {
   distKm: number | null;
   /** Bandpassed shaking magnitude per sample, m/s². */
   trace: Float32Array;
-  /** Scenario-relative ms (onset t, decision at). */
-  picks: { t: number; at: number }[];
+  /** Scenario-relative ms (onset t, sent at), and the wave the phone felt. */
+  picks: { t: number; at: number; phase: Phase }[];
   trigger: { t: number; at: number; pga: number } | null;
   rejects: { t: number; at: number; reason: RejectReason }[];
 }
@@ -76,9 +77,9 @@ export class Replay extends Emitter {
       trace.fill(0, 0, FS);
       const view: ReplayNodeView = { id: n.id, lat: n.lat, lon: n.lon, distKm: n.distKm, trace, picks: [], trigger: null, rejects: [] };
       for (const o of n.outputs) {
-        const tr: Trigger = { id: `${n.id}@${o.t}`, node: n.id, lat: n.lat, lon: n.lon, t: o.t, pga: o.kind === 'trigger' ? o.pga : 0 };
+        const tr: Trigger = { id: `${n.id}@${o.t}`, node: n.id, lat: n.lat, lon: n.lon, t: o.t, pga: o.kind === 'trigger' ? o.pga : 0, phase: o.kind === 'reject' ? undefined : o.phase };
         const rel = { t: o.t - start, at: o.at - start };
-        if (o.kind === 'pick') view.picks.push(rel);
+        if (o.kind === 'pick') view.picks.push({ ...rel, phase: o.phase });
         else if (o.kind === 'trigger') view.trigger ??= { ...rel, pga: o.pga };
         else view.rejects.push({ ...rel, reason: o.reason });
         this.queue.push({ at: rel.at + RELAY_LATENCY_MS, kind: o.kind === 'reject' ? 'retract' : o.kind, tr });

@@ -89,8 +89,9 @@ describe('provisional picks', () => {
     const pick = out.find((o) => o.kind === 'pick')!;
     const trig = out.find((o) => o.kind === 'trigger')!;
     expect(pick.t).toBe(trig.t);
-    expect(pick.at).toBe(pick.t);
-    expect(trig.at - pick.at).toBeGreaterThanOrEqual(15_000);
+    // Sent half a second after the onset at most: long enough to tell P from S.
+    expect(pick.at - pick.t).toBeLessThanOrEqual(500);
+    expect(trig.at - pick.t).toBeGreaterThanOrEqual(15_000);
   });
 
   it('every pick is later resolved as either a trigger or a reject', () => {
@@ -102,3 +103,33 @@ describe('provisional picks', () => {
     }
   });
 });
+
+describe('telling P from S by which way the phone shakes', () => {
+  it('labels a strong, close quake by its P wave', () => {
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const { out } = run({ seed, quake: { tP: 30, tS: 34, pga: 0.6 } });
+      expect(out.find((o) => o.kind === 'pick')!.phase).toBe('P');
+      expect(out.find((o) => o.kind === 'trigger')!.phase).toBe('P');
+    }
+  });
+
+  it('labels a quake whose P wave was too weak to notice by its S wave', () => {
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const { out } = run({ seed, quake: { tP: 30, tS: 42, pga: 0.15, decayS: 6 } });
+      expect(out.find((o) => o.kind === 'pick')!.phase).toBe('S');
+      expect(out.find((o) => o.kind === 'trigger')!.phase).toBe('S');
+    }
+  });
+
+  it('knows which way is down however the phone lies', () => {
+    // Same quake, phone propped on its side: gravity now along y, not z.
+    const det = new NodeDetector(50);
+    const out: DetectorOutput[] = [];
+    for (const s of synthesize({ start: 0, durationS: 90, seed: 3, quake: { tP: 30, tS: 34, pga: 0.6 } })) {
+      const r = det.push({ t: s.t, x: s.x, y: s.z, z: s.y });
+      if (r) out.push(r);
+    }
+    expect(out.find((o) => o.kind === 'trigger')!.phase).toBe('P');
+  });
+});
+

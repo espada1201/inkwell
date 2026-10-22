@@ -1,10 +1,12 @@
 import { finalizeEvent, verifyEvent, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { coarsen } from '../core/geo';
+import type { Phase } from '../core/physics';
 
 /**
  * Tremor's wire format: ordinary signed Nostr events, so any public relay can carry them.
- *  - pick (kind 4578): "shaking started here at t", sent the instant a phone's trigger opens.
+ *  - pick (kind 4578): "shaking started here at t", sent the moment a phone's trigger opens,
+ *    with the wave it felt first (ph: P or S; events without it count as P).
  *  - retraction (kind 5, NIP-09 deletion of a pick): "that was footsteps / a door / my hand".
  *  - trigger (kind 4579): the phone's confirmed verdict, with peak acceleration.
  *  - heartbeat (kind 34579, parameterised-replaceable): "I'm alive, here, this noisy".
@@ -31,6 +33,8 @@ export interface PickReport {
   lon: number;
   /** Onset, ms since epoch (phone clock). */
   t: number;
+  /** The wave the phone felt: P (up and down) or S (side to side). P when not given. */
+  phase?: Phase;
 }
 
 export interface TriggerReport extends PickReport {
@@ -68,7 +72,7 @@ export function signHeartbeat(sk: Uint8Array, hb: Heartbeat, at = nowS()): Event
 
 export function signPick(sk: Uint8Array, p: PickReport, at = Math.floor(p.t / 1000)): Event {
   return finalizeEvent(
-    { kind: KIND_PICK, created_at: at, tags: [['t', TAG]], content: JSON.stringify({ v: 1, ...coarsen(p), t: Math.round(p.t) }) },
+    { kind: KIND_PICK, created_at: at, tags: [['t', TAG]], content: JSON.stringify({ v: 1, ...coarsen(p), t: Math.round(p.t), ph: p.phase ?? 'P' }) },
     sk,
   );
 }
@@ -86,7 +90,7 @@ export function signTrigger(sk: Uint8Array, tr: TriggerReport, pickId?: string, 
       kind: KIND_TRIGGER,
       created_at: at,
       tags: [['t', TAG], ...(pickId ? [['e', pickId]] : [])],
-      content: JSON.stringify({ v: 1, ...coarsen(tr), t: Math.round(tr.t), pga: +tr.pga.toFixed(4), dur: +tr.dur.toFixed(2) }),
+      content: JSON.stringify({ v: 1, ...coarsen(tr), t: Math.round(tr.t), ph: tr.phase ?? 'P', pga: +tr.pga.toFixed(4), dur: +tr.dur.toFixed(2) }),
     },
     sk,
   );
@@ -123,9 +127,11 @@ export function parse(ev: Event): Message | null {
     return { ...base, type: 'heartbeat', data: { ...loc, noise: c.noise, sps: c.sps } };
   }
   if (!finite(c.t) || Math.abs(c.t - base.at) > 120_000) return null;
-  if (ev.kind === KIND_PICK) return { ...base, type: 'pick', data: { ...loc, t: c.t } };
+  const phase = c.ph ?? 'P';
+  if (phase !== 'P' && phase !== 'S') return null;
+  if (ev.kind === KIND_PICK) return { ...base, type: 'pick', data: { ...loc, t: c.t, phase } };
   if (!inRange(c.pga, 0, 100) || !inRange(c.dur, 0, 120)) return null;
-  return { ...base, type: 'trigger', data: { ...loc, t: c.t, pga: c.pga, dur: c.dur }, pick: hex64(ref) ? ref : null };
+  return { ...base, type: 'trigger', data: { ...loc, t: c.t, phase, pga: c.pga, dur: c.dur }, pick: hex64(ref) ? ref : null };
 }
 
 /** Subscription filters for everything Tremor publishes since a given time. */

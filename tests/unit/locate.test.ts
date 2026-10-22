@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { distanceKm, offset } from '../../src/core/geo';
 import { locate } from '../../src/core/locate';
-import { VP_KMS, hypocentralKm, magnitudeFrom, pgaFor } from '../../src/core/physics';
+import { VP_KMS, VS_KMS, hypocentralKm, magnitudeFrom, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
 
 const source = { lat: 37.8, lon: -122.3 };
@@ -46,12 +46,47 @@ describe('epicentre grid search', () => {
     expect(distanceKm(sol, source)).toBeLessThan(45);
   });
 
+  it('finds a quake 140 km beyond a small network from the gap between its P and S waves', () => {
+    const r = rng(15);
+    const city = offset(source, 140, 0);
+    const arr = Array.from({ length: 30 }, (_, i) => {
+      const p = offset(city, (r() - 0.5) * 40, (r() - 0.5) * 40);
+      const phase = i % 3 ? ('S' as const) : ('P' as const);
+      return { ...p, t: 100 + hypocentralKm(distanceKm(source, p)) / (phase === 'S' ? VS_KMS : VP_KMS) + 0.2 * gauss(r), phase };
+    });
+    expect(distanceKm(locate(arr)!, source)).toBeLessThan(15);
+  });
+
   it('throws out a node with a badly wrong clock', () => {
     const arr = arrivals(10, 7, 0.1);
     arr[3].t += 9;
     const sol = locate(arr)!;
     expect(sol.used).not.toContain(3);
     expect(distanceKm(sol, source)).toBeLessThan(5);
+  });
+
+  it('uses the S-wave speed for arrivals a phone labelled S', () => {
+    const r = rng(11);
+    const arr = Array.from({ length: 10 }, () => {
+      const p = offset(source, (r() - 0.5) * 60, (r() - 0.5) * 60);
+      return { ...p, t: 100 + hypocentralKm(distanceKm(source, p)) / VS_KMS + 0.1 * gauss(r), phase: 'S' as const };
+    });
+    const sol = locate(arr)!;
+    expect(distanceKm(sol, source)).toBeLessThan(4);
+    expect(Math.abs(sol.t0 - 100)).toBeLessThan(0.5);
+  });
+
+  it('combines P arrivals from close phones with S arrivals from far ones', () => {
+    const r = rng(12);
+    const arr = Array.from({ length: 14 }, (_, i) => {
+      const near = i < 5;
+      const p = offset(source, (r() - 0.5) * (near ? 20 : 120), (r() - 0.5) * (near ? 20 : 120));
+      const hyp = hypocentralKm(distanceKm(source, p));
+      return { ...p, t: 100 + hyp / (near ? VP_KMS : VS_KMS) + 0.1 * gauss(r), phase: near ? ('P' as const) : ('S' as const) };
+    });
+    const sol = locate(arr)!;
+    expect(distanceKm(sol, source)).toBeLessThan(4);
+    expect(sol.used).toHaveLength(14);
   });
 
   it('needs at least three arrivals', () => {

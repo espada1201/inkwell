@@ -1,9 +1,9 @@
 import { associate, type Trigger } from './associate';
 import { earlyDetect } from './early';
 import { coarsen, distanceKm, offset, type LatLon } from './geo';
-import { VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor } from './physics';
+import { VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor, type Phase } from './physics';
 import { gauss, rng } from './rng';
-import { NodeDetector } from './sensor';
+import { NodeDetector, type DetectorOutput } from './sensor';
 import { synthesize } from './synth';
 
 /**
@@ -26,13 +26,17 @@ const LATENCY_MS = 1000;
 const FRAME_MS = 250;
 /** Phones bumped, walked past or picked up in any given minute: an assumption, not a measurement. */
 export const DISTURBED_PER_MINUTE = 0.05;
-/** Above this many confirmed triggers, locate with the earliest ones, as real networks do. */
+/** Above this many confirmed triggers, locate from an even sample of them (the app uses all). */
 const MAX_CONFIRM = 300;
 
 interface Response {
-  /** Seconds from the P arrival to the pick; null when the phone never noticed. */
+  /** Seconds from the P arrival to the onset the phone picked; null when it never noticed. */
   delay: number | null;
-  /** Seconds from the pick to the phone's verdict. */
+  /** The wave the phone said it felt. */
+  phase: Phase;
+  /** Seconds from the onset until the pick went out. */
+  sent: number;
+  /** Seconds from the onset to the phone's verdict. */
   vet: number;
   confirmed: boolean;
   /** Measured peak over true peak acceleration. */
@@ -61,17 +65,18 @@ export function calibrate(mag: number): PhoneModel {
           noise: 0.008 + 0.01 * r(),
           quake: { tP, tS: tP + sp, pga, decayS: 2 + mag - 4 },
         });
-        let pick: number | null = null;
+        let pick: Extract<DetectorOutput, { kind: 'pick' }> | null = null;
         for (const s of record) {
           const o = det.push(s);
           if (!o) continue;
           if (o.kind === 'pick') {
-            if (pick === null && o.t >= (tP - 1) * 1000) pick = o.t;
-          } else if (o.t === pick) {
-            return { delay: pick / 1000 - tP, vet: (o.at - pick) / 1000, confirmed: o.kind === 'trigger', gain: o.kind === 'trigger' ? o.pga / pga : 1 };
+            if (pick === null && o.t >= (tP - 1) * 1000) pick = o;
+          } else if (pick && o.t === pick.t) {
+            const sent = (pick.at - pick.t) / 1000;
+            return { delay: pick.t / 1000 - tP, phase: pick.phase, sent, vet: (o.at - pick.t) / 1000, confirmed: o.kind === 'trigger', gain: o.kind === 'trigger' ? o.pga / pga : 1 };
           }
         }
-        return { delay: null, vet: 0, confirmed: false, gain: 1 };
+        return { delay: null, phase: 'P', sent: 0, vet: 0, confirmed: false, gain: 1 };
       }),
     ),
   );
@@ -93,7 +98,7 @@ function respond(m: PhoneModel, pga: number, sp: number, r: () => number): Respo
   const runs = m.cells[i][j];
   const out = runs[Math.floor(r() * runs.length)];
   // A pick made on the S wave moves with this phone's own S−P time.
-  return out.delay !== null && out.delay > 0.7 * SP_LEVELS[j] ? { ...out, delay: out.delay - SP_LEVELS[j] + sp } : out;
+  return out.delay !== null && out.phase === 'S' ? { ...out, delay: out.delay - SP_LEVELS[j] + sp } : out;
 }
 
 export interface PlanInput {
@@ -237,8 +242,8 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
       }
     }
     if (t === null) return;
-    const tr: Trigger = { id: `${node.id}:q`, node: node.id, lat: node.lat, lon: node.lon, t, pga: pga * o.gain };
-    arrivals.push({ at: t + LATENCY_MS, kind: 'pick', tr });
+    const tr: Trigger = { id: `${node.id}:q`, node: node.id, lat: node.lat, lon: node.lon, t, pga: pga * o.gain, phase: o.phase };
+    arrivals.push({ at: t + o.sent * 1000 + LATENCY_MS, kind: 'pick', tr });
     if (o.confirmed) triggers.push(tr);
     else arrivals.push({ at: t + o.vet * 1000 + LATENCY_MS, kind: 'retract', tr });
   });
@@ -257,8 +262,8 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
   let errKm: number | null = null;
   let mag: number | null = null;
   if (input.confirm && triggers.length >= 3) {
-    const first = triggers.sort((a, b) => a.t - b.t).slice(0, MAX_CONFIRM);
-    const ev = associate(first).sort((a, b) => b.triggers.length - a.triggers.length)[0];
+    const sample = triggers.length > MAX_CONFIRM ? triggers.filter((_, i) => i % Math.ceil(triggers.length / MAX_CONFIRM) === 0) : triggers;
+    const ev = associate(sample).sort((a, b) => b.triggers.length - a.triggers.length)[0];
     if (ev) {
       errKm = distanceKm(ev, epi);
       mag = ev.mag;

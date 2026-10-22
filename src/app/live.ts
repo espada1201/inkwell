@@ -101,7 +101,7 @@ export class LiveNetwork extends Emitter {
         this.pending = [...this.pending, { node: m.node, ev }].slice(-500);
         return;
       }
-      const t: Trigger = { id: m.id, node: m.node, lat: m.data.lat, lon: m.data.lon, t: m.data.t, pga: m.type === 'trigger' ? m.data.pga : 0 };
+      const t: Trigger = { id: m.id, node: m.node, lat: m.data.lat, lon: m.data.lon, t: m.data.t, pga: m.type === 'trigger' ? m.data.pga : 0, phase: m.data.phase };
       const n = this.nodes.get(m.node)!;
       if (m.type === 'pick') {
         if (this.picks.has(t.id) || this.retracted.has(t.id) || this.burst(m.node, [...this.picks.values()])) return;

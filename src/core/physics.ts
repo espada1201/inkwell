@@ -9,6 +9,10 @@ export const VS_KMS = 3.5;
 export const DEFAULT_DEPTH_KM = 10;
 export const G = 9.81;
 
+/** Which wave a phone triggered on: P (first, compressional) or S (later, stronger, shear). */
+export type Phase = 'P' | 'S';
+export const speedOf = (phase: Phase | undefined) => (phase === 'S' ? VS_KMS : VP_KMS);
+
 export function hypocentralKm(epicentralKm: number, depthKm = DEFAULT_DEPTH_KM): number {
   return Math.hypot(epicentralKm, depthKm);
 }

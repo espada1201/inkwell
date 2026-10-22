@@ -151,13 +151,13 @@ export class SensorNode extends Emitter {
   }
 
   private handle(out: DetectorOutput) {
-    // Picks go out instantly; the verdict follows once the shaking has been vetted.
+    // Picks go out within half a second; the verdict follows once the shaking has been vetted.
     const pickId = this.openPick?.t === out.t ? this.openPick.id : undefined;
     let published = false;
     if (out.kind === 'pick') {
       this.openPick = null;
       if (this.canPublish) {
-        const ev = signPick(this.sk, { ...this.location!, t: out.t });
+        const ev = signPick(this.sk, { ...this.location!, t: out.t, phase: out.phase });
         this.transport.publish(ev);
         this.openPick = { t: out.t, id: ev.id };
       }
@@ -166,7 +166,7 @@ export class SensorNode extends Emitter {
     this.openPick = null;
     if (out.kind === 'reject' && pickId) this.transport.publish(signRetraction(this.sk, pickId, out.reason));
     if (out.kind === 'trigger' && this.canPublish) {
-      this.transport.publish(signTrigger(this.sk, { ...this.location!, t: out.t, pga: out.pga, dur: out.durS }, pickId));
+      this.transport.publish(signTrigger(this.sk, { ...this.location!, t: out.t, phase: out.phase, pga: out.pga, dur: out.durS }, pickId));
       published = true;
     }
     this.log = [{ at: Date.now(), out, published }, ...this.log].slice(0, 30);

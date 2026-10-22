@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { generateSecretKey, getPublicKey } from 'nostr-tools/pure';
+import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { filters, parse, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import { RelayPool } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
@@ -52,6 +52,16 @@ describe('protocol', () => {
     expect(parse(signRetraction(sk, pick.id, 'footsteps'))).toMatchObject({ type: 'retract', pick: pick.id });
     expect(parse(signTrigger(sk, { lat: 10, lon: 20, t, pga: 1, dur: 3 }, pick.id))).toMatchObject({ type: 'trigger', pick: pick.id });
     expect(parse(signRetraction(sk, 'not-an-id', 'x'))).toBeNull();
+  });
+
+  it('picks and triggers say which wave the phone felt; older events count as P', () => {
+    const t = Date.now();
+    expect(parse(signPick(sk, { lat: 1, lon: 2, t, phase: 'S' }))).toMatchObject({ type: 'pick', data: { phase: 'S' } });
+    expect(parse(signTrigger(sk, { lat: 1, lon: 2, t, pga: 0.2, dur: 4, phase: 'S' }))).toMatchObject({ type: 'trigger', data: { phase: 'S' } });
+    const old = finalizeEvent({ kind: 4578, created_at: Math.floor(t / 1000), tags: [['t', 'tremor']], content: JSON.stringify({ v: 1, lat: 1, lon: 2, t }) }, sk);
+    expect(parse(old)).toMatchObject({ type: 'pick', data: { phase: 'P' } });
+    const bad = finalizeEvent({ kind: 4578, created_at: Math.floor(t / 1000), tags: [['t', 'tremor']], content: JSON.stringify({ v: 1, lat: 1, lon: 2, t, ph: 'X' }) }, sk);
+    expect(parse(bad)).toBeNull();
   });
 
   it('identity persists in storage', () => {

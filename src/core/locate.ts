@@ -1,9 +1,11 @@
 import { distanceKm, offset, type LatLon } from './geo';
-import { DEFAULT_DEPTH_KM, VP_KMS, hypocentralKm, magnitudeFrom } from './physics';
+import { DEFAULT_DEPTH_KM, hypocentralKm, magnitudeFrom, speedOf, type Phase } from './physics';
 
 export interface Arrival extends LatLon {
-  /** P arrival (trigger onset) in seconds on any common clock. */
+  /** Arrival (trigger onset) in seconds on any common clock. */
   t: number;
+  /** The wave that arrived; P when not given. */
+  phase?: Phase;
   /** Peak acceleration seen by the node, m/s² (optional, for magnitude). */
   pga?: number;
 }
@@ -20,15 +22,15 @@ export interface Solution extends LatLon {
 }
 
 export interface LocateOptions {
-  vp?: number;
   depthKm?: number;
   outlierS?: number;
   minArrivals?: number;
   maxOutliers?: number;
   /**
    * "Not yet arrived" constraint for early locations: nodes that are listening but have not
-   * picked. A trial epicentre is penalised when it implies such a node, closer than the
-   * farthest picking node, should already have felt the P wave by `now` (same clock as t).
+   * picked. A trial epicentre is penalised when it implies such a node should already have
+   * felt a wave by `now` (same clock as t): the P wave if it is closer than the farthest
+   * phone that picked a P, else the S wave if closer than the farthest that picked an S.
    */
   silent?: LatLon[];
   now?: number;
@@ -97,17 +99,17 @@ function quickMedian(a: Float64Array, n: number): number {
 /**
  * Epicentre by grid search on arrival times: for each trial point the origin time is the
  * median of (arrival − travel time), and the L1 misfit is robust to one or two bad clocks.
- * Coarse grid → two refinements, then outlier rejection one arrival at a time.
+ * Coarse rings around the phones → two refinements, then outlier rejection one arrival at
+ * a time.
  */
 export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution | null {
-  const vp = opts.vp ?? VP_KMS;
   const depth = opts.depthKm ?? DEFAULT_DEPTH_KM;
   const outlier = opts.outlierS ?? 2.5;
   const minN = opts.minArrivals ?? 3;
   if (arrivals.length < minN) return null;
 
   let used = arrivals.map((_, i) => i);
-  let best = search(arrivals, vp, depth, opts);
+  let best = search(arrivals, depth, opts);
   const maxOut = opts.maxOutliers ?? 2;
   for (let pass = 0; pass < maxOut; pass++) {
     const worst = best.res.reduce((w, r, i) => (Math.abs(r) > Math.abs(best.res[w]) ? i : w), 0);
@@ -115,7 +117,6 @@ export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution 
     used = used.filter((_, i) => i !== worst);
     best = search(
       used.map((i) => arrivals[i]),
-      vp,
       depth,
       opts,
     );
@@ -163,8 +164,13 @@ function pooled(f: Frame, pts: LatLon[]) {
   };
 }
 
+/** How far beyond the phones the search looks, km, and how its rings thin out with distance. */
+const RANGE_ONE_WAVE_KM = 80;
+const RANGE_TWO_WAVES_KM = 250;
+const RING_RATIO = 0.07;
+
 /** Grid misfits use at most this many arrivals: a few dozen pin an epicentre as well as a thousand. */
-const MAX_GRID_ARRIVALS = 80;
+const MAX_GRID_ARRIVALS = 40;
 
 /** An even sample across the arrival times, earliest and latest included. */
 function spread(arr: Arrival[], k: number): Arrival[] {
@@ -172,11 +178,15 @@ function spread(arr: Arrival[], k: number): Arrival[] {
   return Array.from({ length: k }, (_, i) => byTime[Math.round((i * (byTime.length - 1)) / (k - 1))]);
 }
 
-function search(all: Arrival[], vp: number, depth: number, opts: LocateOptions) {
+function search(all: Arrival[], depth: number, opts: LocateOptions) {
   const arr = all.length > MAX_GRID_ARRIVALS ? spread(all, MAX_GRID_ARRIVALS) : all;
   const f = frame(arr);
   const A = toXY(f, arr);
   const t = Float64Array.from(arr, (a) => a.t);
+  const v = Float64Array.from(arr, (a) => speedOf(a.phase));
+  const isS = arr.map((a) => a.phase === 'S');
+  const vp = speedOf('P');
+  const vs = speedOf('S');
   const S = pooled(f, opts.silent ?? []);
   const useSilent = S.x.length > 0 && opts.now !== undefined;
   const deadline = (opts.now ?? 0) - (opts.silentSlackS ?? 1.5);
@@ -184,25 +194,30 @@ function search(all: Arrival[], vp: number, depth: number, opts: LocateOptions) 
   const n = arr.length;
   const r = new Float64Array(n);
 
-  const misfit = (px: number, py: number) => {
-    let far2 = 0;
+  // Costs only grow term by term, so a trial point stops being evaluated as soon as it is
+  // already worse than the best so far: exact, and most grid points are far from the best.
+  const misfit = (px: number, py: number, bound = Infinity) => {
+    let farP2 = -1;
+    let farS2 = -1;
     for (let i = 0; i < n; i++) {
       const dx = px - A.x[i];
       const dy = py - A.y[i];
       const d2 = dx * dx + dy * dy;
-      if (d2 > far2) far2 = d2;
-      r[i] = t[i] - Math.sqrt(d2 + z2) / vp;
+      if (isS[i]) farS2 = Math.max(farS2, d2);
+      else farP2 = Math.max(farP2, d2);
+      r[i] = t[i] - Math.sqrt(d2 + z2) / v[i];
     }
     const t0 = quickMedian(r, n);
     let cost = 0;
     for (let i = 0; i < n; i++) cost += Math.abs(r[i] - t0);
-    if (useSilent) {
-      for (let k = 0; k < S.x.length; k++) {
+    if (useSilent && cost < bound) {
+      for (let k = 0; k < S.x.length && cost < bound; k++) {
         const dx = px - S.x[k];
         const dy = py - S.y[k];
         const d2 = dx * dx + dy * dy;
-        if (d2 >= far2) continue;
-        const late = deadline - (t0 + Math.sqrt(d2 + z2) / vp);
+        const speed = d2 < farP2 ? vp : d2 < farS2 ? vs : 0;
+        if (!speed) continue;
+        const late = deadline - (t0 + Math.sqrt(d2 + z2) / speed);
         if (late > 0) cost += S.w[k] * Math.min(late, 5);
       }
     }
@@ -211,25 +226,31 @@ function search(all: Arrival[], vp: number, depth: number, opts: LocateOptions) 
 
   let extent = 0;
   for (let i = 0; i < n; i++) extent = Math.max(extent, Math.hypot(A.x[i], A.y[i]));
-  let cx = 0;
-  let cy = 0;
-  let half = Math.max(60, extent + 80);
-  let step = half / 40;
   let best = { x: 0, y: 0, ...misfit(0, 0) };
-  for (let level = 0; level < 3; level++) {
-    for (let e = -half; e <= half + 1e-9; e += step) {
-      for (let m = -half; m <= half + 1e-9; m += step) {
-        const c = misfit(cx + e, cy + m);
-        if (c.cost < best.cost) best = { x: cx + e, y: cy + m, ...c };
-      }
-    }
-    cx = best.x;
-    cy = best.y;
-    half = step * 2;
-    step = half / 20;
+  const at = (x: number, y: number) => {
+    const c = misfit(x, y, best.cost);
+    if (c.cost < best.cost) best = { x, y, ...c };
+  };
+  // Coarse: rings around the network, spaced in proportion to their distance, because a
+  // distant quake is only ever placed to within a few per cent of its distance anyway. Seen in
+  // one wave only, distance trades off against origin time, so the search stays closer in.
+  const range = extent + (isS.includes(true) && isS.includes(false) ? RANGE_TWO_WAVES_KM : RANGE_ONE_WAVE_KM);
+  const spacing = (r: number) => Math.max(2, RING_RATIO * r);
+  for (let r = spacing(0); r <= range; r += spacing(r)) {
+    const k = Math.ceil((2 * Math.PI * r) / spacing(r));
+    for (let j = 0; j < k; j++) at(r * Math.cos((2 * Math.PI * j) / k), r * Math.sin((2 * Math.PI * j) / k));
+  }
+  // Then two finer square grids around the best point.
+  let half = 1.5 * spacing(Math.hypot(best.x, best.y));
+  for (let level = 0; level < 2; level++) {
+    const cx = best.x;
+    const cy = best.y;
+    const step = half / 10;
+    for (let e = -10; e <= 10; e++) for (let m = -10; m <= 10; m++) at(cx + e * step, cy + m * step);
+    half = 2 * step;
   }
   const p = offset(f.origin, best.x, best.y);
-  const res = all.map((a) => a.t - hypocentralKm(distanceKm(p, a), depth) / vp);
+  const res = all.map((a) => a.t - hypocentralKm(distanceKm(p, a), depth) / speedOf(a.phase));
   const t0 = median(res);
   return { p, t0, res: res.map((x) => x - t0) };
 }
