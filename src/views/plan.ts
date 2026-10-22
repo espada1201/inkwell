@@ -59,7 +59,7 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     note: `Within ${HERE_KM} km of ${coord(p.lat, p.lon)}${isMine(p) ? ', your saved location' : ''}. Phones listening right now are counted from the relays this browser follows.`,
   });
   const [c, m, d, p] = (arg ?? '').split('/');
-  const spot = parseSpot(c ?? '');
+  const spot = parseSpot(c);
   const phones = Number(p);
   const state = {
     city: CITIES.find((x) => x.id === c) ?? (spot ? herePlace(spot) : CITIES[0]),
