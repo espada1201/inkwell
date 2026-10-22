@@ -71,7 +71,7 @@ export class NodeDetector {
   private origin: number[] | null = null;
   private readonly env: OnePole;
   private lastT = 0;
-  private holdUntil = 0;
+  private holdUntil = -Infinity;
   private cand: {
     t0: number;
     g0: [number, number, number];
@@ -137,12 +137,10 @@ export class NodeDetector {
     if (this.lastT && Math.abs(s.t - this.lastT) > 1000) {
       // The samples stopped for a while, as in a hidden tab, or the clock was set.
       const out = this.interrupt(s.t);
-      if (out) {
-        this.lastT = s.t;
-        return out;
-      }
+      if (out) return out;
     }
-    const dtS = this.lastT ? (s.t - this.lastT) / 1000 : 1 / this.fs;
+    // A clock set back by under a second is no time passing, so the threshold never rises for it.
+    const dtS = this.lastT ? Math.max(0, s.t - this.lastT) / 1000 : 1 / this.fs;
     this.lastT = s.t;
     // Threshold relaxes toward base with a 2-minute time constant.
     this.threshold = this.base + (this.threshold - this.base) * Math.exp(-dtS / 120);
@@ -250,7 +248,11 @@ export class NodeDetector {
     c.eh += e - v * v;
   }
 
-  /** Start afresh: gravity, filters and averages all learn again from the next sample. */
+  /**
+   * Start afresh: gravity, filters and averages all learn again from the next sample, at the base
+   * threshold and with no hold. Both were set by verdicts dated by a clock that may since have
+   * been set: kept across a clock set back a day, a hold of seconds would last a day.
+   */
   private reset() {
     this.n = 0;
     this.sta = this.lta = 0;
@@ -259,6 +261,9 @@ export class NodeDetector {
     this.grav = [0, 1, 2].map(() => new OnePole(2, this.fs));
     this.bp = [0, 1, 2].map(() => new Bandpass(1, 10, this.fs));
     this.origin = null;
+    this.lastT = 0;
+    this.holdUntil = -Infinity;
+    this.threshold = this.base;
   }
 }
 

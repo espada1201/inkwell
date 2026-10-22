@@ -193,6 +193,35 @@ describe('provisional picks', () => {
     const pick = out.find((o) => o.kind === 'pick')!;
     expect(out.find((o) => o.kind !== 'pick')).toMatchObject({ kind: 'reject', t: pick.t, reason: 'interrupted' });
   });
+
+  it('starts afresh after a break or its clock being set back, then hears the next quake', () => {
+    // A door slam at 20 s raises the threshold and holds off the next onset for a moment. At 60 s
+    // the samples stop for ten seconds, or the clock is set back two minutes, ten minutes or a
+    // day, with nothing being checked or with footsteps being checked; a quake comes 40 s later.
+    for (const jump of [10_000, -120_000, -600_000, -86_400_000])
+      for (const footsteps of [undefined, { t: 58, count: 4 }]) {
+        const det = new NodeDetector(50);
+        const out: DetectorOutput[] = [];
+        for (const s of synthesize({ start: 0, durationS: 150, seed: 7, slam: { t: 20 }, footsteps, quake: { tP: 100, tS: 104, pga: 0.6 } })) {
+          const r = det.push(s.t > 60_000 ? { ...s, t: s.t + jump } : s);
+          if (r) out.push(r);
+        }
+        const what = `clock ${jump / 1000} s, ${footsteps ? 'footsteps' : 'nothing'} being checked`;
+        expect(out.map((o) => (o.kind === 'reject' ? o.reason : o.kind)), what).toEqual(['pick', 'impulse', ...(footsteps ? ['pick', 'interrupted'] : []), 'pick', 'trigger']);
+        expect(det.threshold, what).toBe(det.base);
+      }
+  });
+
+  it('never raises its threshold when its clock steps back by less than a second', () => {
+    // The slam's false alarm raises the threshold, which then only relaxes; at 60 s the clock is set back 0.9 s.
+    const det = new NodeDetector(50);
+    let was = Infinity;
+    for (const s of synthesize({ start: 0, durationS: 70, seed: 7, slam: { t: 20 } })) {
+      det.push(s.t > 60_000 ? { ...s, t: s.t - 900 } : s);
+      if (s.t > 40_000) expect(det.threshold).toBeLessThanOrEqual(was);
+      was = det.threshold;
+    }
+  });
 });
 
 describe('telling P from S by which way the phone shakes', () => {
