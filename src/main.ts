@@ -32,9 +32,12 @@ function relayList(): string[] {
 }
 
 function saveRelays(urls: string[]) {
-  safeStorage()?.setItem(RELAYS_KEY, JSON.stringify(urls));
+  const store = safeStorage();
+  store?.setItem(RELAYS_KEY, JSON.stringify(urls));
+  // Where the browser refused to store the list, a ?relays= link carries it for this tab.
+  if (store?.getItem(RELAYS_KEY) !== JSON.stringify(urls)) location.replace(`?relays=${encodeURIComponent(urls.join(','))}${location.hash}`);
   // A ?relays= link would otherwise win over the list just saved.
-  if (params.has('relays')) location.replace(location.pathname + location.hash);
+  else if (params.has('relays')) location.replace(location.pathname + location.hash);
   else location.reload();
 }
 

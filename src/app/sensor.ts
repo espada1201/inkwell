@@ -267,13 +267,10 @@ export class SensorNode extends Emitter {
     this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: noise ?? d.background, sps: listening ? this.fs : 0, since: this.stretches.at(-1)?.from }));
   }
 
-  private saveListened(now = Date.now()) {
+  private saveListened() {
     // shortcut: two tabs listening at once each keep their own count and the last to save wins; add per-tab counts if people run several.
-    try {
-      safeStorage()?.setItem(LISTENED_KEY, JSON.stringify({ week: weekStart(now), ms: this.listened(now).week }));
-    } catch {
-      /* storage full or blocked: the count lasts this session */
-    }
+    const now = Date.now();
+    safeStorage()?.setItem(LISTENED_KEY, JSON.stringify({ week: weekStart(now), ms: this.listened(now).week }));
   }
 
   private async requestWakeLock() {

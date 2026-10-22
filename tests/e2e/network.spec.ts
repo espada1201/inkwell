@@ -363,6 +363,25 @@ test('the relay editor says why it saved nothing, and which lines were wrong', a
   await expect(box).toHaveValue('relay.damus.io\nwss://nos.lol\nnostr.wine\nws://relay.example.com');
 });
 
+for (const refused of [false, true])
+  test(`a saved relay list is the one used after a reload${refused ? ', for this tab where the browser refuses to store it' : ''}`, async ({ page, relay }) => {
+    if (refused)
+      await page.addInitScript(() => {
+        Storage.prototype.setItem = () => {
+          throw new DOMException('full', 'QuotaExceededError');
+        };
+      });
+    await page.goto(`/?relays=${relay.url}#network`);
+    await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+    await page.locator('details.relays summary').click();
+    await page.getByLabel('Relay URLs, one per line').fill(`${relay.url}\nwss://relay.two.example`);
+    await page.getByRole('button', { name: 'Save and reconnect' }).click();
+    await expect(page.getByTestId('relay-status')).toHaveText('1/2 relays');
+    await page.reload();
+    await expect(page.getByTestId('relay-status')).toHaveText('1/2 relays');
+    expect(await page.evaluate(() => localStorage.getItem('tremor.relays'))).toBe(refused ? null : JSON.stringify([relay.url, 'wss://relay.two.example']));
+  });
+
 test('a relay link with no usable address falls back to the usual relays', async ({ page }) => {
   await page.goto('/?relays=relay.damus.io,ws://relay.example.com#network');
   await page.locator('details.relays summary').click();

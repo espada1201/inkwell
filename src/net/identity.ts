@@ -15,10 +15,21 @@ export function loadIdentity(store: Pick<Storage, 'getItem' | 'setItem'> | null 
   return { sk, pubkey: getPublicKey(sk) };
 }
 
-export function safeStorage(): Storage | null {
+/** This browser's localStorage, or null where it is blocked. A write it refuses, when full or locked down, is dropped. */
+export function safeStorage(): Pick<Storage, 'getItem' | 'setItem'> | null {
+  let store: Storage | undefined;
   try {
-    return globalThis.localStorage ?? null;
+    store = globalThis.localStorage;
   } catch {
     return null;
   }
+  if (!store) return null;
+  return {
+    getItem: (k) => store.getItem(k),
+    setItem: (k, v) => {
+      try {
+        store.setItem(k, v);
+      } catch {}
+    },
+  };
 }

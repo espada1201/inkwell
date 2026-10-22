@@ -6,6 +6,7 @@ import { hypocentralKm, pgaFor, VP_KMS } from '../../src/core/physics';
 import { NodeDetector, type DetectorOutput } from '../../src/core/sensor';
 import { synthesize, type SynthOptions } from '../../src/core/synth';
 import { parse, signOutput, type Message } from '../../src/net/protocol';
+import { loadIdentity } from '../../src/net/identity';
 
 function run(o: Omit<SynthOptions, 'start' | 'durationS' | 'seed'> & { seed?: number; durationS?: number; start?: number }) {
   const det = new NodeDetector(50);
@@ -415,6 +416,17 @@ describe('this phone on the network', () => {
     const pick = sent.find((m) => m.type === 'pick')!;
     expect(Math.abs(pick.data.t - (Date.now() - 10_000))).toBeLessThan(1000);
     expect(heartbeats().at(-1)!.data.since).toBeGreaterThan(Date.now() - 40_000);
+  });
+
+  it('a browser that refuses every write, as a full or locked-down one does, loses only what it would have kept', async () => {
+    vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => { throw new DOMException('full', 'QuotaExceededError'); } });
+    expect(() => loadIdentity()).not.toThrow();
+    const { node, feed, heartbeats } = phone();
+    await node.start();
+    feed({ durationS: 20 });
+    node.stop();
+    expect(heartbeats().length).toBeGreaterThan(0);
+    expect(node.location).toEqual({ lat: 37.77, lon: -122.42 });
   });
 
   it('counts the time it listened, this session and this week, in this browser only', async () => {
