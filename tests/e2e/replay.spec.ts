@@ -34,6 +34,32 @@ test('concert night: no earthquake is declared', async ({ page }) => {
   await expect(page.getByTestId('replay-stats')).toContainText('false alarms caught on-device');
 });
 
+/** Keep every text a screen reader is asked to announce: what changes inside a live region, as it happens. */
+function recordAnnouncements() {
+  const said: string[] = [];
+  Object.assign(window, { said });
+  new MutationObserver((records) => {
+    const regions = new Set<Element>();
+    for (const m of records) {
+      const el = m.target instanceof Element ? m.target : m.target.parentElement;
+      const region = el?.closest('[aria-live]:not([aria-live="off"]), [role="status"], [role="alert"], [role="log"]');
+      if (region) regions.add(region);
+    }
+    for (const r of regions) said.push(r.textContent?.trim() ?? '');
+  }).observe(document, { subtree: true, childList: true, characterData: true });
+}
+
+test('screen readers hear the milestones of a replay, not every second of it', async ({ page }) => {
+  await page.addInitScript(recordAnnouncements);
+  await page.goto('/?speed=10#replay/napa-2014');
+  await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
+  const said = (await page.evaluate(() => (window as unknown as { said: string[] }).said)).filter(Boolean);
+  expect(said).toHaveLength(3);
+  expect(said[0]).toMatch(/^Network declares a quake at T\+\d+\.\d s\.$/);
+  expect(said[1]).toMatch(/^Confirmed at T\+\d+\.\d s\.$/);
+  expect(said[2]).toMatch(/^Replay finished: declared at T\+\d+\.\d s, confirmed at T\+\d+\.\d s\.$/);
+});
+
 test('switching scenarios and scrubbing works with the keyboard', async ({ page }) => {
   await page.goto('/?speed=10#replay/napa-2014');
   await page.locator('[data-scenario="christchurch-2011"]').click();

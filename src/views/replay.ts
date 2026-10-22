@@ -28,8 +28,10 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   const playBtn = h('button', { class: 'btn primary', 'data-testid': 'play' });
   const stats = h('p', { class: 'small mono muted', 'data-testid': 'replay-stats' });
   const steps = h('ol', { class: 'timeline', 'aria-label': 'What the network knew, and when' });
-  const warn = h('div', { 'aria-live': 'polite' });
-  const result = h('div', { 'aria-live': 'polite' });
+  // The cards redraw as the replay plays; screen readers hear only its milestones, through `said`.
+  const warn = h('div', {});
+  const result = h('div', {});
+  const said = h('p', { class: 'sr-only', role: 'status', 'data-testid': 'replay-status' });
   const picker = h('div', { class: 'scenarios', role: 'group', 'aria-label': 'Scenarios' });
   const blurb = h('p', { class: 'lede' });
   r.speed = speed;
@@ -146,12 +148,23 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     );
   }
 
+  /** The one line screen readers hear: the latest milestone the replay has passed. */
+  function milestone() {
+    const at = (ms: number) => clockT(sinceOrigin(ms));
+    if (r.vt >= r.duration)
+      return r.declared ? `Replay finished: declared at ${at(r.declared.at)}${r.confirmedAt !== null ? `, confirmed at ${at(r.confirmedAt)}` : ''}.` : 'Replay finished: no quake declared.';
+    if (r.confirmedAt !== null) return `Confirmed at ${at(r.confirmedAt)}.`;
+    return r.declared ? `Network declares a quake at ${at(r.declared.at)}.` : '';
+  }
+
   let lastKey = '';
   let lastHeavy = 0;
   function update() {
     const sim = r.sim;
     if (!sim) return;
     const t = r.sinceOrigin;
+    const m = milestone();
+    if (said.textContent !== m) said.textContent = m;
     clock.textContent = clockT(t);
     scrub.value = String(Math.round((r.vt / r.duration) * 1000));
     scrub.setAttribute('aria-valuetext', `${Math.abs(t).toFixed(0)} seconds ${t < 0 ? 'before' : 'after'} the quake began`);
@@ -208,6 +221,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     h('div', {}, h('h1', {}, 'Replay'), h('p', { class: 'lede' }, 'Real historical quakes, played into a simulated network of phones. Every trace runs through the same detector your phone would, and every alert through the same network logic.')),
     picker,
     blurb,
+    said,
     h('div', { class: 'transport' }, playBtn, clock, speeds),
     scrub,
     steps,
