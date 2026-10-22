@@ -98,8 +98,8 @@ export class SensorNode extends Emitter {
 
   stop() {
     // A pick still being checked never will be now.
-    if (this.openPick) this.transport.publish(signRetraction(this.sk, this.openPick.id, 'interrupted'));
-    this.openPick = null;
+    const out = this.detector?.interrupt(Date.now());
+    if (out) this.handle(out);
     this.heartbeat(false);
     window.removeEventListener('devicemotion', this.onMotion);
     document.removeEventListener('visibilitychange', this.onVisible);

@@ -113,14 +113,20 @@ export class NodeDetector {
     return Math.max(Math.sqrt(this.threshold) * this.background, this.floor);
   }
 
+  /** The samples stop here: start afresh, and withdraw a pick already sent for shaking still being checked. */
+  interrupt(t: number): DetectorOutput | null {
+    const lost = this.cand;
+    this.reset();
+    return lost?.phase ? { kind: 'reject', t: lost.t0, at: t, reason: 'interrupted' } : null;
+  }
+
   push(s: Sample): DetectorOutput | null {
     if (this.lastT && s.t - this.lastT > 1000) {
-      // The samples stopped (a hidden tab): start afresh, and withdraw a pick already sent.
-      const lost = this.cand;
-      this.reset();
-      if (lost?.phase) {
+      // The samples stopped for a while, as in a hidden tab.
+      const out = this.interrupt(s.t);
+      if (out) {
         this.lastT = s.t;
-        return { kind: 'reject', t: lost.t0, at: s.t, reason: 'interrupted' };
+        return out;
       }
     }
     const dtS = this.lastT ? (s.t - this.lastT) / 1000 : 1 / this.fs;

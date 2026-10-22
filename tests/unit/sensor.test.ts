@@ -312,4 +312,14 @@ describe('this phone on the network', () => {
     feed({ durationS: 126 });
     expect(heartbeats()).toHaveLength(3);
   });
+
+  it('withdraws a pick still being checked when stopped, and says so in its log', async () => {
+    const { node, feed, sent } = phone();
+    await node.start();
+    feed({ durationS: 40, quake: { tP: 30, tS: 33, pga: 0.6 } });
+    const pick = sent.find((m) => m.type === 'pick')!;
+    node.stop();
+    expect(sent.filter((m) => m.type === 'retract')).toEqual([expect.objectContaining({ pick: pick.id })]);
+    expect(node.log).toEqual([expect.objectContaining({ out: expect.objectContaining({ kind: 'reject', t: pick.data.t, reason: 'interrupted' }), published: true })]);
+  });
 });

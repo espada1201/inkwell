@@ -8,7 +8,7 @@ const REASONS: Record<RejectReason, string> = {
   handling: 'phone moved',
   impulse: 'bump or door slam',
   footsteps: 'footsteps',
-  interrupted: 'sensor paused before it could check',
+  interrupted: 'stopped before the check finished',
 };
 
 const STATE_COPY: Record<SensorNode['state'], [string, string]> = {
