@@ -1,3 +1,5 @@
+import { fit } from './canvas';
+
 const STEP_MS = 120;
 const PX = 2;
 
@@ -7,12 +9,18 @@ const PX = 2;
  */
 export function startHelicorder(canvas: HTMLCanvasElement, read: () => number) {
   const trace: number[] = [];
-  return setInterval(() => {
-    const ctx = canvas.getContext('2d')!;
-    const w = (canvas.width = canvas.clientWidth);
-    const hh = (canvas.height = 16);
+  let n = Math.ceil(screen.width / PX);
+  let frame = 0;
+  setInterval(() => {
     trace.push(read());
-    const n = Math.ceil(w / PX);
+    if (trace.length > n) trace.shift();
+    frame ||= requestAnimationFrame(draw);
+  }, STEP_MS);
+
+  function draw() {
+    frame = 0;
+    const { ctx, w, h: hh } = fit(canvas);
+    n = Math.ceil(w / PX);
     if (trace.length > n) trace.splice(0, trace.length - n);
     ctx.clearRect(0, 0, w, hh);
     ctx.strokeStyle = '#c8261c';
@@ -26,5 +34,5 @@ export function startHelicorder(canvas: HTMLCanvasElement, read: () => number) {
       ctx.lineTo(x, hh - 1 - v * 13);
     });
     ctx.stroke();
-  }, STEP_MS);
+  }
 }

@@ -36,6 +36,7 @@ Preconditions: the baseline. Motion comes in as DeviceMotion events, as a phone'
 ## Gotchas
 
 - The detector runs on real time: feed events with timers paced to 20 ms, not in one burst.
+- Drawing must never hold up the feed. A phone that misses a second of samples starts listening over and withdraws its pick (`stopped before the check finished`). To check, run the listen journey pinned to one core (`taskset -c 0 node .claude/skills/verify-tremor/drive.mjs …`) and record the gaps between the feed's ticks: none should pass 1 s. A canvas drawn from a timer instead of an animation frame once caused gaps of 3 to 5 s.
 - Opting in needs both the checkbox and a location; either alone publishes nothing.
 - The background, the reach and the first heartbeat wait for warm-up; before it the screen says `learning…`.
 - `--phone` changes the viewport, not the sensors: motion is fed the same way.
