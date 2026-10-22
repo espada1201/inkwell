@@ -47,14 +47,13 @@ describe('the Replay tab, run headless', () => {
   it('counts confirmed phones and withdrawn picks as of the replay clock', () => {
     const r = loaded('stadium-night');
     const rejects = r.nodes.flatMap((n) => n.rejects);
-    const sum = (m: Map<string, number>) => [...m.values()].reduce((a, b) => a + b, 0);
     r.seek(r.duration / 2);
-    expect(sum(r.counts().withdrawn)).toBe(rejects.filter((x) => x.at <= r.vt).length);
+    expect(r.counts().withdrawn).toBe(rejects.filter((x) => x.at <= r.vt).length);
     r.seek(r.duration);
-    const { confirmed, withdrawn } = r.counts();
-    expect(sum(withdrawn)).toBe(rejects.length);
+    const { confirmed, withdrawn, why } = r.counts();
+    expect(withdrawn).toBe(rejects.length);
     expect(confirmed).toBe(r.nodes.filter((n) => n.trigger).length);
-    for (const reason of withdrawn.keys()) expect(rejects.some((x) => x.reason === reason)).toBe(true);
+    for (const [reason, k] of why) expect(k).toBe(rejects.filter((x) => x.reason === reason).length);
   });
 
   it("dates the first pick of a quake from the quake's own waves", () => {

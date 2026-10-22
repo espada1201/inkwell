@@ -31,7 +31,15 @@ test('concert night: no earthquake is declared', async ({ page }) => {
   await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
   await expect(page.getByTestId('warning')).toContainText('No alert');
   await expect(page.getByTestId('compare')).toHaveCount(0);
-  await expect(page.getByTestId('replay-stats')).toContainText('false alarms caught on-device');
+  await expect(page.getByTestId('replay-status')).toHaveText('Replay finished: no quake declared.');
+  // Withdrawn picks are counted by the reason each phone gave, never as false alarms.
+  const stats = await page.getByTestId('replay-stats').innerText();
+  expect(stats).toMatch(/^40 phones · \d+ confirmed · \d+ picks withdrawn on-device \((footsteps|bump or door slam|phone moved) \d+(, (footsteps|bump or door slam|phone moved) \d+)*\)$/);
+  // Disturbances that passed their phones' own checks are explained, when there are any.
+  const confirmed = Number(stats.match(/(\d+) confirmed/)![1]);
+  const card = page.getByTestId('warning');
+  if (confirmed) await expect(card).toContainText(`${confirmed} more passed`);
+  else await expect(card).not.toContainText('passed');
 });
 
 /** Keep every text a screen reader is asked to announce: what changes inside a live region, as it happens. */

@@ -218,11 +218,11 @@ export class Replay extends Emitter {
     return verdict && verdict.at <= vt ? 'idle' : 'pick';
   }
 
-  /** Phones whose own checks confirmed their shaking so far, and the picks phones withdrew so far, by reason. */
+  /** Phones whose own checks confirmed their shaking so far, and the picks phones withdrew so far, in all and by reason. */
   counts() {
-    const withdrawn = new Map<RejectReason, number>();
-    for (const n of this.nodes) for (const x of n.rejects) if (x.at <= this.vt) withdrawn.set(x.reason, (withdrawn.get(x.reason) ?? 0) + 1);
-    return { confirmed: this.nodes.filter((n) => n.trigger && n.trigger.at <= this.vt).length, withdrawn };
+    const why = new Map<RejectReason, number>();
+    for (const n of this.nodes) for (const x of n.rejects) if (x.at <= this.vt) why.set(x.reason, (why.get(x.reason) ?? 0) + 1);
+    return { confirmed: this.nodes.filter((n) => n.trigger && n.trigger.at <= this.vt).length, withdrawn: [...why.values()].reduce((a, b) => a + b, 0), why };
   }
 
   /** Current shaking at a node (0..1 for display). */

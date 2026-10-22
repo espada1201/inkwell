@@ -1,6 +1,7 @@
 import type { Replay } from '../app/replay';
 import { shakeGrid, sRadiusKm } from '../core/impact';
 import { ORIGIN_OFFSET_S, SCENARIOS, sinceOrigin, type Scenario } from '../core/scenarios';
+import type { RejectReason } from '../core/sensor';
 import { usgsEventUrl } from '../net/usgs';
 import { h } from '../ui/dom';
 import { clockT } from '../ui/format';
@@ -9,6 +10,9 @@ import { drawSection } from '../ui/section';
 import { compareCard } from './compare';
 
 const ISOCHRONS = [5, 10, 20];
+/** Why phones withdrew their picks, in the sensor log's words. */
+const WHY: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'sensor paused' };
+const many = (n: number, one: string, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
 
 export const REPLAY_LEGEND: Swatch[] = [
   [NODE_COLORS.idle, 'phone'],
@@ -100,7 +104,8 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const sim = r.sim!;
     const w = r.warning();
     if (!sim.scenario.truth) {
-      const rej = [...r.counts().withdrawn.values()].reduce((a, b) => a + b, 0);
+      const { confirmed, withdrawn } = r.counts();
+      const caught = `${many(withdrawn, 'local disturbance was', 'local disturbances were')} caught and withdrawn by the phones themselves`;
       return h(
         'section',
         { class: 'warn-card calm', 'data-testid': 'warning' },
@@ -110,7 +115,9 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
           {},
           r.declared
             ? 'The network declared a quake that did not happen. This is the failure mode early warning has to keep rare.'
-            : `${rej} local disturbances were caught and withdrawn by the phones themselves; the picks never lined up into a wavefront the quiet phones could agree with.`,
+            : confirmed
+              ? `${caught}. ${confirmed} more passed ${confirmed === 1 ? 'its phone’s' : 'their phones’'} own checks but never lined up into a wavefront the quiet phones could agree with.`
+              : `${caught}; the picks never lined up into a wavefront the quiet phones could agree with.`,
         ),
       );
     }
@@ -176,9 +183,9 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     if (r.playing && now - lastHeavy < 66) return;
     lastHeavy = now;
 
-    const { confirmed: trig, withdrawn } = r.counts();
-    const rej = [...withdrawn.values()].reduce((a, b) => a + b, 0);
-    stats.textContent = `${r.nodes.length} phones · ${trig} confirmed · ${rej} false alarms caught on-device`;
+    const { confirmed: trig, withdrawn, why } = r.counts();
+    const tally = [...why].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${WHY[k]} ${n}`);
+    stats.textContent = `${many(r.nodes.length, 'phone')} · ${trig} confirmed · ${withdrawn ? `${many(withdrawn, 'pick')} withdrawn on-device (${tally.join(', ')})` : 'no picks withdrawn'}`;
     map.setNodes(r.nodes.map((n) => ({ id: n.id, lat: n.lat, lon: n.lon, state: r.nodeState(n), shake: r.shake(n) })));
     map.setWaves(r.waves());
     const truth = sim.scenario.truth;
