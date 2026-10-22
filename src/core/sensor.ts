@@ -23,17 +23,17 @@ export type DetectorOutput =
   | { kind: 'trigger'; t: number; at: number; phase: Phase; pga: number; durS: number }
   | { kind: 'reject'; t: number; at: number; reason: RejectReason };
 
-export interface DetectorOptions {
-  staS?: number;
-  ltaS?: number;
-  /** Base STA/LTA energy ratio that opens a candidate. Adapts upward after false alarms. */
-  thresholdOn?: number;
-  /** Shaking below this RMS (m/s²) is ignored regardless of ratio: phone noise floor. */
-  floor?: number;
-  warmupS?: number;
-  /** Seconds of motion after the onset used to tell a P wave from an S wave. */
-  phaseS?: number;
-}
+/** Short-term and long-term averaging windows of the trigger, s. */
+const STA_S = 0.4;
+const LTA_S = 20;
+/** Base STA/LTA energy ratio that opens a candidate. Adapts upward after false alarms. */
+const THRESHOLD_ON = 5;
+/** Shaking below this RMS (m/s²) is ignored regardless of ratio: phone noise floor. */
+const NOISE_FLOOR = 0.04;
+/** Seconds of samples before the background is learned and the phone listens. */
+const WARMUP_S = 5;
+/** Seconds of motion after the onset used to tell a P wave from an S wave. */
+const PHASE_S = 0.4;
 
 const DEG = 180 / Math.PI;
 
@@ -53,9 +53,9 @@ const DEG = 180 / Math.PI;
  */
 export class NodeDetector {
   readonly fs: number;
-  readonly base: number;
-  threshold: number;
-  readonly floor: number;
+  readonly base = THRESHOLD_ON;
+  threshold = THRESHOLD_ON;
+  readonly floor = NOISE_FLOOR;
   ratio = 0;
   /** Latest bandpassed acceleration magnitude, m/s². */
   level = 0;
@@ -65,7 +65,6 @@ export class NodeDetector {
   private readonly kSta: number;
   private readonly kLta: number;
   private readonly warmup: number;
-  private readonly phaseMs: number;
   private grav: OnePole[] = [];
   private bp: Bandpass[] = [];
   /** This run's first sample. */
@@ -80,6 +79,7 @@ export class NodeDetector {
     down: [number, number, number];
     ev: number;
     eh: number;
+    /** Set when the pick goes out, 0.4 s after the onset: long before any verdict. */
     phase: Phase | null;
     lastLoud: number;
     peak: number;
@@ -90,14 +90,11 @@ export class NodeDetector {
   private gNow: [number, number, number] = [0, 0, G];
   private gHist: [number, number, number][] = [];
 
-  constructor(fs: number, o: DetectorOptions = {}) {
+  constructor(fs: number) {
     this.fs = fs;
-    this.kSta = 1 / ((o.staS ?? 0.4) * fs);
-    this.kLta = 1 / ((o.ltaS ?? 20) * fs);
-    this.base = this.threshold = o.thresholdOn ?? 5;
-    this.floor = o.floor ?? 0.04;
-    this.warmup = (o.warmupS ?? 5) * fs;
-    this.phaseMs = (o.phaseS ?? 0.4) * 1000;
+    this.kSta = 1 / (STA_S * fs);
+    this.kLta = 1 / (LTA_S * fs);
+    this.warmup = WARMUP_S * fs;
     this.env = new OnePole(0.08, fs);
     this.reset();
   }
@@ -186,7 +183,7 @@ export class NodeDetector {
     const c = this.cand;
     if (!c.phase) {
       this.polarize(f, e);
-      if (s.t - c.t0 >= this.phaseMs) {
+      if (s.t - c.t0 >= PHASE_S * 1000) {
         c.phase = c.ev >= c.eh ? 'P' : 'S';
         return { kind: 'pick', t: c.t0, at: s.t, phase: c.phase };
       }
@@ -243,7 +240,7 @@ export class NodeDetector {
     this.holdUntil = t + 10000;
     // shortcut: footsteps still being checked when a quake arrives are confirmed with the
     // footsteps' onset time; split the candidate at a fresh onset if replays show early outliers.
-    return { kind: 'trigger', t: c.t0, at: t, phase: c.phase ?? 'P', pga: c.peak, durS: activeS };
+    return { kind: 'trigger', t: c.t0, at: t, phase: c.phase!, pga: c.peak, durS: activeS };
   }
 
   private polarize(f: number[], e: number) {
