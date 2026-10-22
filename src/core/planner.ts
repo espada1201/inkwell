@@ -79,6 +79,23 @@ export interface PlanResult {
   phones: LatLon[];
 }
 
+/** A network catches a kind of quake once it detects this share of the simulated ones. */
+export const RELIABLY = 0.9;
+
+/**
+ * The smallest network in an ascending sweep that catches its quakes reliably: undefined
+ * while a smaller count is still being simulated, null once none of them does.
+ */
+export function enoughPhones(sweep: number[], points: Summary[]): Summary | null | undefined {
+  // shortcut: the answer is one of the sweep's steps, not a search between them; bisect between the last miss and the first hit when a sharper count is wanted.
+  for (const n of sweep) {
+    const s = points.find((p) => p.phones === n);
+    if (!s) return undefined;
+    if (s.detected >= RELIABLY) return s;
+  }
+  return null;
+}
+
 /** Where the plan's phones are, and the coarse positions the network knows them by. */
 function phoneNodes(input: PlanInput, r: () => number) {
   const phones = Array.from({ length: input.phones }, () => pointInDisk(input.city, input.radiusKm, r));

@@ -4,7 +4,7 @@ import { ORIGIN_OFFSET_S, SCENARIOS, type Scenario } from '../core/scenarios';
 import type { RejectReason } from '../core/sensor';
 import { usgsEventUrl } from '../net/usgs';
 import { h } from '../ui/dom';
-import { clockT } from '../ui/format';
+import { clockT, many } from '../ui/format';
 import { NODE_COLORS, type MapRing, type QuakeMap, type Swatch } from '../ui/map';
 import { drawSection } from '../ui/section';
 import { compareCard } from './compare';
@@ -12,7 +12,6 @@ import { compareCard } from './compare';
 const ISOCHRONS = [5, 10, 20];
 /** Why phones withdrew their picks, in the sensor log's words. */
 const WHY: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'sensor paused' };
-const many = (n: number, one: string, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
 /** Minutes and seconds into a replay: 0:55. */
 const elapsed = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 

@@ -1,6 +1,6 @@
 import type { Summary } from '../core/planner';
 import { h } from './dom';
-import { pct, secs } from './format';
+import { many, pct, secs } from './format';
 
 const NS = 'http://www.w3.org/2000/svg';
 const W = 360;
@@ -37,7 +37,9 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
     svg.append(el('line', { x1: M.l, x2: W - M.r, y1: y(v), y2: y(v), class: 'grid' }));
     svg.append(el('text', { x: M.l - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, `${v * 100}%`));
   }
-  for (const n of new Set([lo, ...counts, hi])) svg.append(el('text', { x: x(n), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, fmtN(n)));
+  // The axis ends are labelled too, unless the label would land on a neighbour's.
+  const ticks = [...new Set([lo, ...counts, hi])].filter((n) => counts.includes(n) || counts.every((k) => Math.abs(x(k) - x(n)) >= 20));
+  for (const n of ticks) svg.append(el('text', { x: x(n), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, fmtN(n)));
   svg.append(el('line', { x1: x(current), x2: x(current), y1: M.t - 6, y2: H - M.b, class: 'you' }));
 
   const sorted = [...points].sort((a, b) => a.phones - b.phones);
@@ -61,7 +63,7 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
   const tip = h('div', { class: 'chart-tip', hidden: true, role: 'status' });
   const show = (s: Summary, px: number) => {
     tip.replaceChildren(
-      h('b', {}, `${s.phones} phones`),
+      h('b', {}, many(s.phones, 'phone')),
       h('span', {}, h('i', { class: 'key' }), `${pct(s.warned)} warned in time`, s.medianWarningS !== null ? ` · median ${secs(s.medianWarningS)}` : ''),
       h('span', {}, h('i', { class: 'key muted' }), `${pct(s.detected)} detected`, s.medianAlertS !== null ? ` · first alert ${secs(s.medianAlertS)}` : ''),
     );
@@ -72,7 +74,7 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
   sorted.forEach((s, i) => {
     const left = i ? (x(sorted[i - 1].phones) + x(s.phones)) / 2 : M.l;
     const right = i < sorted.length - 1 ? (x(s.phones) + x(sorted[i + 1].phones)) / 2 : W - M.r;
-    const band = el('rect', { x: left, y: M.t, width: Math.max(1, right - left), height: H - M.t - M.b, class: 'band', tabindex: 0, 'aria-label': `${s.phones} phones: ${pct(s.detected)} detected, ${pct(s.warned)} warned in time` });
+    const band = el('rect', { x: left, y: M.t, width: Math.max(1, right - left), height: H - M.t - M.b, class: 'band', tabindex: 0, 'aria-label': `${many(s.phones, 'phone')}: ${pct(s.detected)} detected, ${pct(s.warned)} warned in time` });
     band.addEventListener('pointerenter', () => show(s, x(s.phones)));
     band.addEventListener('focus', () => show(s, x(s.phones)));
     band.addEventListener('pointerleave', () => (tip.hidden = true));

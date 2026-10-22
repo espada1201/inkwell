@@ -295,3 +295,10 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ── replay-plan: planning for Here ──────────────────── */
+.here-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
+.here-form[hidden] { display: none; }
+.here-form input { width: 100%; min-width: 0; background: var(--card); border: 1px solid var(--ink); padding: 8px; font: 13px var(--mono); border-radius: 2px; }
+.here-form p { grid-column: 1 / -1; margin: 0; }
+.plan-gap { margin: 0; font-size: 15px; border-left: 3px solid var(--ink); padding: 2px 0 2px 12px; }

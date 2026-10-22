@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calibrate, type PhoneModel } from '../../src/core/phonemodel';
-import { simulatePlan, type PlanInput, type PlanResult } from '../../src/core/planner';
+import { enoughPhones, simulatePlan, type PlanInput, type PlanResult, type Summary } from '../../src/core/planner';
 import { alertS } from '../../src/core/simnet';
 import { upperMedian } from '../../src/core/stats';
 
@@ -72,5 +72,20 @@ describe('network planner', () => {
 
   it('is reproducible for the same inputs', () => {
     expect(plan({ phones: 30 })).toEqual(plan({ phones: 30 }));
+  });
+});
+
+describe('the smallest network that catches a quake', () => {
+  const point = (phones: number, detected: number): Summary => ({ phones, detected, medianAlertS: null, medianErrKm: null, warned: null, medianWarningS: null, falseAlerts: 0, quietMinutes: 0 });
+  const sweep = [10, 25, 50, 100];
+
+  it('is the first step that catches 9 in 10, once every smaller step is in', () => {
+    expect(enoughPhones(sweep, [point(10, 0.2)])).toBeUndefined();
+    expect(enoughPhones(sweep, [point(50, 1), point(10, 0.2)])).toBeUndefined();
+    expect(enoughPhones(sweep, [point(10, 0.2), point(25, 0.9), point(50, 1)])?.phones).toBe(25);
+  });
+
+  it('is none when even the largest misses too often', () => {
+    expect(enoughPhones(sweep, sweep.map((n) => point(n, 0.5)))).toBeNull();
   });
 });
