@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { distanceKm, offset } from '../../src/core/geo';
-import { locate } from '../../src/core/locate';
+import { coarsen, distanceKm, offset, type LatLon } from '../../src/core/geo';
+import { locate, uncertainty, type Arrival } from '../../src/core/locate';
 import { VP_KMS, VS_KMS, hypocentralKm, magnitudeFrom, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
 
@@ -95,5 +95,75 @@ describe('epicentre grid search', () => {
 
   it('magnitude relation inverts exactly', () => {
     for (const m of [3, 5, 7]) for (const r of [5, 40, 200]) expect(magnitudeFrom(pgaFor(m, r), r)).toBeCloseTo(m, 6);
+  });
+});
+
+describe('how far off a location could be', () => {
+  const C = { lat: 35, lon: -118 };
+  /** Phones scattered over a disc `spreadKm` across, a quake `awayKm` from its middle. */
+  function quake(seed: number, phones: number, spreadKm: number, awayKm: number, waves: 'P' | 'S' | 'both', mag = 5) {
+    const r = rng(seed);
+    const a = r() * 2 * Math.PI;
+    const src = offset(C, awayKm * Math.cos(a), awayKm * Math.sin(a));
+    const depth = 5 + 10 * r();
+    const arr: Arrival[] = Array.from({ length: phones }, () => {
+      const q = r() * 2 * Math.PI;
+      const d = (spreadKm / 2) * Math.sqrt(r());
+      const p = coarsen(offset(C, d * Math.cos(q), d * Math.sin(q)));
+      const hyp = Math.hypot(distanceKm(src, p), depth);
+      const phase = waves === 'both' ? (r() < 0.5 ? 'P' : 'S') : waves;
+      return { ...p, t: 100 + hyp / (phase === 'S' ? VS_KMS : VP_KMS) + 0.12 * gauss(r), pga: pgaFor(mag, hyp) * 10 ** (0.15 * gauss(r)), phase };
+    });
+    const sol = locate(arr)!;
+    const u = uncertainty(
+      sol.used.map((i) => arr[i]),
+      sol,
+    );
+    const middle = { lat: arr.reduce((s, x) => s + x.lat, 0) / phones, lon: arr.reduce((s, x) => s + x.lon, 0) / phones };
+    /** Within the distance claimed, or, when it says so, farther from the phones than placed. */
+    const honest = (p: LatLon) => distanceKm(sol, p) <= u.km || (u.mayBeFarther && distanceKm(p, middle) > distanceKm(sol, middle));
+    return { src, sol, u, covered: honest(src) };
+  }
+
+  it('is a few km when the phones surround the quake', () => {
+    for (const seed of [1, 2, 3, 4]) {
+      const { u, covered } = quake(seed, 20, 40, 0, 'P');
+      expect(u.km).toBeLessThan(6);
+      expect(u.mayBeFarther).toBe(false);
+      expect(covered).toBe(true);
+    }
+  });
+
+  it('owns up to it when a few phones close together hear a quake from far away', () => {
+    for (const seed of [1, 2, 3]) {
+      const { sol, u, covered } = quake(seed, 10, 5, 80, 'S', 6);
+      // The times alone cannot say how far it is, so the place is a guess and the magnitude too low,
+      expect(sol.mag!).toBeLessThan(5);
+      // and it says so: it may be farther, and much bigger.
+      expect(u.mayBeFarther).toBe(true);
+      expect(u.km).toBeGreaterThan(40);
+      expect(u.mag![1]).toBeGreaterThanOrEqual(5.5);
+      expect(covered).toBe(true);
+    }
+  });
+
+  it('is right about nine times in ten, and so is its magnitude range', () => {
+    let trials = 0;
+    let covered = 0;
+    let magCovered = 0;
+    for (const waves of ['P', 'both'] as const)
+      for (const spread of [5, 25])
+        for (const phones of [6, 20])
+          for (const away of [0, 15, 40])
+            for (let seed = 1; seed <= 4; seed++) {
+              const mag = 4 + seed / 2;
+              const q = quake(seed * 97 + phones + spread + away, phones, spread, away, waves, mag);
+              trials++;
+              if (q.covered) covered++;
+              // The relation behind magnitudes is good to about half a unit at best.
+              if (mag >= q.u.mag![0] - 0.5 && mag <= q.u.mag![1] + 0.5) magCovered++;
+            }
+    expect(covered / trials).toBeGreaterThan(0.85);
+    expect(magCovered / trials).toBeGreaterThan(0.85);
   });
 });

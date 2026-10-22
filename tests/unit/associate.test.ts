@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { associate, type Trigger } from '../../src/core/associate';
+import { associate, eventUncertainty, type Trigger } from '../../src/core/associate';
 import { distanceKm, offset, type LatLon } from '../../src/core/geo';
 import { VP_KMS, VS_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
@@ -23,6 +23,18 @@ describe('association', () => {
     expect(distanceKm(evs[0], src)).toBeLessThan(6);
     expect(Math.abs(evs[0].time - T0)).toBeLessThan(800);
     expect(evs[0].triggers).toHaveLength(10);
+  });
+
+  it('says how far off each event could be, working it out once', () => {
+    const src = { lat: 35, lon: -118 };
+    const [ev] = associate(quake(src, T0, 10, 1, 'a'));
+    const u = eventUncertainty(ev);
+    expect(distanceKm(ev, src)).toBeLessThanOrEqual(u.km);
+    expect(u.km).toBeLessThan(10);
+    expect(u.mag![0]).toBeLessThanOrEqual(5);
+    expect(u.mag![1]).toBeGreaterThanOrEqual(ev.mag!);
+    // The same event, rebuilt on the next update, is not traced again.
+    expect(eventUncertainty({ ...ev })).toBe(u);
   });
 
   it('separates two simultaneous quakes far apart', () => {

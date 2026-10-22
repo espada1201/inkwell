@@ -1,5 +1,5 @@
 import { distanceKm, type LatLon } from './geo';
-import { locate, type Solution } from './locate';
+import { locate, uncertainty, type Arrival, type Solution, type Uncertainty } from './locate';
 import { VP_KMS, VS_KMS, hypocentralKm, speedOf, type Phase } from './physics';
 
 export interface Trigger extends LatLon {
@@ -36,14 +36,16 @@ export interface AssociateOptions {
 const solved = new Map<string, Solution | null>();
 const SOLVED_MAX = 2000;
 
+/** Triggers as arrivals to locate, in seconds after the first. */
+export function arrivalsOf(triggers: Trigger[]): Arrival[] {
+  const ref = triggers[0].t;
+  return triggers.map((c) => ({ lat: c.lat, lon: c.lon, t: (c.t - ref) / 1000, pga: c.pga, phase: c.phase }));
+}
+
 function locateCached(members: Trigger[], minNodes: number): Solution | null {
   const key = members.length <= 64 ? `${minNodes}|${members.map((c) => `${c.id},${c.t},${c.lat},${c.lon},${c.pga},${c.phase}`).join(';')}` : null;
   if (key !== null && solved.has(key)) return solved.get(key)!;
-  const ref = members[0].t;
-  const sol = locate(
-    members.map((c) => ({ lat: c.lat, lon: c.lon, t: (c.t - ref) / 1000, pga: c.pga, phase: c.phase })),
-    { minArrivals: minNodes, maxOutliers: Math.floor(members.length * 0.3) },
-  );
+  const sol = locate(arrivalsOf(members), { minArrivals: minNodes, maxOutliers: Math.floor(members.length * 0.3) });
   if (key !== null) {
     solved.set(key, sol);
     if (solved.size > SOLVED_MAX) solved.delete(solved.keys().next().value!);
@@ -174,4 +176,19 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     events.push({ ...f.sol, id: `ev-${f.members[0].id.slice(0, 12)}`, time: f.time, triggers: f.members });
   }
   return events.sort((a, b) => a.time - b.time);
+}
+
+/** Uncertainties of the events on screen. Tracing one takes milliseconds, so only those are traced. */
+const traced = new Map<string, Uncertainty>();
+
+/** How far off an event's epicentre and magnitude could be (see `uncertainty`). */
+export function eventUncertainty(e: DetectedEvent): Uncertainty {
+  // Its members fix where an event is, so where it is and how many there are identify them.
+  const key = `${e.id}|${e.time}|${e.lat}|${e.lon}|${e.triggers.length}`;
+  let u = traced.get(key);
+  if (!u) {
+    traced.set(key, (u = uncertainty(arrivalsOf(e.triggers), e)));
+    if (traced.size > 200) traced.delete(traced.keys().next().value!);
+  }
+  return u;
 }

@@ -22,6 +22,18 @@ export interface Solution extends LatLon {
   mag: number | null;
 }
 
+export interface Uncertainty {
+  /**
+   * The epicentre lies within this many km of the solution about nine times in ten: as far as the
+   * farthest point where the arrival times fit nearly as well, whatever the distance prior prefers.
+   */
+  km: number;
+  /** The times fit about as well as far out as the search goes, so the quake may be farther still. */
+  mayBeFarther: boolean;
+  /** Magnitudes across that region, smallest first, or null without shaking amplitudes. */
+  mag: [number, number] | null;
+}
+
 export interface LocateOptions {
   depthKm?: number;
   outlierS?: number;
@@ -45,7 +57,10 @@ interface Frame {
   kx: number;
 }
 function frame(points: LatLon[]): Frame {
-  const origin = { lat: points.reduce((s, a) => s + a.lat, 0) / points.length, lon: points.reduce((s, a) => s + a.lon, 0) / points.length };
+  const origin = {
+    lat: points.reduce((s, a) => s + a.lat, 0) / points.length,
+    lon: points.reduce((s, a) => s + a.lon, 0) / points.length,
+  };
   return { origin, kx: 111.195 * Math.cos((origin.lat * Math.PI) / 180) };
 }
 function toXY(f: Frame, pts: LatLon[]) {
@@ -171,7 +186,13 @@ const RING_RATIO = 0.07;
 
 /** Typical size of one phone's timing error (clock and pick), s: it scales the distance prior. */
 const TIMING_S = 0.12;
-const PRIOR_S = TIMING_S * DISTANCE_PRIOR;
+/**
+ * Half the strength the Gutenberg–Richter argument behind DISTANCE_PRIOR gives. In a seeded sweep
+ * of networks and distances, that placed quakes outside a small network 3–10 km nearer the truth,
+ * for about 1 km worse on a quake right under four phones a few km apart. Either way a quake
+ * outside a small network is placed poorly, which is what `uncertainty` owns up to.
+ */
+const PRIOR_S = (TIMING_S * DISTANCE_PRIOR) / 2;
 
 /** Grid misfits use at most this many arrivals: a few dozen pin an epicentre as well as a thousand. */
 const MAX_GRID_ARRIVALS = 40;
@@ -182,7 +203,8 @@ function spread(arr: Arrival[], k: number): Arrival[] {
   return Array.from({ length: k }, (_, i) => byTime[Math.round((i * (byTime.length - 1)) / (k - 1))]);
 }
 
-function search(all: Arrival[], depth: number, opts: LocateOptions) {
+/** The arrivals on a flat local grid, the misfit of a trial epicentre there, and how far to look. */
+function problem(all: Arrival[], depth: number, opts: LocateOptions) {
   const arr = all.length > MAX_GRID_ARRIVALS ? spread(all, MAX_GRID_ARRIVALS) : all;
   const f = frame(arr);
   const A = toXY(f, arr);
@@ -202,8 +224,8 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
   // together cannot time a wavefront's curvature, and without the prior a quake under them
   // drifts to wherever the noise fits best, tens of km away with an inflated magnitude.
   // Costs only grow term by term, so summing stops as soon as a trial point is already worse
-  // than the best so far: exact, and most grid points are far from the best.
-  const misfit = (px: number, py: number, bound = Infinity) => {
+  // than the bound: exact, and most grid points are far from the best.
+  const misfit = (px: number, py: number, bound = Infinity, prior = true) => {
     let farP2 = -1;
     let farS2 = -1;
     let sumHyp = 0;
@@ -218,7 +240,7 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
       r[i] = t[i] - hyp / v[i];
     }
     const t0 = quickMedian(r, n);
-    let cost = PRIOR_S * Math.log(sumHyp / n + 10);
+    let cost = prior ? PRIOR_S * Math.log(sumHyp / n + 10) : 0;
     for (let i = 0; i < n && cost < bound; i++) cost += Math.abs(r[i] - t0);
     if (useSilent && cost < bound) {
       for (let k = 0; k < S.x.length && cost < bound; k++) {
@@ -236,21 +258,29 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
 
   let extent = 0;
   for (let i = 0; i < n; i++) extent = Math.max(extent, Math.hypot(A.x[i], A.y[i]));
+  // Seen in one wave only, distance trades off against origin time, so the search stays closer in.
+  const range = extent + (isS.includes(true) && isS.includes(false) ? RANGE_TWO_WAVES_KM : RANGE_ONE_WAVE_KM);
+  return { f, n, misfit, range };
+}
+
+/**
+ * Rings around the network are spaced in proportion to their distance, because a distant quake
+ * is only ever placed to within a few per cent of its distance anyway.
+ */
+const spacing = (r: number) => Math.max(2, RING_RATIO * r);
+
+function search(all: Arrival[], depth: number, opts: LocateOptions) {
+  const { f, misfit, range } = problem(all, depth, opts);
   let best = { x: 0, y: 0, ...misfit(0, 0) };
   const at = (x: number, y: number) => {
     const c = misfit(x, y, best.cost);
     if (c.cost < best.cost) best = { x, y, ...c };
   };
-  // Coarse: rings around the network, spaced in proportion to their distance, because a
-  // distant quake is only ever placed to within a few per cent of its distance anyway. Seen in
-  // one wave only, distance trades off against origin time, so the search stays closer in.
-  const range = extent + (isS.includes(true) && isS.includes(false) ? RANGE_TWO_WAVES_KM : RANGE_ONE_WAVE_KM);
-  const spacing = (r: number) => Math.max(2, RING_RATIO * r);
+  // Coarse rings around the network, then two finer square grids around the best point.
   for (let r = spacing(0); r <= range; r += spacing(r)) {
     const k = Math.ceil((2 * Math.PI * r) / spacing(r));
     for (let j = 0; j < k; j++) at(r * Math.cos((2 * Math.PI * j) / k), r * Math.sin((2 * Math.PI * j) / k));
   }
-  // Then two finer square grids around the best point.
   let half = 1.5 * spacing(Math.hypot(best.x, best.y));
   for (let level = 0; level < 2; level++) {
     const cx = best.x;
@@ -263,4 +293,128 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
   const res = all.map((a) => a.t - hypocentralKm(distanceKm(p, a), depth) / speedOf(a.phase));
   const t0 = median(res);
   return { p, t0, res: res.map((x) => x - t0) };
+}
+
+/**
+ * A point fits the arrival times "nearly as well" as the best one when its timing misfit is within
+ * this many error scales: the 90% likelihood-ratio region for an epicentre (half of χ² with two
+ * degrees of freedom), with each phone's error taken as Laplace-distributed, as the L1 misfit does.
+ */
+const PLAUSIBLE = 2.3;
+/** Phones publish their position to about a kilometre, so no epicentre is surer than that. */
+const MIN_UNCERTAINTY_KM = 1;
+/** Directions from the middle of the network along which the region is traced. */
+const BEARINGS = 72;
+/** Depths tried: real quakes are rarely as shallow as half the default or deeper than twice it. */
+const DEPTHS_KM = [DEFAULT_DEPTH_KM / 2, DEFAULT_DEPTH_KM, 2 * DEFAULT_DEPTH_KM];
+/** Golden-section steps that pin a minimum along a ray to well under a kilometre. */
+const GOLDEN_STEPS = 14;
+
+/**
+ * How far off a solution could be, and how big the quake could then be. The region is every point
+ * where the arrival times, the prior left out, fit within PLAUSIBLE error scales of the best fit at
+ * any of DEPTHS_KM: the data alone cannot rule the epicentre out there. It is traced along rays
+ * from the middle of the network, which follow both ways a small network goes wrong (it cannot
+ * tell how far, or from which side), plus a fine grid around the solution for a tight fit. The
+ * error scale is the assumed timing error, or the fit's own scatter when that is worse.
+ */
+export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
+  const probs = DEPTHS_KM.map((d) => problem(arrivals, d, {}));
+  const { f, n, range } = probs[0];
+  const radii = [0];
+  for (let r = spacing(0); r <= range; r += spacing(r)) radii.push(r);
+  const {
+    x: [ax],
+    y: [ay],
+  } = toXY(f, [at]);
+
+  // The lowest misfit along each ray, at each depth.
+  const rays: { k: number; c: number; s: number; r: number; cost: number }[] = [];
+  for (let k = 0; k < DEPTHS_KM.length; k++)
+    for (let j = 0; j < BEARINGS; j++) {
+      const c = Math.cos((2 * Math.PI * j) / BEARINGS);
+      const s = Math.sin((2 * Math.PI * j) / BEARINGS);
+      const m = (r: number, bound = Infinity) => probs[k].misfit(r * c, r * s, bound, false).cost;
+      let i0 = 0;
+      let low = m(0);
+      for (let i = 1; i < radii.length; i++) {
+        const v = m(radii[i], low);
+        if (v < low) ((low = v), (i0 = i));
+      }
+      let a = radii[Math.max(0, i0 - 1)];
+      let b = radii[Math.min(radii.length - 1, i0 + 1)];
+      let r = radii[i0];
+      const g = (Math.sqrt(5) - 1) / 2;
+      let x1 = b - g * (b - a);
+      let x2 = a + g * (b - a);
+      let f1 = m(x1);
+      let f2 = m(x2);
+      for (let it = 0; it < GOLDEN_STEPS; it++) {
+        if (f1 < f2) ((b = x2), (x2 = x1), (f2 = f1), (x1 = b - g * (b - a)), (f1 = m(x1)));
+        else ((a = x1), (x1 = x2), (f1 = f2), (x2 = a + g * (b - a)), (f2 = m(x2)));
+      }
+      if (Math.min(f1, f2) < low) ((low = Math.min(f1, f2)), (r = f1 < f2 ? x1 : x2));
+      rays.push({ k, c, s, r, cost: low });
+    }
+  // And a fine grid around the solution, as the search's first refinement has it.
+  const step = 0.15 * spacing(Math.hypot(ax, ay));
+  const fine: { k: number; x: number; y: number; cost: number }[] = [];
+  for (let k = 0; k < DEPTHS_KM.length; k++)
+    for (let e = -10; e <= 10; e++)
+      for (let q = -10; q <= 10; q++)
+        fine.push({
+          k,
+          x: ax + e * step,
+          y: ay + q * step,
+          cost: probs[k].misfit(ax + e * step, ay + q * step, Infinity, false).cost,
+        });
+
+  const best = Math.min(...rays.map((x) => x.cost), ...fine.map((x) => x.cost));
+  const scale = Math.max(TIMING_S * Math.sqrt(2 / Math.PI), best / Math.max(1, n - 4));
+  const top = best + PLAUSIBLE * scale;
+
+  const shaken = arrivals.filter((a) => a.pga && a.pga > 0);
+  const sample = shaken.length > MAX_GRID_ARRIVALS ? spread(shaken, MAX_GRID_ARRIVALS) : shaken;
+  const P = toXY(f, sample);
+  const logPga = sample.map((a) => Math.log10(a.pga!));
+  const mags = new Float64Array(sample.length);
+  let km = MIN_UNCERTAINTY_KM;
+  let mayBeFarther = false;
+  let lo = Infinity;
+  let hi = -Infinity;
+  const include = (x: number, y: number, k: number) => {
+    km = Math.max(km, Math.hypot(x - ax, y - ay));
+    if (!sample.length) return;
+    for (let i = 0; i < sample.length; i++) mags[i] = magnitudeFrom(10 ** logPga[i], hypocentralKm(Math.hypot(x - P.x[i], y - P.y[i]), DEPTHS_KM[k]));
+    const mag = quickMedian(mags, sample.length);
+    lo = Math.min(lo, mag);
+    hi = Math.max(hi, mag);
+  };
+  // The solution itself, at the depth it was located at, then every plausible point near it.
+  include(ax, ay, DEPTHS_KM.indexOf(DEFAULT_DEPTH_KM));
+  for (const p of fine) if (p.cost <= top) include(p.x, p.y, p.k);
+  // Along each ray that holds a plausible point, out and in to where the fit gets too poor.
+  for (const ray of rays) {
+    if (ray.cost > top) continue;
+    const m = (r: number) => probs[ray.k].misfit(r * ray.c, r * ray.s, top + 1, false).cost;
+    const edge = (inside: number, outside: number) => {
+      for (let it = 0; it < 10; it++) {
+        const mid = (inside + outside) / 2;
+        if (m(mid) <= top) inside = mid;
+        else outside = mid;
+      }
+      return inside;
+    };
+    const out = radii.find((r) => r > ray.r && m(r) > top);
+    const inn = [...radii].reverse().find((r) => r < ray.r && m(r) > top);
+    const far = out === undefined ? range : edge(ray.r, out);
+    const near = inn === undefined ? 0 : edge(ray.r, inn);
+    mayBeFarther ||= out === undefined;
+    for (const r of [near, ray.r, far]) include(r * ray.c, r * ray.s, ray.k);
+  }
+  return {
+    km,
+    mayBeFarther,
+    mag: sample.length ? [+lo.toFixed(1), +hi.toFixed(1)] : null,
+  };
 }
