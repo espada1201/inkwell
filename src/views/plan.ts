@@ -166,7 +166,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
     const story =
       caught === 0
         ? `With ${state.phones} phones listening across ${state.city.name}, none of the ${n} simulated M${state.mag} quakes ${where} was detected: too few phones felt them strongly enough. Try more phones.`
-        : `With ${state.phones} phones listening across ${state.city.name}, the network caught ${caught} of ${n} simulated M${state.mag} quakes ${where}, typically ${s.medianDeclaredS!.toFixed(1)} s after they began. ` +
+        : `With ${state.phones} phones listening across ${state.city.name}, the network caught ${caught} of ${n} simulated M${state.mag} quakes ${where}, and its first alert typically reached phones ${s.medianAlertS!.toFixed(1)} s after they began. ` +
           (s.warned === null
             ? 'No part of the city would shake more than lightly, so there is nothing to warn about.'
             : s.warned > 0
@@ -177,7 +177,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
         'div',
         { class: 'kpis', 'data-testid': 'kpis' },
         tile('Detected', `${caught}/${n}`, 'simulated quakes', 'kpi-detected'),
-        tile('First alert', secs(s.medianDeclaredS), 'after the rupture'),
+        tile('First alert', secs(s.medianAlertS), 'at the phones, after the rupture', 'kpi-alert'),
         tile('Warned in time', pct(s.warned), 'of the shaken area', 'kpi-warned'),
         tile('Warning', secs(s.medianWarningS), 'median, if warned'),
         tile('Located within', km(s.medianErrKm), 'median, once confirmed'),

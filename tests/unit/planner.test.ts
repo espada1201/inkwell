@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calibrate, simulatePlan, type PhoneModel, type PlanInput, type PlanResult } from '../../src/core/planner';
+import { upperMedian } from '../../src/core/stats';
 
 function runPlan(input: PlanInput, model: PhoneModel): PlanResult {
   const steps = simulatePlan(input, model);
@@ -33,7 +34,7 @@ describe('network planner', () => {
   it('a city of 100 phones catches a nearby M6 within seconds and locates it', () => {
     const s = plan({ confirm: true });
     expect(s.detected).toBe(1);
-    expect(s.medianDeclaredS!).toBeLessThan(8);
+    expect(s.medianAlertS!).toBeLessThan(9);
     expect(s.medianErrKm!).toBeLessThan(10);
     expect(s.warned!).toBeGreaterThan(0.8);
   });
@@ -58,6 +59,13 @@ describe('network planner', () => {
   // Was about one an hour: the picks were judged before any of the quiet phones around them was due.
   it('a busy hour of bumps in a dense town raises no false alert', () => {
     for (const seed of [1, 2]) expect(plan({ phones: 300, radiusKm: 5, quakes: 0, quietMinutes: 60, seed })).toMatchObject({ falseAlerts: 0, quietMinutes: 60 });
+  });
+
+  it('times the first alert where phones get it: one relay hop after the network declares', () => {
+    const { summary, trials } = runPlan({ city, radiusKm: 20, phones: 100, mag: 6, distanceKm: [15, 50], quakes: 8 }, m6);
+    const declared = trials.flatMap((t) => (t.declaredS === null ? [] : [t.declaredS]));
+    expect(declared.length).toBeGreaterThan(0);
+    expect(summary.medianAlertS).toBe(upperMedian(declared)! + 1);
   });
 
   it('is reproducible for the same inputs', () => {

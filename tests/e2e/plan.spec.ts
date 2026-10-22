@@ -10,6 +10,9 @@ test('planning a network for Kathmandu', async ({ page }) => {
   // A busy hour of bumped and jostled phones without a quake.
   await expect(page.getByTestId('kpi-false')).toHaveText(/^0\/60$/);
   await expect(page.locator('.plan-story')).toContainText('With 50 phones listening across Kathmandu');
+  // The first alert is timed where people get it: at the phones, a relay hop after the network declares.
+  await expect(page.getByTestId('kpi-alert')).toHaveText(/^(\d+\.\d s|—)$/);
+  await expect(page.getByTestId('kpis')).toContainText('at the phones, after the rupture');
   // The "how many phones" curve fills in point by point.
   await expect(page.getByTestId('sweep').locator('circle').first()).toBeVisible({ timeout: 30_000 });
 

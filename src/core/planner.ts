@@ -23,6 +23,8 @@ const PGA_LEVELS = [0.005, 0.01, 0.02, 0.035, 0.06, 0.1, 0.18, 0.3, 0.55, 1, 1.8
 const SP_LEVELS = [1, 2.5, 5, 9];
 const RUNS = 6;
 const LATENCY_MS = 1000;
+/** Seconds after the rupture an alert declared at `declaredS` reaches phones: one relay hop back out. */
+const alertAfter = (declaredS: number) => declaredS + LATENCY_MS / 1000;
 /** Browsers batch incoming relay messages; the network is re-evaluated at most this often. */
 const FRAME_MS = 250;
 /** Phones bumped, walked past or picked up in any given minute: an assumption, not a measurement. */
@@ -133,7 +135,8 @@ export interface Summary {
   phones: number;
   /** Share of quakes declared. */
   detected: number;
-  medianDeclaredS: number | null;
+  /** Seconds after the rupture the first alert typically reached phones, when declared. */
+  medianAlertS: number | null;
   medianErrKm: number | null;
   /** Share of moderately-or-worse shaken residents alerted before the S wave. */
   warned: number | null;
@@ -251,7 +254,7 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
   const dec = firstDeclaration(arrivals, nodes, firstPick);
   const declaredS = dec && dec.at / 1000;
   // The alert then travels back out through the relays to every phone.
-  const alertAt = declaredS === null ? Infinity : declaredS + LATENCY_MS / 1000;
+  const alertAt = declaredS === null ? Infinity : alertAfter(declaredS);
   const warnings: number[] = [];
   for (const q of people) {
     const hyp = hypocentralKm(distanceKm(epi, q), depth);
@@ -305,7 +308,7 @@ export function* simulatePlan(input: PlanInput, model: PhoneModel): Generator<nu
     summary: {
       phones: input.phones,
       detected: declared.length / n,
-      medianDeclaredS: upperMedian(declared.map((t) => t.declaredS!)),
+      medianAlertS: upperMedian(declared.map((t) => alertAfter(t.declaredS!))),
       medianErrKm: upperMedian(trials.flatMap((t) => (t.errKm === null ? [] : [t.errKm]))),
       warned: shaken.length ? warned.length / shaken.length : null,
       medianWarningS: upperMedian(warned),

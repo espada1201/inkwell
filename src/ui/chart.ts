@@ -63,7 +63,7 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
     tip.replaceChildren(
       h('b', {}, `${s.phones} phones`),
       h('span', {}, h('i', { class: 'key' }), `${pct(s.warned)} warned in time`, s.medianWarningS !== null ? ` · median ${secs(s.medianWarningS)}` : ''),
-      h('span', {}, h('i', { class: 'key muted' }), `${pct(s.detected)} detected`, s.medianDeclaredS !== null ? ` · first alert ${secs(s.medianDeclaredS)}` : ''),
+      h('span', {}, h('i', { class: 'key muted' }), `${pct(s.detected)} detected`, s.medianAlertS !== null ? ` · first alert ${secs(s.medianAlertS)}` : ''),
     );
     tip.hidden = false;
     tip.style.left = `${(px / W) * 100}%`;
@@ -98,7 +98,7 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
         'tbody',
         {},
         ...sorted.map((s) =>
-          h('tr', {}, h('td', {}, s.phones), h('td', {}, pct(s.detected)), h('td', {}, secs(s.medianDeclaredS)), h('td', {}, pct(s.warned)), h('td', {}, secs(s.medianWarningS))),
+          h('tr', {}, h('td', {}, s.phones), h('td', {}, pct(s.detected)), h('td', {}, secs(s.medianAlertS)), h('td', {}, pct(s.warned)), h('td', {}, secs(s.medianWarningS))),
         ),
       ),
     ),
