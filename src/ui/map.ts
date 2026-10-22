@@ -42,6 +42,10 @@ export interface MapQuake extends LatLon {
   /** 0 (now) .. 1 (oldest in window) */
   age: number;
 }
+/** Someone felt shaking here, this strong (intensity level, as `SHAKE_COLORS` counts). */
+export interface MapFelt extends LatLon {
+  lvl: number;
+}
 /** A simulated quake in the planner: was it caught? */
 export interface MapTrial extends LatLon {
   hit: boolean;
@@ -86,7 +90,7 @@ export const NODE_COLORS: Record<NodeState, string> = { idle: INK, pick: '#e58a7
 /** A map key entry: a CSS background for its swatch, and what it means. */
 export type Swatch = [background: string, label: string];
 
-const SOURCES = ['shake', 'rings', 'waves', 'links', 'usgs', 'trials', 'nodes', 'events', 'truth'] as const;
+const SOURCES = ['shake', 'rings', 'waves', 'links', 'usgs', 'trials', 'felt', 'nodes', 'events', 'truth'] as const;
 type Source = (typeof SOURCES)[number];
 
 /** Minimal offline basemap: Natural Earth land, loaded only if the online style is unreachable. */
@@ -222,6 +226,12 @@ export class QuakeMap {
       },
     });
     map.addLayer({
+      id: 'felt',
+      type: 'circle',
+      source: 'felt',
+      paint: { 'circle-radius': 6, 'circle-color': ['to-color', ['at', ['get', 'lvl'], ['literal', SHAKE_COLORS]]], 'circle-stroke-color': INK, 'circle-stroke-width': 1 },
+    });
+    map.addLayer({
       id: 'nodes-halo',
       type: 'circle',
       source: 'nodes',
@@ -313,6 +323,10 @@ export class QuakeMap {
 
   setUsgs(q: MapQuake[]) {
     this.set('usgs', fc(q.map((x) => pt(x, { id: x.id, mag: x.mag, age: x.age }))));
+  }
+
+  setFelt(f: MapFelt[]) {
+    this.set('felt', fc(f.map((x) => pt(x, { lvl: x.lvl }))));
   }
 
   setTrials(t: MapTrial[]) {

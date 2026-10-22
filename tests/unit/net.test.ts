@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { filters, parse, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
+import { filters, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import { RelayPool, reach } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
 // @ts-expect-error plain JS test helper
@@ -70,6 +70,20 @@ describe('protocol', () => {
     expect(parse(signRetraction(sk, pick.id, 'my cat'))).toMatchObject({ type: 'retract', pick: pick.id, reason: null });
     expect(parse(signTrigger(sk, { lat: 10, lon: 20, t, pga: 1, dur: 3 }, pick.id))).toMatchObject({ type: 'trigger', pick: pick.id });
     expect(parse(signRetraction(sk, 'not-an-id', 'x'))).toBeNull();
+  });
+
+  it('felt reports round-trip coarsened, felt up to an hour before they were signed, at one of five levels', () => {
+    const now = Date.now();
+    const s = Math.floor(now / 1000);
+    expect(parse(signFelt(sk, { lat: 37.774929, lon: -122.419416, t: now - 600_000, lvl: 3 }))).toMatchObject({ type: 'felt', data: { lat: 37.77, lon: -122.42, t: now - 600_000, lvl: 3 } });
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: s * 1000 - 3_599_000, lvl: 1 }, s))).not.toBeNull();
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: s * 1000 - 3_601_000, lvl: 1 }, s))).toBeNull();
+    // Felt after it was signed, beyond a clock error; or more than a minute ahead of now.
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now, lvl: 2 }, s - 30))).not.toBeNull();
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now, lvl: 2 }, s - 90))).toBeNull();
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now + 120_000, lvl: 2 }, s + 120))).toBeNull();
+    for (const lvl of [0, 6, 2.5]) expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now, lvl }))).toBeNull();
+    expect(filters(now)[0].kinds).toContain(4580);
   });
 
   it('picks and triggers say which wave the phone felt; older events count as P', () => {

@@ -8,6 +8,7 @@ import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
 import { QuakeMap, SHAKE_COLORS, type Swatch } from './ui/map';
 import { aboutView } from './views/about';
+import { feltDialog } from './views/felt';
 import { NETWORK_LEGEND, REACH_DOT, networkView } from './views/network';
 import { PLAN_LEGEND, planView } from './views/plan';
 import { REPLAY_LEGEND, replayView } from './views/replay';
@@ -52,6 +53,8 @@ const replay = new Replay();
 const tabs = h('nav', { class: 'tabs', 'aria-label': 'Sections' });
 const relayStatus = h('span', { 'data-testid': 'relay-status' });
 const usgsStatus = h('span', { class: 'usgs-status' });
+// "I felt it" works from every screen, sensor or not.
+const felt = feltDialog(live, sensor);
 const heli = h('canvas', { class: 'helicorder', 'aria-hidden': 'true', title: 'Activity: picks and triggers as they arrive, or the shaking in a replay' });
 // MapLibre labels its own canvas as the "Map" region.
 const mapEl = h('div', { class: 'map' });
@@ -63,8 +66,9 @@ const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Se
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
 document.getElementById('app')!.append(
-  h('header', { class: 'top' }, h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, relayStatus, usgsStatus), heli),
+  h('header', { class: 'top' }, h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, h('button', { class: 'felt-btn', onclick: felt.open }, 'I felt it'), relayStatus, usgsStatus), heli),
   stage,
+  felt.el,
 );
 
 const WORLD = { center: { lat: 30, lon: -100 }, zoom: 2.2 };
@@ -103,7 +107,7 @@ const TABS = {
     mount: () => {
       // The world first, so the view's own fly to the newest detection comes after and wins.
       map.fly(WORLD.center, WORLD.zoom);
-      return networkView({ live, map, relays, saveRelays, place: sensor });
+      return networkView({ live, map, relays, saveRelays, place: sensor, openFelt: felt.open });
     },
   },
   replay: { label: 'Replay', legend: REPLAY_LEGEND, shakeKey: true, mount: (arg) => replayView(replay, map, arg, Number(params.get('speed')) || 1) },

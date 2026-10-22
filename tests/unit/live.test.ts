@@ -4,7 +4,7 @@ import type { Filter } from 'nostr-tools/filter';
 import { LiveNetwork, MAX_NODES } from '../../src/app/live';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
-import { signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
+import { signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import type { Transport } from '../../src/net/transport';
 
 class NullTransport implements Transport {
@@ -208,5 +208,33 @@ describe('live network model', () => {
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     await live.refreshUsgs();
     expect(live.usgsState).toBe('error');
+  });
+
+  it('takes felt reports from anyone, one per key per ten minutes, and shows a shaking once three keys in three places agree', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const now = Date.now();
+    const [a, b, c] = phones;
+    // No heartbeats: feeling shaking takes no sensor.
+    live.ingest(signFelt(a.sk, { ...a, t: now - 15 * 60_000, lvl: 2 }));
+    live.ingest(signFelt(a.sk, { ...a, t: now - 8 * 60_000, lvl: 5 }));
+    live.ingest(signFelt(a.sk, { ...a, t: now - 2 * 60_000, lvl: 2 }));
+    expect(live.felt.map((f) => f.t)).toEqual([now - 15 * 60_000, now - 2 * 60_000]);
+    live.recompute();
+    expect(live.feltClusters).toEqual([]);
+    live.ingest(signFelt(b.sk, { ...b, t: now - 60_000, lvl: 3 }));
+    live.ingest(signFelt(c.sk, { ...c, t: now, lvl: 4 }));
+    live.recompute();
+    expect(live.feltClusters).toEqual([expect.objectContaining({ people: 3, places: 3, lvl: 3, time: now - 2 * 60_000 })]);
+  });
+
+  it('sends a felt report only when this key has sent none in the last ten minutes', () => {
+    const sent: Event[] = [];
+    const live = new LiveNetwork(Object.assign(new NullTransport(), { publish: (ev: Event) => void sent.push(ev) }), 'hour', fetchNone);
+    const sk = generateSecretKey();
+    const me = { sk, pubkey: getPublicKey(sk) };
+    expect(live.reportFelt(me, src, 3)).toBe(true);
+    expect(live.reportFelt(me, src, 5)).toBe(false);
+    expect(sent.map((ev) => JSON.parse(ev.content).lvl)).toEqual([3]);
+    expect(live.lastFelt(me.pubkey, Date.now())).toMatchObject({ lvl: 3, lat: 37.9, lon: -122.3 });
   });
 });

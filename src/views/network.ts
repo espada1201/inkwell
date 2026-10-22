@@ -1,5 +1,6 @@
 import { NODE_STALE_MS, SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
 import type { SensorNode } from '../app/sensor';
+import type { FeltCluster } from '../core/felt';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid } from '../core/impact';
 import { hypocentralKm, intensityLevel, pgaFor } from '../core/physics';
@@ -7,8 +8,8 @@ import type { RejectReason } from '../core/sensor';
 import { reach } from '../net/transport';
 import { matchUsgs, type UsgsQuake } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
-import { ago, coord, intensityWord, mag, magBadge } from '../ui/format';
-import { NODE_COLORS, type QuakeMap, type Swatch } from '../ui/map';
+import { INTENSITY_WORDS, ago, coord, mag, magBadge } from '../ui/format';
+import { NODE_COLORS, SHAKE_COLORS, type QuakeMap, type Swatch } from '../ui/map';
 import { compareCard } from './compare';
 
 /** The map key for the live network (also shown behind the sensor and About screens). */
@@ -18,6 +19,7 @@ export const NETWORK_LEGEND: Swatch[] = [
   [NODE_COLORS.trigger, 'confirmed shaking / Tremor detection'],
   ['transparent;border:2px solid var(--red)', 'provisional detection'],
   ['transparent;border:1.5px solid var(--ink)', 'USGS earthquake'],
+  [`${SHAKE_COLORS[3]};border:1px solid var(--ink)`, 'people felt shaking'],
   [NODE_COLORS.offline, 'phone offline'],
 ];
 
@@ -29,20 +31,62 @@ export interface NetworkCtx {
   map: QuakeMap;
   relays: string[];
   saveRelays: (urls: string[]) => void;
-  /** This browser's rough location, which the sensor screen sets too. */
-  place: Pick<SensorNode, 'location' | 'setLocation'>;
+  place: Place;
+  /** Opens the "I felt it" question. */
+  openFelt: () => void;
 }
+
+/** This browser's rough location, which the sensor screen sets too. */
+export type Place = Pick<SensorNode, 'location' | 'setLocation'>;
 
 type Selection = { kind: 'event' | 'usgs'; id: string };
 /** How far back the panel looks. */
 const HOURS = WINDOW_MS / 3600_000;
 /** Why phones withdrew their picks, in the sensor log's words. */
 const WITHDREW: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'sensor paused' };
-const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-/** Tremor detections this close to you in the last ten minutes are near you, and USGS quakes this close in their feed. */
+export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+/** Tremor detections this close to you in the last ten minutes are near you, as are felt reports this close and USGS quakes this close in their feed. */
 const NEAR_KM = 100;
 const NEAR_MS = 10 * 60_000;
 const NEAR_USGS_KM = 300;
+
+const feltText = (c: FeltCluster) => `${c.people} people in ${c.places} places felt shaking`;
+
+/** Asks where you are, roughly: by the browser's location or typed coordinates. `then` follows once it is set. */
+export function placeForm(place: Place, then: () => void) {
+  const msg = h('p', { class: 'small', role: 'status' });
+  const typed = h('input', { inputmode: 'decimal', autocomplete: 'off', placeholder: '37.80, -122.27' });
+  const set = (p: LatLon) => {
+    place.setLocation(p);
+    // The browser can answer after the form has gone.
+    if (form.isConnected) then();
+  };
+  const locate = () => {
+    if (!navigator.geolocation) return void (msg.textContent = 'This browser cannot tell where it is. Type rough coordinates instead.');
+    msg.textContent = 'Locating…';
+    navigator.geolocation.getCurrentPosition(
+      (p) => set({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      () => (msg.textContent = 'No location given. You can type rough coordinates instead.'),
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 600_000 },
+    );
+  };
+  const submit = (e: Event) => {
+    e.preventDefault();
+    const n = typed.value.split(/[\s,]+/).filter(Boolean).map(Number);
+    if (n.length === 2 && Math.abs(n[0]) <= 90 && Math.abs(n[1]) <= 180) return set({ lat: n[0], lon: n[1] });
+    typed.setAttribute('aria-invalid', 'true');
+    msg.textContent = 'Type a latitude and a longitude, for example 37.80, -122.27.';
+  };
+  const form = h(
+    'div',
+    { class: 'stack' },
+    h('p', {}, 'Where are you, roughly? Tremor snaps it to about 1 km and keeps it in this browser.'),
+    h('button', { class: 'btn', 'data-key': 'locate', onclick: locate }, 'Use my approximate location'),
+    h('form', { class: 'place-form', onsubmit: submit }, h('label', {}, 'Or type latitude, longitude', typed), h('button', { class: 'btn', type: 'submit' }, 'Set')),
+    msg,
+  );
+  return form;
+}
 
 /** How a provisional detection ended, in the words of both the panel and the screen-reader announcer. */
 function outcomeText(d: Provisional, usgs: UsgsQuake[]) {
@@ -94,7 +138,7 @@ export function networkView(ctx: NetworkCtx) {
       h('p', { class: 'lede' }, 'Phones lying still on tables, everywhere. Their triggers travel over public Nostr relays and are pieced together right here in your browser. No server.'),
     ),
   );
-  const parts = { near: part(), stats: part(), provisional: part(), detail: part(), detections: part(), usgs: part() };
+  const parts = { near: part(), stats: part(), provisional: part(), detail: part(), detections: part(), felt: part(), usgs: part() };
   root.append(h('p', { class: 'honest' }, 'Community science, not an official warning system. Phones only feel fairly strong shaking, and anyone can publish to public relays. For official alerts use your national seismic service.'));
   const relays = relaysBox();
 
@@ -116,6 +160,7 @@ export function networkView(ctx: NetworkCtx) {
     const winMs = live.usgsWindow === 'hour' ? 3600_000 : 86400_000;
     map.setUsgs(live.usgs.map((q) => ({ id: q.id, lat: q.lat, lon: q.lon, mag: q.mag, age: Math.min(1, (now - q.time) / winMs) })));
     map.setNodes(live.nodeStates(now));
+    map.setFelt(live.feltClusters.flatMap((c) => c.reports));
     map.setEvents([
       ...live.events.map((e) => ({
         id: e.id,
@@ -146,50 +191,19 @@ export function networkView(ctx: NetworkCtx) {
     if (news.length) announcer.textContent = news.join(' ');
   }
 
-  /** Asks where you are, roughly: by the browser's location or typed coordinates. `then` follows once it is set. */
-  function placeForm(then: () => void) {
-    const msg = h('p', { class: 'small', role: 'status' });
-    const typed = h('input', { inputmode: 'decimal', autocomplete: 'off', placeholder: '37.80, -122.27' });
-    const set = (p: LatLon) => {
-      place.setLocation(p);
-      // The browser can answer after this screen has closed.
-      if (root.isConnected) then();
-    };
-    const locate = () => {
-      if (!navigator.geolocation) return void (msg.textContent = 'This browser cannot tell where it is. Type rough coordinates instead.');
-      msg.textContent = 'Locating…';
-      navigator.geolocation.getCurrentPosition(
-        (p) => set({ lat: p.coords.latitude, lon: p.coords.longitude }),
-        () => (msg.textContent = 'No location given. You can type rough coordinates instead.'),
-        { enableHighAccuracy: false, timeout: 10_000, maximumAge: 600_000 },
-      );
-    };
-    const submit = (e: Event) => {
-      e.preventDefault();
-      const n = typed.value.split(/[\s,]+/).filter(Boolean).map(Number);
-      if (n.length === 2 && Math.abs(n[0]) <= 90 && Math.abs(n[1]) <= 180) return set({ lat: n[0], lon: n[1] });
-      typed.setAttribute('aria-invalid', 'true');
-      msg.textContent = 'Type a latitude and a longitude, for example 37.80, -122.27.';
-    };
-    return h(
-      'div',
-      { class: 'stack' },
-      h('p', {}, 'Where are you, roughly? Tremor snaps it to about 1 km and keeps it in this browser.'),
-      h('button', { class: 'btn', 'data-key': 'locate', onclick: locate }, 'Use my approximate location'),
-      h('form', { class: 'place-form', onsubmit: submit }, h('label', {}, 'Or type latitude, longitude', typed), h('button', { class: 'btn', type: 'submit' }, 'Set')),
-      msg,
-    );
-  }
-
-  /** What has been reported near you, nearest first, with how hard each would roughly have shaken you. */
+  /** What has been reported near you, nearest first, with how hard each shook you: roughly for quakes, as told for felt reports. */
   function nearYou(you: LatLon) {
     const now = Date.now();
-    const near = (title: string, e: LatLon & { time: number; mag: number | null }, ours: boolean, depthKm?: number) => {
+    const quake = (title: string, e: LatLon & { time: number; mag: number | null }, ours: boolean, depthKm?: number) => {
       const km = distanceKm(you, e);
-      return { title, km, time: e.time, mag: e.mag, ours, pga: e.mag === null ? null : pgaFor(e.mag, hypocentralKm(km, depthKm)) };
+      return { title, km, time: e.time, badge: magBadge(e.mag), ours, level: e.mag === null ? null : intensityLevel(pgaFor(e.mag, hypocentralKm(km, depthKm))), told: false };
     };
-    const ours = [...live.early.map((e) => near('Provisional Tremor detection', e, true)), ...live.events.filter((e) => now - e.time < NEAR_MS).map((e) => near('Tremor detection', e, true))];
-    return [...ours.filter((x) => x.km <= NEAR_KM), ...live.usgs.map((q) => near(`USGS: ${q.place}`, q, false, q.depthKm)).filter((x) => x.km <= NEAR_USGS_KM)].sort((a, b) => a.km - b.km);
+    const ours = [
+      ...live.early.map((e) => quake('Provisional Tremor detection', e, true)),
+      ...live.events.filter((e) => now - e.time < NEAR_MS).map((e) => quake('Tremor detection', e, true)),
+      ...live.feltClusters.map((c) => ({ title: feltText(c), km: distanceKm(you, c), time: c.time, badge: 'felt', ours: false, level: c.lvl, told: true })),
+    ];
+    return [...ours.filter((x) => x.km <= NEAR_KM), ...live.usgs.map((q) => quake(`USGS: ${q.place}`, q, false, q.depthKm)).filter((x) => x.km <= NEAR_USGS_KM)].sort((a, b) => a.km - b.km);
   }
 
   /** The most common question: was that a quake, near me? */
@@ -198,14 +212,14 @@ export function networkView(ctx: NetworkCtx) {
     const card = (...body: (Node | null)[]) => h('section', { class: 'near', 'data-testid': 'near', 'aria-labelledby': 'near-title' }, h('h2', { id: 'near-title' }, 'Shaking near you?'), ...body);
     if (!you || moving)
       return card(
-        placeForm(() => {
+        placeForm(place, () => {
           moving = false;
           render();
           root.querySelector<HTMLElement>('[data-key=move]')?.focus();
         }),
       );
     const near = nearYou(you);
-    const felt = near.some((x) => x.pga !== null && intensityLevel(x.pga) > 0);
+    const felt = near.some((x) => x.level !== null && x.level > 0);
     const move = () => {
       moving = true;
       render();
@@ -221,8 +235,8 @@ export function networkView(ctx: NetworkCtx) {
               h(
                 'li',
                 { 'data-testid': 'near-item' },
-                h('span', { class: `badge${x.ours ? ' ours' : ''}` }, magBadge(x.mag)),
-                h('span', {}, x.title, h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km from you${x.pga === null ? '' : ` · rough local shaking: ${intensityWord(x.pga)}`}`)),
+                h('span', { class: `badge${x.ours ? ' ours' : ''}` }, x.badge),
+                h('span', {}, x.title, h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km from you${x.level === null ? '' : ` · ${x.told ? 'typically' : 'rough local shaking:'} ${INTENSITY_WORDS[x.level]}`}`)),
                 h('span', { class: 'when' }, ago(x.time)),
               ),
             ),
@@ -235,6 +249,7 @@ export function networkView(ctx: NetworkCtx) {
               : 'Nothing reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.',
             live.usgsState === 'error' ? ' The USGS feed cannot be reached right now, so this is from Tremor alone.' : null,
           ),
+      h('p', {}, h('button', { class: 'btn', onclick: ctx.openFelt }, 'I felt it')),
       felt ? h('p', { class: 'small' }, 'If the ground shakes again: Drop, Cover and Hold On.', h('br'), 'Expect aftershocks, sometimes for days.') : null,
       felt ? h('p', { class: 'small' }, 'Help next time: ', h('a', { href: '#sensor' }, 'leave an old phone on charge with Tremor open'), '.') : null,
     );
@@ -272,7 +287,7 @@ export function networkView(ctx: NetworkCtx) {
             'section',
             {},
             h('h2', {}, 'Provisional detections', h('small', {}, `last ${HOURS} hours`)),
-            h('ul', { class: 'list outcomes' }, ...ended.map((d) => h('li', { 'data-testid': 'outcome' }, h('span', {}, outcomeText(d, live.usgs)), h('span', { class: 'when' }, ago(d.event.time))))),
+            h('ul', { class: 'list lines' }, ...ended.map((d) => h('li', { 'data-testid': 'outcome' }, h('span', {}, outcomeText(d, live.usgs)), h('span', { class: 'when' }, ago(d.event.time))))),
           )
         : null,
     );
@@ -342,6 +357,30 @@ export function networkView(ctx: NetworkCtx) {
                   h('a', { href: '#sensor' }, 'turn this phone into a sensor'),
                   '.',
                 ),
+    );
+  }
+
+  /** The shakings people felt, once enough keys in enough places agree: the map's felt dots, in words. */
+  function feltSection() {
+    if (!live.feltClusters.length) return null;
+    return h(
+      'section',
+      {},
+      h('h2', {}, 'Felt reports', h('small', {}, `last ${HOURS} hours`)),
+      h(
+        'ul',
+        { class: 'list lines' },
+        ...[...live.feltClusters]
+          .reverse()
+          .map((c) =>
+            h(
+              'li',
+              { 'data-testid': 'felt' },
+              h('span', {}, `${feltText(c)}, typically ${INTENSITY_WORDS[c.lvl]}`, h('br'), h('span', { class: 'small muted' }, `around ${coord(c.lat, c.lon)}`)),
+              h('span', { class: 'when' }, ago(c.time)),
+            ),
+          ),
+      ),
     );
   }
 
@@ -448,6 +487,7 @@ export function networkView(ctx: NetworkCtx) {
     parts.provisional(provisionalCards());
     parts.detail(detailCard());
     parts.detections(detections());
+    parts.felt(feltSection());
     parts.usgs(usgsSection());
     relays();
     syncMap();

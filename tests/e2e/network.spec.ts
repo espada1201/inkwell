@@ -1,7 +1,7 @@
 import { generateSecretKey } from 'nostr-tools/pure';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm } from '../../src/core/physics';
-import { signHeartbeat, signPick, signRetraction } from '../../src/net/protocol';
+import { signFelt, signHeartbeat, signPick, signRetraction } from '../../src/net/protocol';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
 import { expect, test, usgsFeed, type FakeRelay } from './fixtures';
@@ -198,6 +198,59 @@ test('with every relay refusing, the panel says nothing can be heard rather than
   // It stays put while the relays are retried (after 1, 2, 4… s).
   await page.waitForTimeout(2500);
   await expect(down).toBeVisible();
+});
+
+test('a felt report made with no relay connected says it is waiting to go out', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: -33.92, lon: 18.42 })));
+  await page.goto('/?relays=wss://relay.one.example#network');
+  await expect(page.getByTestId('relay-status')).toHaveText('0/1 relays');
+  await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
+  const dialog = page.getByRole('dialog', { name: 'I felt it' });
+  await dialog.getByRole('button', { name: /^strong/ }).click();
+  await expect(dialog.getByRole('status')).toContainText('No relay is connected yet: it goes out once one is, while this page stays open.');
+  // No listed quake matches, so USGS's own form takes it.
+  await expect(dialog.getByRole('link', { name: 'Tell USGS too' })).toHaveAttribute('href', 'https://earthquake.usgs.gov/data/dyfi/');
+});
+
+test('a felt report sent from the header reaches the relay, and offers to tell USGS about the quake it matches', async ({ page, relay }) => {
+  // USGS listed a quake half a minute ago, a few kilometres from this browser.
+  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed([{ id: 'nc-felt', mag: 4.2, place: '3 km E of Cobb, CA', time: Date.now() - 30_000, lat: 38.82, lon: -122.69 }]) }));
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  await expect(page.getByTestId('usgs-list')).toContainText('Cobb');
+  await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
+  const dialog = page.getByRole('dialog', { name: 'I felt it' });
+  await expect(dialog.getByRole('group', { name: 'How strong was the shaking where you are?' }).getByRole('button')).toHaveCount(5);
+  await dialog.getByRole('button', { name: /^light/ }).click();
+  await expect(dialog.getByRole('status')).toContainText('You reported light shaking at');
+  const usgs = dialog.getByRole('link', { name: 'Tell USGS too' });
+  await expect(usgs).toHaveAttribute('href', 'https://earthquake.usgs.gov/earthquakes/eventpage/nc-felt/tellus');
+  await expect(usgs).toBeFocused();
+  await expect.poll(() => relay.events().filter((e) => e.kind === 4580).map((e) => JSON.parse(e.content))).toEqual([expect.objectContaining({ v: 1, lat: 38.7, lon: -122.7, lvl: 2 })]);
+  // Within ten minutes the card's own button finds the report already made, and sends nothing more.
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await page.getByTestId('near').getByRole('button', { name: 'I felt it' }).click();
+  await expect(dialog.getByRole('status')).toContainText('You can report again from');
+  await expect(dialog.getByRole('group')).toHaveCount(0);
+  expect(relay.events().filter((e) => e.kind === 4580)).toHaveLength(1);
+});
+
+test('felt reports show once three people in three places agree, and one key spamming shows nothing', async ({ page, relay }) => {
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  // One key reporting from twelve places around Sacramento, every 20 s.
+  const spammer = generateSecretKey();
+  const sacramento = { lat: 38.58, lon: -121.49 };
+  await send(relay.url, Array.from({ length: 12 }, (_, i) => signFelt(spammer, { ...offset(sacramento, 2 * i, 0), t: Date.now() - i * 20_000, lvl: 5 })));
+  // Then three people a few kilometres apart near Santa Rosa.
+  const santaRosa = { lat: 38.44, lon: -122.71 };
+  await send(relay.url, [0, 4, 8].map((km, i) => signFelt(generateSecretKey(), { ...offset(santaRosa, km, 0), t: Date.now() - i * 60_000, lvl: 3 })));
+  const felt = page.getByTestId('felt');
+  await expect(felt).toHaveCount(1);
+  await expect(felt).toContainText('3 people in 3 places felt shaking, typically moderate');
+  await expect(page.getByTestId('near-item').filter({ hasText: 'felt shaking' })).toContainText([/^felt3 people in 3 places felt shaking\d+ km from you · typically moderate/]);
 });
 
 test('the relay editor says why it saved nothing, and which lines were wrong', async ({ page, relay }) => {

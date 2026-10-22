@@ -1,8 +1,10 @@
 import type { Event } from 'nostr-tools/pure';
 import type { DetectedEvent, Trigger } from '../core/associate';
 import { MIN_PICKS, confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
+import { clusterFelt, type Felt, type FeltCluster } from '../core/felt';
+import type { LatLon } from '../core/geo';
 import type { RejectReason } from '../core/sensor';
-import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat, type Message } from '../net/protocol';
+import { HEARTBEAT_EVERY_MS, filters, parse, signFelt, type Heartbeat, type Message } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
 import type { MapNode } from '../ui/map';
@@ -25,6 +27,9 @@ const MAX_PER_NODE_HOUR = 30;
 const MAX_TRIGGERS = 5000;
 const MAX_PICKS = 5000;
 const MAX_WITHDRAWALS = 5000;
+const MAX_FELT = 2000;
+/** A key may report shaking it felt once per ten minutes. */
+export const FELT_EVERY_MS = 10 * 60_000;
 /** Phones kept at most: past it, the one silent longest goes. */
 export const MAX_NODES = 10_000;
 /** A phone shows as checking its pick for a minute unless it withdraws it, and as shaken for two after a trigger. */
@@ -71,6 +76,10 @@ export class LiveNetwork extends Emitter {
   early: EarlyEvent[] = [];
   /** Every provisional detection of the last two hours, oldest first, with its outcome. */
   provisional: Provisional[] = [];
+  /** Shaking people reported feeling in the last two hours, from anyone, sensor or not. */
+  felt: Felt[] = [];
+  /** The shakings among them that three keys in three places agree on. */
+  feltClusters: FeltCluster[] = [];
   usgs: UsgsQuake[] = [];
   usgsState: 'loading' | 'ok' | 'error' = 'loading';
   usgsWindow: UsgsWindow;
@@ -158,6 +167,11 @@ export class LiveNetwork extends Emitter {
       if (this.withdrawals.size > MAX_WITHDRAWALS) this.withdrawals.delete(this.withdrawals.keys().next().value!);
       this.picks.delete(m.pick);
       this.queueRecompute();
+    } else if (m.type === 'felt') {
+      if (m.data.t < Date.now() - WINDOW_MS || this.lastFelt(m.node, m.data.t)) return;
+      this.felt.push({ id: m.id, node: m.node, ...m.data });
+      if (this.felt.length > MAX_FELT) this.felt.shift();
+      this.queueRecompute();
     } else {
       if (!this.nodes.has(m.node)) {
         this.pending = [...this.pending, m].slice(-500);
@@ -183,6 +197,21 @@ export class LiveNetwork extends Emitter {
       this.queueRecompute();
     }
     this.emit();
+  }
+
+  /** This key's felt report within ten minutes of t, if any. */
+  lastFelt(node: string, t: number) {
+    return this.felt.find((f) => f.node === node && Math.abs(f.t - t) < FELT_EVERY_MS);
+  }
+
+  /** Publish this browser's felt report, unless its key sent one in the last ten minutes. */
+  reportFelt(me: { sk: Uint8Array; pubkey: string }, at: LatLon, lvl: number) {
+    const t = Date.now();
+    if (this.lastFelt(me.pubkey, t)) return false;
+    const ev = signFelt(me.sk, { ...at, t, lvl });
+    this.transport.publish(ev);
+    this.ingest(ev);
+    return true;
   }
 
   private hear(t: Trigger) {
@@ -218,6 +247,7 @@ export class LiveNetwork extends Emitter {
     );
     this.early = unconfirmed(early.events, this.events);
     this.settle(now);
+    this.feltClusters = clusterFelt(this.felt);
     // A candidate holds for now, but phones the wave is still reaching could overturn it.
     if (early.waiting)
       this.recheck = setTimeout(() => {
@@ -256,6 +286,7 @@ export class LiveNetwork extends Emitter {
     const now = Date.now();
     this.triggers = this.triggers.filter((t) => now - t.t < WINDOW_MS);
     this.heard = this.heard.filter((h) => now - h.t < WINDOW_MS);
+    this.felt = this.felt.filter((f) => now - f.t < WINDOW_MS);
     for (const [k, p] of this.picks) if (now - p.t > 5 * 60_000) this.picks.delete(k);
     for (const [k, n] of this.nodes) if (now - n.lastSeen > WINDOW_MS) this.nodes.delete(k);
     for (const [k, w] of this.withdrawals) if (now - w.at > WINDOW_MS) this.withdrawals.delete(k);
