@@ -273,7 +273,8 @@ export class LiveNetwork extends Emitter {
     for (const d of this.provisional) {
       if (d.outcome === 'confirmed') continue;
       d.confirmed = this.events.find((c) => same(d.event, c)) ?? null;
-      d.withdrew = d.picks.flatMap((p) => this.withdrawals.get(`${p.id}:${p.node}`) ?? []);
+      // Once it has ended, the reasons it ended with are its record: the withdrawals behind them can be pushed out or pruned first.
+      if (d.outcome === 'open') d.withdrew = d.picks.flatMap((p) => this.withdrawals.get(`${p.id}:${p.node}`) ?? []);
       if (d.confirmed) d.outcome = 'confirmed';
       else if (d.outcome === 'open' && !this.early.includes(d.event)) {
         // No longer declared: too few of its phones are left to confirm it, or it has waited long enough.

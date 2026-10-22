@@ -72,6 +72,34 @@ describe('live network model', () => {
     expect(d.withdrew.map((w) => w.reason).sort()).toEqual(['footsteps', 'footsteps', 'footsteps', 'impulse']);
   });
 
+  it('a provisional detection closed as not confirmed keeps its reasons when other retractions push theirs out, and can still be confirmed', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const four = phones.slice(0, 4);
+    for (const p of four) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const picks = four.map((p) => signPick(p.sk, p));
+    picks.forEach((ev) => live.ingest(ev));
+    live.recompute();
+    four.forEach((p, i) => live.ingest(signRetraction(p.sk, picks[i].id, i < 3 ? 'footsteps' : 'impulse')));
+    live.recompute();
+    expect(live.provisional.map((d) => d.outcome)).toEqual(['withdrawn']);
+    // A phone with a heartbeat retracts as many picks it never sent as the network keeps.
+    const others = phones.slice(4);
+    for (const p of others) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const hex = (i: number) => i.toString(16).padStart(64, '0');
+    const node = getPublicKey(others[0].sk);
+    for (let i = 0; i < 5000; i++) live.receive({ id: hex(i), node, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
+    live.recompute();
+    const [d] = live.provisional;
+    expect(d.outcome).toBe('withdrawn');
+    expect(d.withdrew.map((w) => w.reason).sort()).toEqual(['footsteps', 'footsteps', 'footsteps', 'impulse']);
+    // Other phones then confirm a quake there and then.
+    for (const p of others) live.ingest(signTrigger(p.sk, { ...p, dur: 5 }));
+    live.recompute();
+    expect(live.events).toHaveLength(1);
+    expect(live.provisional.map((x) => x.outcome)).toEqual(['confirmed']);
+    expect(d.confirmed).toBe(live.events[0]);
+  });
+
   it('a provisional detection is closed as confirmed by the event its phones confirm, or as unconfirmed after two minutes', () => {
     const confirmed = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     const unconfirmed = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
