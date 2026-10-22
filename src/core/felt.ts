@@ -21,12 +21,10 @@ export interface FeltCluster extends LatLon {
   lvl: number;
 }
 
-/** Reports this close in space and time can be one shaking. */
 const CLUSTER_KM = 30;
 const CLUSTER_MS = 10 * 60_000;
 /** A key's reports count once per ten minutes: the first of them. */
 export const FELT_EVERY_MS = 10 * 60_000;
-/** Degrees of latitude in CLUSTER_KM, to rule out far reports before measuring the distance. */
 const CLUSTER_DEG = CLUSTER_KM / 111;
 /** Keys are free and places are typed in, so a shaking counts only once this many of each agree. */
 const MIN_KEYS = 3;
@@ -42,7 +40,6 @@ const MIN_CELLS = 3;
 export function clusterFelt(reports: Felt[]): FeltCluster[] {
   const groups: Felt[][] = [];
   const counted = new Map<string, number>();
-  // Groups are made in time order, so the ones before `open` began too long ago to take more.
   let open = 0;
   for (const r of [...reports].sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
     const last = counted.get(r.node);

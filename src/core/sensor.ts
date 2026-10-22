@@ -23,16 +23,11 @@ export type DetectorOutput =
   | { kind: 'trigger'; t: number; at: number; phase: Phase; pga: number; durS: number }
   | { kind: 'reject'; t: number; at: number; reason: RejectReason };
 
-/** Short-term and long-term averaging windows of the trigger, s. */
 const STA_S = 0.4;
 const LTA_S = 20;
-/** Base STA/LTA energy ratio that opens a candidate. Adapts upward after false alarms. */
 const THRESHOLD_ON = 5;
-/** Shaking below this RMS (m/s²) is ignored regardless of ratio: phone noise floor. */
 const NOISE_FLOOR = 0.04;
-/** Seconds of samples before the background is learned and the phone listens. */
 const WARMUP_S = 5;
-/** Seconds of motion after the onset used to tell a P wave from an S wave. */
 const PHASE_S = 0.4;
 
 const DEG = 180 / Math.PI;
@@ -67,7 +62,6 @@ export class NodeDetector {
   private readonly warmup: number;
   private grav: OnePole[] = [];
   private bp: Bandpass[] = [];
-  /** This run's first sample. */
   private origin: number[] | null = null;
   private readonly env: OnePole;
   private lastT = 0;
@@ -79,7 +73,6 @@ export class NodeDetector {
     down: [number, number, number];
     ev: number;
     eh: number;
-    /** Set when the pick goes out, 0.4 s after the onset: long before any verdict. */
     phase: Phase | null;
     lastLoud: number;
     peak: number;
@@ -139,7 +132,6 @@ export class NodeDetector {
       const out = this.interrupt(s.t);
       if (out) return out;
     }
-    // A clock set back by under a second is no time passing, so the threshold never rises for it.
     const dtS = this.lastT ? Math.max(0, s.t - this.lastT) / 1000 : 1 / this.fs;
     this.lastT = s.t;
     // Threshold relaxes toward base with a 2-minute time constant.
@@ -151,8 +143,6 @@ export class NodeDetector {
       this.gHist.push(this.gNow);
       if (this.gHist.length > 8) this.gHist.shift();
     }
-    // Filter the change since this run's first sample: the filters start from rest, so gravity
-    // switching on is no burst of shaking for the background to learn.
     const o = (this.origin ??= raw);
     const f = raw.map((v, i) => this.bp[i].step(v - o[i]));
     const e = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
@@ -201,10 +191,6 @@ export class NodeDetector {
   private judge(t: number): DetectorOutput {
     const c = this.cand!;
     this.cand = null;
-    // Seconds of strong envelope, and the separate bursts it came in. Strong is a share of the
-    // peak and clearly above the background from before the onset (the LTA stays frozen while a
-    // candidate is open): a knock that only just crossed the trigger peaks at a few times the
-    // background, so shares of its peak alone fall inside the noise and it seems to go on and on.
     const bg = this.background;
     const loud = Math.max(0.25 * c.peakEnv, 1.5 * bg);
     const on = Math.max(0.5 * c.peakEnv, 2.5 * bg);
@@ -236,8 +222,6 @@ export class NodeDetector {
       return { kind: 'reject', t: c.t0, at: t, reason };
     }
     this.holdUntil = t + 10000;
-    // shortcut: footsteps still being checked when a quake arrives are confirmed with the
-    // footsteps' onset time; split the candidate at a fresh onset if replays show early outliers.
     return { kind: 'trigger', t: c.t0, at: t, phase: c.phase!, pga: c.peak, durS: activeS };
   }
 
@@ -248,11 +232,6 @@ export class NodeDetector {
     c.eh += e - v * v;
   }
 
-  /**
-   * Start afresh: gravity, filters and averages all learn again from the next sample, at the base
-   * threshold and with no hold. Both were set by verdicts dated by a clock that may since have
-   * been set: kept across a clock set back a day, a hold of seconds would last a day.
-   */
   private reset() {
     this.n = 0;
     this.sta = this.lta = 0;

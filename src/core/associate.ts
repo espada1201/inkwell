@@ -29,7 +29,6 @@ export interface AssociateOptions {
 
 /** Slack allowed beyond the travel time between two phones' triggers, s: phone clocks drift. */
 const TOLERANCE_S = 1.5;
-/** Triggers farther apart than this, km, or than this many seconds, are not one quake's. */
 const MAX_DISTANCE_KM = 400;
 const MAX_SPAN_S = 90;
 
@@ -70,7 +69,6 @@ function locateCached(members: Trigger[], minNodes: number): Solution | null {
  *     relocate, so an unlucky seed (e.g. a stray footstep) cannot bias membership.
  *  5. Later triggers the event explains as either wave are absorbed so they do not spawn ghosts.
  */
-/** Onset order, ties broken by id: the input's order must not decide which phones form a quake. */
 const byOnset = (a: Trigger, b: Trigger) => a.t - b.t || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
 export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
@@ -96,7 +94,6 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
       const B = sorted[b];
       if (phase !== (B.phase ?? 'P')) continue;
       const dt = (B.t - A.t) / 1000;
-      // Within the slack any distance fits the times, and a degree apart is well inside the limit.
       const near = dt <= TOLERANCE_S && Math.abs(B.lat - A.lat) <= 1 && Math.abs(B.lon - A.lon) <= 1;
       const d = near ? 0 : distanceKm(A, B);
       if (near || (d <= MAX_DISTANCE_KM && dt <= d / speedOf(phase) + TOLERANCE_S)) {
@@ -106,7 +103,6 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     }
   }
 
-  // Unused triggers as a bitset too, so the most a seed could gather is a popcount away.
   const free = new Uint32Array(words);
   for (let i = 0; i < n; i++) free[i >>> 5] |= 1 << (i & 31);
   const index = new Map(sorted.map((t, i) => [t, i]));
@@ -115,7 +111,6 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     const i = index.get(t)!;
     free[i >>> 5] &= ~(1 << (i & 31));
   };
-  /** The largest cluster seed i could grow: itself and the unused triggers after it that fit it. */
   const bound = (i: number) => {
     let count = 1;
     const first = (i + 1) >>> 5;
@@ -156,7 +151,6 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
   const largest = (skip: (t: Trigger) => boolean) => {
     let out: Trigger[] = [];
     sorted.forEach((t, i) => {
-      // A seed that could not beat the largest so far is not worth growing: the result is the same.
       if (used.has(t.id) || deadSeeds.has(t.id) || skip(t) || bound(i) <= out.length) return;
       const c = grow(i);
       if (c.length > out.length) out = c;
@@ -213,12 +207,10 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
   return events.sort((a, b) => a.time - b.time);
 }
 
-/** Uncertainties of the events on screen. Tracing one takes milliseconds, so only those are traced. */
 const traced = new Map<string, Uncertainty>();
 
 /** How far off an event's epicentre and magnitude could be (see `uncertainty`). */
 export function eventUncertainty(e: DetectedEvent): Uncertainty {
-  // Its members fix where an event is, so where it is and how many there are identify them.
   const key = `${e.id}|${e.time}|${e.lat}|${e.lon}|${e.triggers.length}`;
   let u = traced.get(key);
   if (!u) {

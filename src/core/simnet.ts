@@ -4,11 +4,6 @@ import { offset, type LatLon } from './geo';
 import { gauss } from './rng';
 import type { DetectorOutput } from './sensor';
 
-/**
- * The simulated network that Replay and the planner share: what a simulated phone is like, how
- * long the relays take, and what a browser watching them receives from each phone.
- */
-
 /** Samples per second of every simulated phone record. */
 export const FS = 50;
 /** Spread of simulated phones' clock errors, ms (one standard deviation). */
