@@ -169,9 +169,10 @@ export class NodeDetector {
     c.maxTilt = Math.max(c.maxTilt, angle(c.g0, this.gNow));
     c.envs.push(env);
     if (env > Math.max(0.15 * c.peakEnv, 1.5 * this.background)) c.lastLoud = s.t;
-    // Keep listening at least 15 s so a late, stronger S wave still counts toward the peak.
+    // Keep listening at least 15 s so a late, stronger S wave still counts toward the peak, and
+    // judge by 30 s: now, if the next sample would come later than that.
     const open = s.t - c.t0;
-    if (open < 30000 && (open < 15000 || s.t - c.lastLoud < 3000)) return null;
+    if (open + dtS * 1000 <= 30000 && (open < 15000 || s.t - c.lastLoud < 3000)) return null;
     return this.judge(s.t);
   }
 

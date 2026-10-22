@@ -144,6 +144,17 @@ describe('provisional picks', () => {
     expect(trig.at - pick.t).toBeGreaterThanOrEqual(15_000);
   });
 
+  it('gives its verdict 15 to 30 s after the onset, never later', () => {
+    // Phone clocks do not tick on whole sample times; long shaking runs into the 30 s limit.
+    for (const start of [0, -86.3, 4567.89])
+      for (const o of [{ quake: { tP: 30, tS: 38, pga: 2, decayS: 15 } }, { footsteps: { t: 30, count: 60 } }, { slam: { t: 30 } }])
+        for (const seed of [1, 2, 3])
+          for (const f of run({ seed, start, ...o }).out.filter((x) => x.kind !== 'pick')) {
+            expect(f.at - f.t).toBeGreaterThanOrEqual(15_000);
+            expect(Math.round(f.at - f.t)).toBeLessThanOrEqual(30_000);
+          }
+  });
+
   it('every pick is later resolved as either a trigger or a reject', () => {
     for (const o of [{ footsteps: { t: 30, count: 10 } }, { slam: { t: 30 } }, { quake: { tP: 30, tS: 34, pga: 0.6 } }]) {
       const { out } = run(o);
