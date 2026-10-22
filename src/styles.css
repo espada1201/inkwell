@@ -39,6 +39,8 @@ a { color: inherit; }
 :focus-visible { outline: none; box-shadow: var(--focus); border-radius: 3px; }
 /* The map's canvas fills a clipped box, where a ring outside it would not show. */
 .maplibregl-canvas:focus-visible { outline: 3px solid var(--ink); outline-offset: -3px; }
+/* Over the map library's own blue ring, which loads after this sheet. */
+.map .maplibregl-ctrl-group button:focus:focus-visible, .map .maplibregl-ctrl-attrib-button:focus-visible { box-shadow: var(--focus); }
 .skip { position: absolute; left: 8px; top: -60px; z-index: 50; }
 .skip:focus { top: 8px; }
 .mono, .num { font-family: var(--mono); font-feature-settings: 'tnum'; }

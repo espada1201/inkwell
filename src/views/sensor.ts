@@ -1,9 +1,11 @@
 import type { LiveNetwork } from '../app/live';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
 import { distanceKm, parseLatLon, type LatLon } from '../core/geo';
+import { nearestTown, townLabel } from '../core/places';
 import { h, keepFocus } from '../ui/dom';
 import { WITHDRAWN, coord, intensityWord, mag, many } from '../ui/format';
 import { drawTrace } from '../ui/trace';
+import { loadTowns } from './place';
 
 const STIRRING = 2.5;
 
@@ -27,6 +29,8 @@ const STATE_COPY: Record<SensorNode['state'], [string, string]> = {
   listening: ['Listening', 'Watching for strong shaking. This phone recognises most footsteps, bumps and handling, and withdraws them.'],
 };
 
+type Near = { at: LatLon; name: string | null };
+
 export function sensorView(s: SensorNode, live: LiveNetwork) {
   const root = h('div', { class: 'sensor-inner' });
   const canvas = h('canvas', { class: 'trace', role: 'img', 'aria-label': 'Live accelerometer trace' });
@@ -45,8 +49,34 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   // Made once, so a render while the browser is still locating does not wipe what it said.
   const stepsMsg = h('p', { class: 'small', role: 'status' });
   const locMsg = h('p', { class: 'small muted', role: 'status' });
+  /** Someone pressed a step this visit: once all are done, say so rather than just dropping the card. */
+  let stepped = false;
+  /** The town nearest the location, looked up once per location; a typed town names itself. */
+  let near: Near | null = null;
   let dimmed = false;
   let raf = 0;
+
+  function nearName() {
+    const at = s.location;
+    if (!at || s.placeName) return null;
+    if (near?.at !== at) {
+      const asked: Near = (near = { at, name: null });
+      loadTowns().then(
+        (towns) => {
+          const t = nearestTown(towns, at);
+          if (!t || near !== asked) return;
+          asked.name = `near ${townLabel(t)}`;
+          // A redraw waits while someone types; the line itself need not.
+          const line = root.querySelector('[data-testid=loc]');
+          if (line) line.textContent = where();
+          redraw();
+        },
+        () => {},
+      );
+    }
+    return near.name;
+  }
+  const where = () => (s.location ? [s.placeName, coord(s.location.lat, s.location.lon), nearName()].filter(Boolean).join(' · ') : 'Not set');
 
   function loop() {
     drawTrace(canvas, s);
@@ -116,13 +146,23 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   function helpSteps() {
     // A town typed on the Network screen, perhaps to check on someone elsewhere, is not where this phone is.
     const town = s.placeName;
-    if ((s.canPublish && !town) || s.state === 'unsupported' || s.state === 'denied') return null;
+    if (s.state === 'unsupported' || s.state === 'denied') return null;
+    if (s.canPublish && !town)
+      return stepped
+        ? h(
+            'section',
+            { class: 'card steps', 'data-testid': 'help-steps' },
+            h('h2', { tabIndex: -1, 'data-key': 'helping' }, 'This phone is helping'),
+            h('p', { class: 'small' }, `It shares what it feels from ${[coord(s.location!.lat, s.location!.lon), nearName()].filter(Boolean).join(', ')}, to about 1 km, until you turn sharing off under Network.`),
+            stepsMsg,
+          )
+        : null;
     // Each press removes its button: keep the keyboard on the next step, or on Start/Stop near the top,
     // unless it has moved on by the time the browser answers.
     const next = () => {
       const at = document.activeElement;
       if (at && at !== document.body && root.contains(at)) return;
-      ['join-now', 'locate-now', 'run'].map((k) => root.querySelector<HTMLElement>(`[data-key=${k}]`)).find(Boolean)?.focus();
+      ['join-now', 'locate-now', 'helping', 'run'].map((k) => root.querySelector<HTMLElement>(`[data-key=${k}]`)).find(Boolean)?.focus();
     };
     const missing = !s.joined && !s.location ? 'share it and set its location' : !s.joined ? 'share it' : 'set its location';
     return h(
@@ -134,8 +174,8 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
       h(
         'div',
         { class: 'transport' },
-        s.joined ? null : h('button', { class: 'btn primary', 'data-key': 'join-now', onclick: () => (s.setJoined(true), next()) }, 'Share with the Tremor network'),
-        s.location && !town ? null : h('button', { class: 'btn', 'data-key': 'locate-now', onclick: () => locate(stepsMsg, next) }, 'Use my approximate location'),
+        s.joined ? null : h('button', { class: 'btn primary', 'data-key': 'join-now', onclick: () => ((stepped = true), s.setJoined(true), next()) }, 'Share with the Tremor network'),
+        s.location && !town ? null : h('button', { class: 'btn', 'data-key': 'locate-now', onclick: () => ((stepped = true), locate(stepsMsg, next)) }, 'Use my approximate location'),
       ),
       stepsMsg,
     );
@@ -151,7 +191,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
       'section',
       { class: 'card' },
       h('h2', {}, 'Location'),
-      h('p', { 'data-testid': 'loc' }, s.location ? `${s.placeName ? `${s.placeName} · ` : ''}${coord(s.location.lat, s.location.lon)}` : 'Not set'),
+      h('p', { 'data-testid': 'loc' }, where()),
       h('p', { class: 'small muted' }, 'Snapped to a 1 km grid before it ever leaves this phone. Your street is never shared.'),
       h(
         'button',

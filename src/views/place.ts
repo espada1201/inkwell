@@ -6,7 +6,7 @@ import { coord } from '../ui/format';
 
 let towns: Promise<Town[]> | null = null;
 /** The town list is fetched the first time someone types a name, not with the page. */
-const loadTowns = () =>
+export const loadTowns = () =>
   (towns ??= import('../data/places.tsv?raw').then(
     (m) => parseTowns(m.default),
     (e) => {

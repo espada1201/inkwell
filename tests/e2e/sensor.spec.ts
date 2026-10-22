@@ -42,10 +42,12 @@ test.describe('be a sensor', () => {
     await expect(steps).toContainText('until you set its location');
     await expect(steps.getByRole('button', { name: 'Use my approximate location' })).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(steps).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Stop sensor' })).toBeFocused();
+    // Done, it says so where the steps were, and names the town it is near; the keyboard lands on that, not on Stop.
+    await expect(steps.getByRole('heading')).toHaveText('This phone is helping');
+    await expect(steps.getByRole('heading')).toBeFocused();
+    await expect(steps).toContainText('from 37.80°N 122.27°W, near Oakland, CA, US');
     await expect(page.getByTestId('publish-note')).toContainText('On.');
-    await expect(page.getByTestId('loc')).toHaveText('37.80°N 122.27°W');
+    await expect(page.getByTestId('loc')).toHaveText('37.80°N 122.27°W · near Oakland, CA, US');
   });
 
   test('a town typed on the Network screen is named here, with an offer to use where this phone really is', async ({ page, relay }) => {
@@ -62,8 +64,8 @@ test.describe('be a sensor', () => {
     await expect(steps.getByRole('heading')).toHaveText('Sharing from Vallejo, CA, US');
     await expect(steps).toContainText('If this phone is somewhere else, use its own location instead.');
     await steps.getByRole('button', { name: 'Use my approximate location' }).click();
-    await expect(steps).toHaveCount(0);
-    await expect(page.getByTestId('loc')).toHaveText('37.80°N 122.27°W');
+    await expect(steps.getByRole('heading')).toHaveText('This phone is helping');
+    await expect(page.getByTestId('loc')).toHaveText('37.80°N 122.27°W · near Oakland, CA, US');
   });
 
   test('a phone on a table publishes a pick, then a confirmed trigger', async ({ page, relay }) => {
@@ -81,7 +83,7 @@ test.describe('be a sensor', () => {
     await page.getByLabel('Latitude').fill('37.77493');
     await page.getByLabel('Longitude').fill('-122.41942');
     await page.getByRole('button', { name: 'Set' }).click();
-    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W');
+    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W · near San Francisco, CA, US');
     await page.getByLabel('Share with the Tremor network').check();
     await expect(page.getByTestId('publish-note')).toContainText('On.');
 
@@ -164,7 +166,7 @@ test.describe('be a sensor', () => {
     await page.keyboard.type('-122.41942');
     await tab(page.getByRole('button', { name: 'Set' }));
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W');
+    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W · near San Francisco, CA, US');
     await expect(page.getByRole('button', { name: 'Set' })).toBeFocused();
     await page.getByTestId('start').focus();
     await page.keyboard.press('Enter');
@@ -176,7 +178,7 @@ test.describe('be a sensor', () => {
     await page.getByLabel('Latitude').fill('37.77493');
     await page.getByLabel('Longitude').fill('-122.41942');
     await page.getByLabel('Longitude').press('Enter');
-    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W');
+    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W · near San Francisco, CA, US');
     await expect(page.getByLabel('Longitude')).toBeFocused();
   });
 

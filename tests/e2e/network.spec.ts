@@ -546,4 +546,11 @@ test('a keyboard skips the header and the map, and lands on each screen it opens
   await page.keyboard.press('Tab');
   await expect(canvas).toBeFocused();
   await expect.poll(() => canvas.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
+  // Its zoom buttons wear the same ring as every other control, not the map library's blue one.
+  await page.keyboard.press('Tab');
+  const zoom = page.getByRole('button', { name: 'Zoom in' });
+  await expect(zoom).toBeFocused();
+  const ring = await page.getByRole('button', { name: 'Skip to content' }).evaluate((el) => (el.focus(), getComputedStyle(el).boxShadow));
+  await zoom.focus();
+  expect(await zoom.evaluate((el) => getComputedStyle(el).boxShadow)).toBe(ring);
 });

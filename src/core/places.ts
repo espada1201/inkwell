@@ -1,4 +1,4 @@
-import type { LatLon } from './geo';
+import { distanceKm, type LatLon } from './geo';
 
 /** A town people can name instead of typing coordinates. */
 export interface Town extends LatLon {
@@ -75,4 +75,15 @@ export function findTowns(towns: Town[], typed: string): Town[] {
   const starting = towns.filter((t) => fold(t.name).startsWith(key) && fits(t));
   // A country spelled out ("London, Canada") is not one it knows: offer every town of that name to pick from.
   return starting.length ? starting : byName;
+}
+
+/** The town nearest p, if one is within `km`: a place found by the browser reads "near San Rafael", not as bare numbers. */
+export function nearestTown(towns: Town[], p: LatLon, km = 25): Town | null {
+  let best: Town | null = null;
+  let d = km;
+  for (const t of towns) {
+    const k = distanceKm(t, p);
+    if (k < d) [best, d] = [t, k];
+  }
+  return best;
 }

@@ -164,6 +164,8 @@ export class QuakeMap {
           attributionControl: { compact: true },
           dragRotate: false,
           pitchWithRotate: false,
+          // On a touch screen one finger scrolls the page past the map, as everywhere else; two move the map.
+          cooperativeGestures: matchMedia('(hover: none) and (pointer: coarse)').matches,
         });
       } catch {
         // No WebGL (very old device or locked-down browser): the lists still work.

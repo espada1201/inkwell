@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findTowns, parseTowns, townLabel } from '../../src/core/places';
+import { findTowns, nearestTown, parseTowns, townLabel } from '../../src/core/places';
 
 const towns = parseTowns(readFileSync(new URL('../../src/data/places.tsv', import.meta.url), 'utf8'));
 const labels = (typed: string) => findTowns(towns, typed).map(townLabel);
@@ -44,5 +44,10 @@ describe('towns by name', () => {
     expect(labels('American Can')).toContain('American Canyon, CA, US');
     expect(labels('Qqqqzz')).toEqual([]);
     expect(labels(' , ')).toEqual([]);
+  });
+
+  it('names the town nearest a place, and none out at sea', () => {
+    expect(townLabel(nearestTown(towns, { lat: 37.97, lon: -122.53 })!)).toBe('San Rafael, CA, US');
+    expect(nearestTown(towns, { lat: 30, lon: -140 })).toBeNull();
   });
 });

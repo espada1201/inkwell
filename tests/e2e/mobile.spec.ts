@@ -36,3 +36,14 @@ test('the map and its key stay usable on a phone', async ({ page, relay }) => {
   await key.locator('summary').click();
   await expect(key.getByText('Tremor detection')).toBeVisible();
 });
+
+test('a one-finger swipe over the map scrolls the page on a phone, as it does everywhere else', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  const map = page.getByRole('region', { name: 'Map' });
+  await expect(map).toBeVisible();
+  await page.waitForFunction(() => document.querySelector('.maplibregl-canvas'));
+  const box = (await map.boundingBox())!;
+  const cdp = await page.context().newCDPSession(page);
+  await cdp.send('Input.synthesizeScrollGesture', { x: box.x + box.width / 2, y: box.y + box.height / 2, yDistance: -400, speed: 1200 });
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(100);
+});
