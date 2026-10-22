@@ -157,6 +157,7 @@ export function networkView(ctx: NetworkCtx) {
         }),
       );
     const near = nearYou(live, you);
+    const heard = reach(live.transport.statuses()) === 'open';
     const noticed = near.some((x) => x.level !== null && x.level >= NOTICED_LEVEL);
     const move = () => {
       moving = true;
@@ -190,10 +191,11 @@ export function networkView(ctx: NetworkCtx) {
             { class: 'empty' },
             live.usgsState === 'loading'
               ? 'Checking the USGS feed…'
-              : live.usgsState === 'error' && reach(live.transport.statuses()) === 'down'
+              : live.usgsState === 'error' && !heard
                 ? 'Neither the USGS feed nor any relay can be reached right now, so Tremor cannot tell whether anything shook near you.'
                 : 'Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.',
-            live.usgsState === 'error' && reach(live.transport.statuses()) !== 'down' ? ' The USGS feed cannot be reached right now, so this is from Tremor alone.' : null,
+            live.usgsState === 'error' && heard ? ' The USGS feed cannot be reached right now, so this is from Tremor alone.' : null,
+            live.usgsState === 'ok' && !heard ? ' No relay is connected yet, so this is from USGS alone.' : null,
           ),
       h('p', {}, h('button', { class: 'btn', onclick: ctx.openFelt }, 'I felt it')),
       h(

@@ -343,7 +343,8 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   const start = SCENARIOS.find((s) => s.id === initial) ?? (linked ? quakeScenario(linked) : (!initial && r.sim?.scenario) || SCENARIOS[0]);
   if (r.sim?.scenario.id !== start.id) choose(start);
   else {
-    // Back on the scenario already loaded: pick up where it was.
+    // Back on the scenario already loaded: pick up where it was, with its own address.
+    history.replaceState(null, '', `#replay/${start.id}`);
     frame(start);
     describe(start);
     renderRecent();
