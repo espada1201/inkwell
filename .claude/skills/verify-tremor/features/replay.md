@@ -6,10 +6,10 @@ Replay plays a real quake into a network of simulated phones: each phone's recor
 
 - `replay-scenario` plays a bundled quake (Napa M6.0, Ridgecrest M7.1, Christchurch M6.1) to a declaration, a confirmation and a warning-time card.
 - `replay-compare` compares the simulated phones' location, time and magnitude with the USGS catalogue, with a link to its event page. It says how far off the location could be (`± N km`, also a dashed ring on the map) and gives the magnitude as a range, and notes that real phones size quakes more roughly than simulated ones.
-- `replay-no-quake` plays Concert night: no alert, and the withdrawn picks counted by the phone's reason.
+- `replay-no-quake` plays Concert night, which raises no alert, and counts the withdrawn picks by the phone's reason.
 - `replay-controls` plays, pauses, changes speed and scrubs, by pointer and by keyboard.
 - `replay-milestones` tells screen readers each milestone once (declared, confirmed, finished), not every second.
-- `replay-recent` lists the newest M4+ quakes in the USGS feed and replays one with simulated phones, around the saved location when it is within 150 km.
+- `replay-recent` lists the newest M4 or larger quakes in the USGS feed and replays one with simulated phones, around the saved location when it is within 150 km.
 - `replay-link` reopens any replay from its address, including a recent quake after it leaves the feed; a mangled link plays Napa.
 
 ## How to get to it (user POV)
