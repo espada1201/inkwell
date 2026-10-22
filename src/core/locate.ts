@@ -30,7 +30,10 @@ export interface Uncertainty {
   km: number;
   /** The times fit about as well as far out as the search goes, so the quake may be farther still. */
   mayBeFarther: boolean;
-  /** Magnitudes across that region, smallest first, or null without shaking amplitudes. */
+  /**
+   * Magnitudes across that region and its depths, smallest first, or null without shaking
+   * amplitudes. Where the quake could be, that is; the shaking relation adds its own ±0.5 or so.
+   */
   mag: [number, number] | null;
 }
 
@@ -374,7 +377,6 @@ export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
   const shaken = arrivals.filter((a) => a.pga && a.pga > 0);
   const sample = shaken.length > MAX_GRID_ARRIVALS ? spread(shaken, MAX_GRID_ARRIVALS) : shaken;
   const P = toXY(f, sample);
-  const logPga = sample.map((a) => Math.log10(a.pga!));
   const mags = new Float64Array(sample.length);
   let km = MIN_UNCERTAINTY_KM;
   let mayBeFarther = false;
@@ -383,7 +385,7 @@ export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
   const include = (x: number, y: number, k: number) => {
     km = Math.max(km, Math.hypot(x - ax, y - ay));
     if (!sample.length) return;
-    for (let i = 0; i < sample.length; i++) mags[i] = magnitudeFrom(10 ** logPga[i], hypocentralKm(Math.hypot(x - P.x[i], y - P.y[i]), DEPTHS_KM[k]));
+    for (let i = 0; i < sample.length; i++) mags[i] = magnitudeFrom(sample[i].pga!, hypocentralKm(Math.hypot(x - P.x[i], y - P.y[i]), DEPTHS_KM[k]));
     const mag = quickMedian(mags, sample.length);
     lo = Math.min(lo, mag);
     hi = Math.max(hi, mag);
@@ -392,6 +394,8 @@ export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
   include(ax, ay, DEPTHS_KM.indexOf(DEFAULT_DEPTH_KM));
   for (const p of fine) if (p.cost <= top) include(p.x, p.y, p.k);
   // Along each ray that holds a plausible point, out and in to where the fit gets too poor.
+  // shortcut: one stretch per ray, and rays 5° apart, so a second patch farther along a ray or a
+  // sliver between rays is missed; widen if the calibration test's coverage ever drops.
   for (const ray of rays) {
     if (ray.cost > top) continue;
     const m = (r: number) => probs[ray.k].misfit(r * ray.c, r * ray.s, top + 1, false).cost;
