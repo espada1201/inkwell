@@ -52,8 +52,10 @@ export class SensorNode extends Emitter {
   private readonly onVisible = () => {
     if (this.state === 'idle') return;
     // Hidden tabs get no motion events: say so at once rather than count as a quiet phone.
-    if (document.visibilityState === 'hidden') this.heartbeat(false);
-    else this.requestWakeLock();
+    if (document.visibilityState === 'hidden') {
+      this.interrupt();
+      this.heartbeat(false);
+    } else this.requestWakeLock();
   };
 
   constructor(private readonly transport: Transport) {
@@ -97,9 +99,7 @@ export class SensorNode extends Emitter {
   }
 
   stop() {
-    // A pick still being checked never will be now.
-    const out = this.detector?.interrupt(Date.now());
-    if (out) this.handle(out);
+    this.interrupt();
     this.heartbeat(false);
     window.removeEventListener('devicemotion', this.onMotion);
     document.removeEventListener('visibilitychange', this.onVisible);
@@ -132,6 +132,12 @@ export class SensorNode extends Emitter {
 
   get canPublish() {
     return this.joined && !!this.location;
+  }
+
+  /** The samples stop here: a pick still being checked never will be now. */
+  private interrupt() {
+    const out = this.detector?.interrupt(Date.now());
+    if (out) this.handle(out);
   }
 
   private set(s: SensorState) {

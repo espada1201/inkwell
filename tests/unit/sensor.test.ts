@@ -330,4 +330,21 @@ describe('this phone on the network', () => {
     node.setJoined(false);
     expect(heartbeats().map((m) => m.data.sps)).toEqual([50, 0]);
   });
+
+  it('withdraws a pick still being checked as soon as the tab is hidden', async () => {
+    const { node, feed, sent, doc, on, heartbeats } = phone();
+    await node.start();
+    feed({ durationS: 40, quake: { tP: 30, tS: 33, pga: 0.6 } });
+    doc.visibilityState = 'hidden';
+    on.visibilitychange();
+    expect(sent.filter((m) => m.type === 'retract')).toHaveLength(1);
+    expect(heartbeats().at(-1)!.data.sps).toBe(0);
+    // Back after ten seconds: nothing is withdrawn twice.
+    vi.advanceTimersByTime(10_000);
+    doc.visibilityState = 'visible';
+    on.visibilitychange();
+    feed({ durationS: 10 });
+    expect(sent.filter((m) => m.type === 'retract')).toHaveLength(1);
+    expect(node.log).toHaveLength(1);
+  });
 });
