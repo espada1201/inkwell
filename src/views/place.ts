@@ -25,7 +25,7 @@ export function placeForm(place: Place, then: () => void) {
     const at = parseLatLon(typed.value);
     if (at) return set(at);
     typed.setAttribute('aria-invalid', 'true');
-    msg.textContent = 'Type a latitude and a longitude, for example 37.80, -122.27.';
+    msg.textContent = 'Type a latitude and a longitude, with a point for decimals, for example 37.80, -122.27.';
   };
   const form = h(
     'div',

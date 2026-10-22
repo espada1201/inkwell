@@ -39,6 +39,7 @@ export interface NetworkCtx {
 
 type Selection = { kind: 'event' | 'usgs'; id: string };
 const HOURS = WINDOW_MS / 3600_000;
+const USGS_SHOWN = 12;
 const USGS_GAP = 'Outside the US, USGS may not list quakes below about M4.5.';
 const feltText = (c: { people: number; places: number }) => `${c.people} people in ${c.places} places felt shaking`;
 const nearTitle = (x: Near) => (x.kind === 'felt' ? feltText(x) : x.kind === 'usgs' ? `USGS: ${x.place}` : x.kind === 'provisional' ? 'Provisional Tremor detection' : 'Tremor detection');
@@ -189,8 +190,10 @@ export function networkView(ctx: NetworkCtx) {
             { class: 'empty' },
             live.usgsState === 'loading'
               ? 'Checking the USGS feed…'
-              : 'Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.',
-            live.usgsState === 'error' ? ' The USGS feed cannot be reached right now, so this is from Tremor alone.' : null,
+              : live.usgsState === 'error' && reach(live.transport.statuses()) === 'down'
+                ? 'Neither the USGS feed nor any relay can be reached right now, so Tremor cannot tell whether anything shook near you.'
+                : 'Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.',
+            live.usgsState === 'error' && reach(live.transport.statuses()) !== 'down' ? ' The USGS feed cannot be reached right now, so this is from Tremor alone.' : null,
           ),
       h('p', {}, h('button', { class: 'btn', onclick: ctx.openFelt }, 'I felt it')),
       h(
@@ -235,7 +238,7 @@ export function networkView(ctx: NetworkCtx) {
         ? h(
             'section',
             {},
-            h('h2', {}, 'Provisional detections', h('small', {}, `last ${HOURS} hours`)),
+            h('h2', {}, 'Provisional detections', h('small', {}, `last ${HOURS} hours, while this page is open`)),
             h('ul', { class: 'list lines' }, ...ended.map((d) => h('li', { 'data-testid': 'outcome' }, h('span', {}, outcomeText(d, live.usgs)), h('span', { class: 'when' }, ago(d.event.time))))),
           )
         : null,
@@ -356,7 +359,12 @@ export function networkView(ctx: NetworkCtx) {
           ? h('p', { class: 'empty', role: 'status' }, 'The USGS feed could not be reached. Retrying every two minutes.')
           : live.usgs.length === 0
             ? h('p', { class: 'empty' }, `No earthquakes listed in the past ${live.usgsWindow}.`)
-            : h('ul', { class: 'list', 'data-testid': 'usgs-list' }, ...quakes.slice(0, 12).map((q) => quakeRow(q, you)));
+            : h(
+                'div',
+                {},
+                h('ul', { class: 'list', 'data-testid': 'usgs-list' }, ...quakes.slice(0, USGS_SHOWN).map((q) => quakeRow(q, you))),
+                quakes.length > USGS_SHOWN ? h('p', { class: 'small muted' }, `The ${USGS_SHOWN} ${you && !worldwide ? 'nearest' : 'newest'} of ${quakes.length} are shown.`) : null,
+              );
     return h(
       'section',
       {},
@@ -399,7 +407,7 @@ export function networkView(ctx: NetworkCtx) {
     const ta = h('textarea', { 'aria-label': 'Relay URLs, one per line', 'aria-describedby': 'relays-note', spellcheck: 'false' });
     ta.value = ctx.relays.join('\n');
     const save = () => {
-      const lines = ta.value.split(/\s+/).filter(Boolean);
+      const lines = ta.value.split(/[\s,]+/).filter(Boolean);
       const wrong = lines.filter((s) => !isRelayUrl(s));
       if (lines.length && !wrong.length) return ctx.saveRelays(lines);
       ta.setAttribute('aria-invalid', 'true');

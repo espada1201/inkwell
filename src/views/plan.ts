@@ -81,7 +81,7 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
       onsubmit: (e: Event) => {
         e.preventDefault();
         const at = parseSpot(spotInput.value);
-        spotMsg.textContent = at ? '' : 'Type a latitude from −90 to 90 and a longitude from −180 to 180, like 37.77, -122.42.';
+        spotMsg.textContent = at ? '' : 'Type a latitude from −90 to 90 and a longitude from −180 to 180, with a point for decimals, like 37.77, -122.42.';
         if (at) goHere(at);
       },
     },

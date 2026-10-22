@@ -124,7 +124,7 @@ test('without a location the card asks once, by typed coordinates or the browser
   const typed = near.getByLabel('Or type latitude, longitude');
   await typed.fill('38.7');
   await near.getByRole('button', { name: 'Set' }).click();
-  await expect(near.getByRole('status')).toHaveText('Type a latitude and a longitude, for example 37.80, -122.27.');
+  await expect(near.getByRole('status')).toHaveText('Type a latitude and a longitude, with a point for decimals, for example 37.80, -122.27.');
   await expect(typed).toHaveAttribute('aria-invalid', 'true');
   await typed.fill('-33.9249, 18.4241');
   await near.getByRole('button', { name: 'Set' }).click();
@@ -203,6 +203,15 @@ test('with every relay refusing, the panel says nothing can be heard rather than
   await expect(page.getByTestId('no-events')).toHaveCount(0);
   await page.waitForTimeout(2500);
   await expect(down).toBeVisible();
+});
+
+test('with no relay and no USGS feed, the near-you card says it cannot tell, not that all is quiet', async ({ page }) => {
+  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ body: 'garbage' }));
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
+  await page.goto('/?relays=wss://relay.one.example#network');
+  await expect(page.getByTestId('relay-status')).toHaveText('0/1 relays');
+  await expect(page.getByTestId('near')).toContainText('Neither the USGS feed nor any relay can be reached right now');
+  await expect(page.getByTestId('near')).not.toContainText('Nothing strong enough to feel');
 });
 
 test('a felt report made with no relay connected says it is waiting to go out', async ({ page }) => {
@@ -364,7 +373,7 @@ test('the relay editor says why it saved nothing, and which lines were wrong', a
 });
 
 for (const refused of [false, true])
-  test(`a saved relay list is the one used after a reload${refused ? ', for this tab where the browser refuses to store it' : ''}`, async ({ page, relay }) => {
+  test(`a saved relay list, one per line or as a link writes it, is the one used after a reload${refused ? ', for this tab where the browser refuses to store it' : ''}`, async ({ page, relay }) => {
     if (refused)
       await page.addInitScript(() => {
         Storage.prototype.setItem = () => {
@@ -374,7 +383,7 @@ for (const refused of [false, true])
     await page.goto(`/?relays=${relay.url}#network`);
     await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
     await page.locator('details.relays summary').click();
-    await page.getByLabel('Relay URLs, one per line').fill(`${relay.url}\nwss://relay.two.example`);
+    await page.getByLabel('Relay URLs, one per line').fill(`${relay.url}${refused ? '\n' : ','}wss://relay.two.example`);
     await page.getByRole('button', { name: 'Save and reconnect' }).click();
     await expect(page.getByTestId('relay-status')).toHaveText('1/2 relays');
     await page.reload();

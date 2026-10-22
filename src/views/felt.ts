@@ -22,7 +22,7 @@ export function feltDialog(live: LiveNetwork, place: Place, me: { sk: Uint8Array
     const m = matchFelt(f, live.usgs);
     const out = reach(live.transport.statuses()) === 'open' ? 'It is on its way to the relays.' : 'No relay is connected yet: it goes out once one is, while this page stays open.';
     return [
-      h('p', { role: 'status' }, `Thanks. You reported ${INTENSITY_WORDS[f.lvl]} shaking at ${clock(f.t)}. ${out} You can report again from ${clock(f.t + FELT_EVERY_MS)}.`),
+      h('p', { role: 'status' }, `Thanks. You reported ${INTENSITY_WORDS[f.lvl]} shaking at ${clock(f.t)}. ${out} You can report again from ${clock(Math.ceil((f.t + FELT_EVERY_MS) / 60_000) * 60_000)}.`),
       h('a', { class: 'btn', href: m ? `${m.quake.url}/tellus` : DYFI, target: '_blank', rel: 'noopener' }, 'Tell USGS too ↗'),
     ];
   }
