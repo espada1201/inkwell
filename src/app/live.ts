@@ -1,11 +1,10 @@
 import type { Event } from 'nostr-tools/pure';
 import type { DetectedEvent, Trigger } from '../core/associate';
-import { confirmedEvents, earlyDetect, type EarlyEvent, type Onset } from '../core/early';
-import { distanceKm } from '../core/geo';
+import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
 import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
-import { Emitter } from '../ui/dom';
+import { Emitter } from './emitter';
 
 export interface LiveNode extends Heartbeat {
   id: string;
@@ -154,7 +153,7 @@ export class LiveNetwork extends Emitter {
       nodes.filter((n) => this.isOnline(n, now)),
       now,
     );
-    this.early = early.events.filter((e) => !this.events.some((c) => distanceKm(c, e) < 80 && Math.abs(c.time - e.time) < 60_000));
+    this.early = unconfirmed(early.events, this.events);
     // A candidate holds for now, but phones the wave is still reaching could overturn it.
     if (early.waiting)
       this.recheck = setTimeout(() => {
@@ -171,6 +170,12 @@ export class LiveNetwork extends Emitter {
     for (const [k, n] of this.nodes) if (now - n.lastSeen > WINDOW_MS) this.nodes.delete(k);
     if (this.retracted.size > 5000) this.retracted.clear();
     this.queueRecompute();
+  }
+
+  /** 0..1: how busy the last few seconds were, from the picks and triggers heard. */
+  activity(now = Date.now()) {
+    const recent = (t: number) => now - t < 8000;
+    return Math.min(1, ([...this.picks.values()].filter((p) => recent(p.t)).length + this.triggers.filter((t) => recent(t.t)).length) / 6);
   }
 
   /**

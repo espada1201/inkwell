@@ -11,7 +11,10 @@ export interface UsgsQuake extends LatLon {
 }
 
 export type UsgsWindow = 'hour' | 'day';
-export const usgsUrl = (w: UsgsWindow) => `https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_${w}.geojson`;
+const USGS = 'https://earthquake.usgs.gov/earthquakes';
+const feedUrl = (w: UsgsWindow) => `${USGS}/feed/v1.0/summary/all_${w}.geojson`;
+/** The public page of one USGS event. */
+export const usgsEventUrl = (id: string) => `${USGS}/eventpage/${id}`;
 
 interface Feature {
   id: string;
@@ -38,7 +41,7 @@ export function parseFeed(json: unknown): UsgsQuake[] {
 }
 
 export async function fetchUsgs(w: UsgsWindow, fetchImpl: typeof fetch = fetch): Promise<UsgsQuake[]> {
-  const res = await fetchImpl(usgsUrl(w), { cache: 'no-store' });
+  const res = await fetchImpl(feedUrl(w), { cache: 'no-store' });
   if (!res.ok) throw new Error(`USGS feed returned ${res.status}`);
   return parseFeed(await res.json());
 }

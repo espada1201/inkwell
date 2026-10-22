@@ -13,11 +13,11 @@ import type { Phase } from '../core/physics';
  *    listening since". Relays keep only the latest per node, so late viewers see the whole
  *    network at once. One with sps 0 says the phone has stopped listening.
  */
-export const KIND_PICK = 4578;
-export const KIND_TRIGGER = 4579;
-export const KIND_HEARTBEAT = 34579;
-export const KIND_DELETION = 5;
-export const TAG = 'tremor';
+const KIND_PICK = 4578;
+const KIND_TRIGGER = 4579;
+const KIND_HEARTBEAT = 34579;
+const KIND_DELETION = 5;
+const TAG = 'tremor';
 export const HEARTBEAT_EVERY_MS = 60_000;
 /** Events dated further ahead than this are refused: they would never expire. */
 const MAX_FUTURE_MS = 5 * 60_000;

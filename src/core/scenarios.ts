@@ -89,6 +89,8 @@ export interface Simulation {
 }
 
 export const ORIGIN_OFFSET_S = 25;
+/** Scenario ms (since the scenario started) → seconds since the quake's origin. */
+export const sinceOrigin = (scenarioMs: number) => scenarioMs / 1000 - ORIGIN_OFFSET_S;
 /** Samples per second of every simulated phone record. */
 export const FS = 50;
 

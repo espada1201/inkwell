@@ -3,6 +3,7 @@ import { MIN_PICKS, confirmedEvents, earlyDetect, type Onset } from './early';
 import { coarsen, distanceKm, offset, type LatLon } from './geo';
 import { VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor, type Phase } from './physics';
 import { gauss, rng } from './rng';
+import { upperMedian } from './stats';
 import { NodeDetector, type DetectorOutput } from './sensor';
 import { synthesize } from './synth';
 
@@ -155,12 +156,6 @@ interface Arrival {
 }
 type Node = LatLon & { id: string };
 
-const median = (xs: number[]) => {
-  if (!xs.length) return null;
-  const s = [...xs].sort((a, b) => a - b);
-  return s[s.length >> 1];
-};
-
 function scatter(c: LatLon, radiusKm: number, n: number, r: () => number): LatLon[] {
   return Array.from({ length: n }, () => {
     const a = r() * 2 * Math.PI;
@@ -170,7 +165,7 @@ function scatter(c: LatLon, radiusKm: number, n: number, r: () => number): LatLo
 }
 
 /** Evenly spaced points standing in for where people live. */
-export function residents(c: LatLon, radiusKm: number, target = 150): LatLon[] {
+function residents(c: LatLon, radiusKm: number, target = 150): LatLon[] {
   const step = Math.sqrt((Math.PI * radiusKm * radiusKm) / target);
   const out: LatLon[] = [];
   for (let e = -radiusKm; e <= radiusKm; e += step) for (let n = -radiusKm; n <= radiusKm; n += step) if (Math.hypot(e, n) <= radiusKm) out.push(offset(c, e, n));
@@ -310,10 +305,10 @@ export function* simulatePlan(input: PlanInput, model: PhoneModel): Generator<nu
     summary: {
       phones: input.phones,
       detected: declared.length / n,
-      medianDeclaredS: median(declared.map((t) => t.declaredS!)),
-      medianErrKm: median(trials.flatMap((t) => (t.errKm === null ? [] : [t.errKm]))),
+      medianDeclaredS: upperMedian(declared.map((t) => t.declaredS!)),
+      medianErrKm: upperMedian(trials.flatMap((t) => (t.errKm === null ? [] : [t.errKm]))),
       warned: shaken.length ? warned.length / shaken.length : null,
-      medianWarningS: median(warned),
+      medianWarningS: upperMedian(warned),
       falseAlerts,
       quietMinutes,
     },

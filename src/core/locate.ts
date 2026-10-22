@@ -1,5 +1,6 @@
 import { distanceKm, offset, type LatLon } from './geo';
 import { DEFAULT_DEPTH_KM, DISTANCE_PRIOR, hypocentralKm, magnitudeFrom, speedOf, type Phase } from './physics';
+import { median } from './stats';
 
 export interface Arrival extends LatLon {
   /** Arrival (trigger onset) in seconds on any common clock. */
@@ -37,12 +38,6 @@ export interface LocateOptions {
   /** Seconds of grace before a silent node counts against a trial epicentre. */
   silentSlackS?: number;
 }
-
-const median = (xs: number[]) => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
 
 /** Points projected to a local flat km grid: accurate enough over a few hundred km, and fast. */
 interface Frame {

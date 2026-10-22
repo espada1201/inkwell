@@ -1,6 +1,6 @@
 import type { Replay } from '../app/replay';
-import { DEFAULT_DEPTH_KM, VP_KMS, VS_KMS } from '../core/physics';
-import { FS, ORIGIN_OFFSET_S } from '../core/scenarios';
+import { DEFAULT_DEPTH_KM, VP_KMS, VS_KMS, hypocentralKm } from '../core/physics';
+import { FS, ORIGIN_OFFSET_S, sinceOrigin } from '../core/scenarios';
 import { css, fit } from './canvas';
 
 const T_MIN = -5;
@@ -60,7 +60,7 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
       ctx.globalAlpha = 0.6;
       ctx.beginPath();
       for (let d = 0; d <= maxD; d += maxD / 60) {
-        const t = Math.hypot(d, depth) / v;
+        const t = hypocentralKm(d, depth) / v;
         if (d === 0) ctx.moveTo(x(t), y(d));
         else ctx.lineTo(x(t), y(d));
       }
@@ -68,7 +68,7 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
       ctx.setLineDash([]);
       ctx.globalAlpha = 1;
       ctx.fillStyle = color;
-      const tEnd = Math.hypot(maxD * 0.92, depth) / v;
+      const tEnd = hypocentralKm(maxD * 0.92, depth) / v;
       if (tEnd < T_MAX) ctx.fillText(label, x(tEnd) + 4, y(maxD * 0.92));
     }
   }
@@ -102,14 +102,14 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
     ctx.stroke();
     ctx.globalAlpha = 1;
     const mark = (tScen: number, color: string) => {
-      const t = tScen / 1000 - ORIGIN_OFFSET_S;
+      const t = sinceOrigin(tScen);
       if (t > now || t < T_MIN || t > T_MAX) return;
       ctx.fillStyle = color;
       ctx.fillRect(x(t) - 1, base - rowH * 0.45, 2, rowH * 0.9);
     };
     // A confirmed onset, coloured by the wave the phone said it felt: it should sit on that wave's curve.
-    if (n.trigger && n.trigger.at / 1000 - ORIGIN_OFFSET_S <= now) mark(n.trigger.t, n.trigger.phase === 'S' ? red : ink);
-    for (const rj of n.rejects) if (rj.at / 1000 - ORIGIN_OFFSET_S <= now) mark(rj.t, amber);
+    if (n.trigger && sinceOrigin(n.trigger.at) <= now) mark(n.trigger.t, n.trigger.phase === 'S' ? red : ink);
+    for (const rj of n.rejects) if (sinceOrigin(rj.at) <= now) mark(rj.t, amber);
   });
 
   // Playhead

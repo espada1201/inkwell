@@ -1,9 +1,10 @@
 import { coarsen, type LatLon } from '../core/geo';
 import { NodeDetector, type DetectorOutput } from '../core/sensor';
+import { upperMedian } from '../core/stats';
 import { loadIdentity, safeStorage } from '../net/identity';
 import { HEARTBEAT_EVERY_MS, signHeartbeat, signPick, signRetraction, signTrigger } from '../net/protocol';
 import type { Transport } from '../net/transport';
-import { Emitter } from '../ui/dom';
+import { Emitter } from './emitter';
 
 export type SensorState = 'idle' | 'unsupported' | 'denied' | 'no-data' | 'warming' | 'listening';
 
@@ -143,7 +144,7 @@ export class SensorNode extends Emitter {
       // Learn the sample rate from the reported interval before building filters.
       if (e.interval > 0) this.intervals.push(e.interval < 1 ? e.interval * 1000 : e.interval);
       if (this.intervals.length < 10) return;
-      const ms = [...this.intervals].sort((x, y) => x - y)[5];
+      const ms = upperMedian(this.intervals)!;
       this.fs = Math.max(10, Math.min(200, Math.round(1000 / ms)));
       this.detector = new NodeDetector(this.fs);
       this.trace = new Float32Array(TRACE_S * this.fs);

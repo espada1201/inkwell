@@ -1,5 +1,6 @@
 import type { Summary } from '../core/planner';
 import { h } from './dom';
+import { pct, secs } from './format';
 
 const NS = 'http://www.w3.org/2000/svg';
 const W = 360;
@@ -13,8 +14,6 @@ function el<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string, 
   return e;
 }
 
-const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%`);
-const secs = (v: number | null) => (v === null ? '—' : `${v.toFixed(1)} s`);
 const fmtN = (n: number) => (n >= 1000 ? `${n / 1000}k` : String(n));
 
 const SERIES = [

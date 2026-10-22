@@ -1,5 +1,6 @@
 import { Bandpass, OnePole } from './filters';
-import type { Phase } from './physics';
+import { G, type Phase } from './physics';
+import { upperMedian } from './stats';
 
 export interface Sample {
   /** ms since epoch */
@@ -80,7 +81,7 @@ export class NodeDetector {
     maxTilt: number;
     envs: number[];
   } | null = null;
-  private gNow: [number, number, number] = [0, 0, 9.81];
+  private gNow: [number, number, number] = [0, 0, G];
   private gHist: [number, number, number][] = [];
 
   constructor(fs: number, o: DetectorOptions = {}) {
@@ -182,7 +183,7 @@ export class NodeDetector {
     if (start >= 0) bursts.push(c.envs.length - start);
     const activeS = active / this.fs;
     // Footsteps are a train of short knocks; quake shaking comes as a few long bursts.
-    const typicalBurstS = median(bursts) / this.fs;
+    const typicalBurstS = (upperMedian(bursts) ?? 0) / this.fs;
 
     let reason: RejectReason | null = null;
     if (c.maxTilt > 5) reason = 'handling';
@@ -217,10 +218,4 @@ function angle(a: number[], b: number[]): number {
   const dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
   const m = Math.hypot(a[0], a[1], a[2]) * Math.hypot(b[0], b[1], b[2]);
   return m ? Math.acos(Math.max(-1, Math.min(1, dot / m))) * DEG : 0;
-}
-
-function median(xs: number[]): number {
-  if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  return s[s.length >> 1];
 }

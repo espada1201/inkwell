@@ -17,6 +17,11 @@ export function hypocentralKm(epicentralKm: number, depthKm = DEFAULT_DEPTH_KM):
   return Math.hypot(epicentralKm, depthKm);
 }
 
+/** Surface distance a wave of this speed has reached `tS` seconds after origin at this depth. */
+export function waveRadiusKm(speedKms: number, tS: number, depthKm: number): number {
+  return Math.sqrt(Math.max(0, (speedKms * tS) ** 2 - depthKm ** 2));
+}
+
 /** log10 PGA gained per magnitude unit, and lost per log10 of (distance + 10 km). */
 const MAG_SCALE = 0.3;
 const ATTENUATION = 1.5;

@@ -14,29 +14,15 @@ export function h<K extends keyof HTMLElementTagNameMap>(tag: K, attrs: Attrs = 
   return el;
 }
 
-export function ago(ms: number, now = Date.now()): string {
-  const s = Math.max(0, Math.round((now - ms) / 1000));
-  if (s < 60) return `${s}s ago`;
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return `${Math.round(s / 3600)} h ago`;
-  return `${Math.round(s / 86400)} d ago`;
-}
-
-export const coord = (lat: number, lon: number) =>
-  `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? 'E' : 'W'}`;
-
-export const mag = (m: number | null | undefined) => (m === null || m === undefined ? 'M ?' : `M${m.toFixed(1)}`);
-
-export const utc = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-
-/** Simple change notifier shared by the app models. */
-export class Emitter {
-  private fns = new Set<() => void>();
-  on(fn: () => void) {
-    this.fns.add(fn);
-    return () => this.fns.delete(fn);
-  }
-  protected emit() {
-    for (const f of this.fns) f();
-  }
+/**
+ * Rebuild a panel without losing keyboard focus: the element focused before is found again by
+ * its data-key, or else by its tag and text.
+ */
+export function keepFocus(root: HTMLElement, rebuild: () => void) {
+  const key = (el: Element) => (el instanceof HTMLElement && el.dataset.key) || `${el.tagName}:${el.textContent}`;
+  const was = document.activeElement;
+  const k = was && was !== document.body && root.contains(was) ? key(was) : null;
+  rebuild();
+  if (k === null || root.contains(document.activeElement)) return;
+  for (const el of root.querySelectorAll<HTMLElement>(was!.tagName)) if (key(el) === k) return el.focus({ preventScroll: true });
 }

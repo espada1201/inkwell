@@ -21,7 +21,7 @@ export function offset(p: LatLon, eastKm: number, northKm: number): LatLon {
 }
 
 /** Privacy: nodes only ever publish coordinates snapped to a 0.01° grid (about 1.1 km). */
-export const COARSE_DEG = 0.01;
+const COARSE_DEG = 0.01;
 export function coarsen(p: LatLon): LatLon {
   const snap = (v: number) => Math.round(v / COARSE_DEG) * COARSE_DEG;
   return { lat: +snap(p.lat).toFixed(2), lon: +snap(p.lon).toFixed(2) };

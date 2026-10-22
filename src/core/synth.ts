@@ -1,4 +1,5 @@
 import { Bandpass } from './filters';
+import { G } from './physics';
 import { gauss, rng } from './rng';
 import type { Sample } from './sensor';
 
@@ -86,8 +87,8 @@ export function synthesize(o: SynthOptions): Sample[] {
     samples.push({
       t: o.start + ts * 1000,
       x: ax[0][i] + handJiggle,
-      y: ax[1][i] + 9.81 * Math.sin(th),
-      z: ax[2][i] + 9.81 * Math.cos(th),
+      y: ax[1][i] + G * Math.sin(th),
+      z: ax[2][i] + G * Math.cos(th),
     });
   }
   return samples;

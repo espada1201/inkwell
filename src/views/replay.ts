@@ -1,20 +1,30 @@
 import type { Replay } from '../app/replay';
 import { shakeGrid, sRadiusKm } from '../core/impact';
-import { ORIGIN_OFFSET_S, SCENARIOS, type Scenario } from '../core/scenarios';
+import { ORIGIN_OFFSET_S, SCENARIOS, sinceOrigin, type Scenario } from '../core/scenarios';
+import { usgsEventUrl } from '../net/usgs';
 import { h } from '../ui/dom';
-import type { MapRing, QuakeMap } from '../ui/map';
+import { clockT } from '../ui/format';
+import { NODE_COLORS, type MapRing, type QuakeMap, type Swatch } from '../ui/map';
 import { drawSection } from '../ui/section';
 import { compareCard } from './compare';
 
 const ISOCHRONS = [5, 10, 20];
-const sinceOrigin = (scenarioMs: number) => scenarioMs / 1000 - ORIGIN_OFFSET_S;
-const fmtT = (s: number) => `${s < 0 ? 'T−' : 'T+'}${Math.abs(s).toFixed(1)} s`;
+
+export const REPLAY_LEGEND: Swatch[] = [
+  [NODE_COLORS.idle, 'phone'],
+  [NODE_COLORS.pick, 'felt shaking, still checking'],
+  [NODE_COLORS.trigger, 'confirmed shaking / Tremor epicentre'],
+  [NODE_COLORS.reject, 'withdrawn by the phone'],
+  ['transparent;border:2px solid var(--red)', 'provisional detection'],
+  ['transparent;border:2px solid var(--ink)', 'USGS epicentre'],
+  ['transparent;border:1.5px dashed var(--muted)', 'P and S wavefronts'],
+];
 
 export function replayView(r: Replay, map: QuakeMap, initial: string | undefined, speed: number) {
   const root = h('div', { class: 'panel-inner' });
   const canvas = h('canvas', { class: 'section', role: 'img', 'aria-label': 'Record section: phone traces sorted by distance from the epicentre' });
   const clock = h('span', { class: 'clock', 'data-testid': 'clock' });
-  const scrub = h('input', { type: 'range', class: 'scrub', min: 0, max: 1000, value: 0, 'aria-label': 'Replay position' }) as HTMLInputElement;
+  const scrub = h('input', { type: 'range', class: 'scrub', min: 0, max: 1000, value: 0, 'aria-label': 'Replay position' });
   const playBtn = h('button', { class: 'btn primary', 'data-testid': 'play' });
   const stats = h('p', { class: 'small mono muted', 'data-testid': 'replay-stats' });
   const steps = h('ol', { class: 'timeline', 'aria-label': 'What the network knew, and when' });
@@ -32,13 +42,17 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     ...[1, 4, 10].map((s) => h('button', { 'data-speed': s, 'aria-pressed': String(r.speed === s), onclick: () => ((r.speed = s), update()) }, `${s}×`)),
   );
 
-  function choose(s: Scenario) {
-    r.load(s);
-    history.replaceState(null, '', `#replay/${s.id}`);
+  /** Fit the map to the loaded scenario's phones and epicentre. */
+  function frame(s: Scenario) {
     const pts = r.nodes.map((n) => ({ lat: n.lat, lon: n.lon }));
     if (s.truth) pts.push(s.truth);
     map.fitTo(pts, 10);
-    map.setUsgs([]);
+  }
+
+  function choose(s: Scenario) {
+    r.load(s);
+    history.replaceState(null, '', `#replay/${s.id}`);
+    frame(s);
     blurb.textContent = s.blurb;
     renderPicker();
     lastKey = '';
@@ -75,7 +89,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
         h(
           'li',
           { class: at !== null && at <= r.vt ? 'done' : '' },
-          h('span', { class: 'when mono' }, at !== null && at <= r.vt ? fmtT(sinceOrigin(at)) : '—'),
+          h('span', { class: 'when mono' }, at !== null && at <= r.vt ? clockT(sinceOrigin(at)) : '—'),
           h('b', {}, label),
           h('span', { class: 'note' }, note),
         ),
@@ -112,7 +126,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
         'header',
         {},
         h('b', {}, 'Early warning, had it been live'),
-        h('span', { class: 'mono' }, `alert ${fmtT(w.alertAt)}`),
+        h('span', { class: 'mono' }, `alert ${clockT(w.alertAt)}`),
       ),
       h(
         'p',
@@ -141,7 +155,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const sim = r.sim;
     if (!sim) return;
     const t = r.sinceOrigin;
-    clock.textContent = fmtT(t);
+    clock.textContent = clockT(t);
     scrub.value = String(Math.round((r.vt / r.duration) * 1000));
     scrub.setAttribute('aria-valuetext', `${Math.abs(t).toFixed(0)} seconds ${t < 0 ? 'before' : 'after'} the quake began`);
     playBtn.textContent = r.playing ? 'Pause' : r.vt >= r.duration ? 'Replay' : 'Play';
@@ -193,10 +207,8 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
       ev
         ? compareCard(
             'Tremor located it',
-            { lat: ev.lat, lon: ev.lon, time: ev.time, mag: ev.mag, nodes: ev.triggers.length, rms: ev.rms },
-            truth
-              ? { lat: truth.lat, lon: truth.lon, time: sim.origin, mag: truth.mag, label: 'USGS catalogue', url: truth.usgsId ? `https://earthquake.usgs.gov/earthquakes/eventpage/${truth.usgsId}` : undefined }
-              : null,
+            ev,
+            truth ? { lat: truth.lat, lon: truth.lon, time: sim.origin, mag: truth.mag, label: 'USGS catalogue', url: truth.usgsId ? usgsEventUrl(truth.usgsId) : undefined } : null,
             'No real earthquake in this scenario, so this would be a false alarm.',
           )
         : '',
@@ -227,11 +239,14 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
       stats,
     ),
   );
+  map.clear();
   renderPicker();
   const off = r.on(update);
   const start = SCENARIOS.find((s) => s.id === initial) ?? SCENARIOS[0];
   if (r.sim?.scenario.id !== start.id) choose(start);
   else {
+    // Back on the scenario already loaded: pick up where it was.
+    frame(start);
     blurb.textContent = start.blurb;
     update();
   }

@@ -1,5 +1,6 @@
 import { distanceKm, offset, type LatLon } from './geo';
-import { VS_KMS, intensityLevel } from './physics';
+import { VS_KMS, hypocentralKm, intensityLevel, waveRadiusKm } from './physics';
+import { upperMedian } from './stats';
 
 /**
  * What a declared quake means on the ground.
@@ -10,9 +11,7 @@ import { VS_KMS, intensityLevel } from './physics';
  */
 
 /** Surface distance at which the S wave arrives `tS` seconds after origin. */
-export function sRadiusKm(tS: number, depthKm: number): number {
-  return Math.sqrt(Math.max(0, (VS_KMS * tS) ** 2 - depthKm ** 2));
-}
+export const sRadiusKm = (tS: number, depthKm: number) => waveRadiusKm(VS_KMS, tS, depthKm);
 
 export interface WarningSummary {
   /** Seconds after origin the alert reached phones. */
@@ -34,14 +33,14 @@ export function warningSummary(
   const alertAt = declaredS + alertLatencyS;
   const warnings = phones
     .filter((p) => intensityLevel(p.pga) >= 2)
-    .map((p) => Math.hypot(distanceKm(epicentre, p), depthKm) / VS_KMS - alertAt);
-  const pos = warnings.filter((w) => w > 0).sort((a, b) => a - b);
+    .map((p) => hypocentralKm(distanceKm(epicentre, p), depthKm) / VS_KMS - alertAt);
+  const pos = warnings.filter((w) => w > 0);
   return {
     alertAt,
     blindKm: sRadiusKm(alertAt, depthKm),
     warnings,
     warned: pos.length,
-    median: pos.length ? pos[pos.length >> 1] : null,
+    median: upperMedian(pos),
   };
 }
 

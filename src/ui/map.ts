@@ -1,16 +1,20 @@
 import { Map as MlMap, Marker, NavigationControl, setWorkerUrl, type GeoJSONSource, type MapLayerMouseEvent, type StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import type { GeometryCollection, Topology } from 'topojson-specification';
 import { offset, type LatLon } from '../core/geo';
+import { h } from './dom';
 
 setWorkerUrl(workerUrl);
 
-export const BASEMAP_URL = 'https://tiles.openfreemap.org/styles/positron';
+const BASEMAP_URL = 'https://tiles.openfreemap.org/styles/positron';
+
+/** pick: felt shaking, still checking; trigger: confirmed; reject: withdrawn by the phone. */
+export type NodeState = 'idle' | 'pick' | 'trigger' | 'reject' | 'offline';
 
 export interface MapNode extends LatLon {
   id: string;
-  /** pick: felt shaking, still checking; trigger: confirmed; reject: withdrawn by the phone. */
-  state: 'idle' | 'pick' | 'trigger' | 'reject' | 'offline';
+  state: NodeState;
   /** 0..1 current shaking, drives the halo in replay */
   shake?: number;
 }
@@ -49,41 +53,22 @@ export interface MapWaves {
 }
 
 type FC = GeoJSON.FeatureCollection;
+type Props = Record<string, unknown>;
 const fc = (features: GeoJSON.Feature[]): FC => ({ type: 'FeatureCollection', features });
-const pt = (p: LatLon, props: Record<string, unknown>): GeoJSON.Feature => ({
-  type: 'Feature',
-  properties: props,
-  geometry: { type: 'Point', coordinates: [p.lon, p.lat] },
-});
+const feature = (geometry: GeoJSON.Geometry, properties: Props = {}): GeoJSON.Feature => ({ type: 'Feature', properties, geometry });
+const at = (p: LatLon) => [p.lon, p.lat];
+const pt = (p: LatLon, props: Props) => feature({ type: 'Point', coordinates: at(p) }, props);
 function circle(c: LatLon, km: number) {
   return Array.from({ length: 97 }, (_, i) => {
     const a = (i / 96) * 2 * Math.PI;
-    const p = offset(c, km * Math.cos(a), km * Math.sin(a));
-    return [p.lon, p.lat];
+    return at(offset(c, km * Math.cos(a), km * Math.sin(a)));
   });
 }
-const ring = (c: LatLon, km: number, props: Record<string, unknown>): GeoJSON.Feature => ({
-  type: 'Feature',
-  properties: props,
-  geometry: { type: 'LineString', coordinates: circle(c, km) },
-});
-const disc = (c: LatLon, km: number, props: Record<string, unknown>): GeoJSON.Feature => ({
-  type: 'Feature',
-  properties: props,
-  geometry: { type: 'Polygon', coordinates: [circle(c, km)] },
-});
-function square(c: LatLon, halfKm: number, props: Record<string, unknown>): GeoJSON.Feature {
-  const corners = [
-    [-1, -1],
-    [1, -1],
-    [1, 1],
-    [-1, 1],
-    [-1, -1],
-  ].map(([e, n]) => {
-    const p = offset(c, e * halfKm, n * halfKm);
-    return [p.lon, p.lat];
-  });
-  return { type: 'Feature', properties: props, geometry: { type: 'Polygon', coordinates: [corners] } };
+const ring = (c: LatLon, km: number, props: Props) => feature({ type: 'LineString', coordinates: circle(c, km) }, props);
+const disc = (c: LatLon, km: number, props: Props) => feature({ type: 'Polygon', coordinates: [circle(c, km)] }, props);
+function square(c: LatLon, halfKm: number, props: Props) {
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1], [-1, -1]].map(([e, n]) => at(offset(c, e * halfKm, n * halfKm)));
+  return feature({ type: 'Polygon', coordinates: [corners] }, props);
 }
 
 /** Intensity colours, weak → severe (index = intensity level). */
@@ -95,11 +80,20 @@ const AMBER = '#a56a12';
 const PAPER = '#f4f1e8';
 const MUTED = '#6b675d';
 
+/** How each phone state is drawn, on the map and in its key. */
+export const NODE_COLORS: Record<NodeState, string> = { idle: INK, pick: '#e58a7c', trigger: RED, reject: AMBER, offline: '#a19d92' };
+
+/** A map key entry: a CSS background for its swatch, and what it means. */
+export type Swatch = [background: string, label: string];
+
+const SOURCES = ['shake', 'rings', 'waves', 'links', 'usgs', 'trials', 'nodes', 'events', 'truth'] as const;
+type Source = (typeof SOURCES)[number];
+
 /** Minimal offline basemap: Natural Earth land, loaded only if the online style is unreachable. */
 async function fallbackStyle(): Promise<StyleSpecification> {
-  const [{ feature }, land] = await Promise.all([import('topojson-client'), import('world-atlas/land-50m.json')]);
-  const topo = (land as { default?: unknown }).default ?? land;
-  const geo = feature(topo as any, (topo as any).objects.land) as unknown as GeoJSON.FeatureCollection;
+  const [{ feature: toGeo }, land] = await Promise.all([import('topojson-client'), import('world-atlas/land-50m.json')]);
+  const topo = ((land as { default?: unknown }).default ?? land) as Topology<{ land: GeometryCollection }>;
+  const geo = toGeo(topo, topo.objects.land);
   return {
     version: 8,
     sources: { land: { type: 'geojson', data: geo } },
@@ -137,20 +131,17 @@ export class QuakeMap {
       let map: MlMap;
       try {
         map = new MlMap({
-        container,
-        style,
-        center: [view.center.lon, view.center.lat],
-        zoom: view.zoom,
-        attributionControl: { compact: true },
-        dragRotate: false,
-        pitchWithRotate: false,
-      });
+          container,
+          style,
+          center: [view.center.lon, view.center.lat],
+          zoom: view.zoom,
+          attributionControl: { compact: true },
+          dragRotate: false,
+          pitchWithRotate: false,
+        });
       } catch {
         // No WebGL (very old device or locked-down browser): the lists still work.
-        const note = document.createElement('div');
-        note.className = 'map-error';
-        note.textContent = 'The map needs WebGL, which this browser could not start. Everything else still works.';
-        container.append(note);
+        container.append(h('div', { class: 'map-error' }, 'The map needs WebGL, which this browser could not start. Everything else still works.'));
         return;
       }
       // Tile hiccups are routine on flaky networks; they should not surface as page errors.
@@ -170,7 +161,7 @@ export class QuakeMap {
   }
 
   private addLayers(map: MlMap) {
-    for (const id of ['shake', 'rings', 'waves', 'links', 'usgs', 'trials', 'nodes', 'events', 'truth']) map.addSource(id, { type: 'geojson', data: fc([]) });
+    for (const id of SOURCES) map.addSource(id, { type: 'geojson', data: fc([]) });
     map.addLayer({
       id: 'shake',
       type: 'fill',
@@ -247,7 +238,7 @@ export class QuakeMap {
       source: 'nodes',
       paint: {
         'circle-radius': ['match', ['get', 'state'], 'trigger', 5, 'pick', 4.5, 'reject', 4.5, 3.5],
-        'circle-color': ['match', ['get', 'state'], 'trigger', RED, 'pick', '#e58a7c', 'reject', AMBER, 'offline', '#a19d92', INK],
+        'circle-color': ['match', ['get', 'state'], 'trigger', NODE_COLORS.trigger, 'pick', NODE_COLORS.pick, 'reject', NODE_COLORS.reject, 'offline', NODE_COLORS.offline, NODE_COLORS.idle],
         'circle-stroke-color': PAPER,
         'circle-stroke-width': 1.2,
       },
@@ -291,7 +282,14 @@ export class QuakeMap {
     }
   }
 
-  private set(id: string, data: FC) {
+  /** Empty every layer and forget the last screen's click handler: each screen starts from a blank map. */
+  clear() {
+    for (const id of SOURCES) this.set(id, fc([]));
+    this.setRings([]);
+    this.onSelect = () => {};
+  }
+
+  private set(id: Source, data: FC) {
     const src = this.map?.getSource(id) as GeoJSONSource | undefined;
     if (src) src.setData(data);
     else this.pending.set(id, data);
@@ -308,13 +306,7 @@ export class QuakeMap {
       fc(
         events
           .filter((e) => e.selected)
-          .flatMap((e) =>
-            e.members.map((m) => ({
-              type: 'Feature' as const,
-              properties: {},
-              geometry: { type: 'LineString' as const, coordinates: [[e.lon, e.lat], [m.lon, m.lat]] },
-            })),
-          ),
+          .flatMap((e) => e.members.map((m) => feature({ type: 'LineString', coordinates: [at(e), at(m)] }))),
       ),
     );
   }
@@ -346,11 +338,8 @@ export class QuakeMap {
     this.labels = rings
       .filter((r) => r.label)
       .map((r) => {
-        const el = document.createElement('div');
-        el.className = `ring-label ${r.kind}`;
-        el.textContent = r.label!;
         const p = offset(r.center, 0, r.km);
-        return new Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(this.map!);
+        return new Marker({ element: h('div', { class: `ring-label ${r.kind}` }, r.label!), anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(this.map!);
       });
   }
 

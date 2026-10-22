@@ -1,9 +1,20 @@
 import type { LiveNetwork } from '../app/live';
 import { shakeGrid } from '../core/impact';
 import { matchUsgs, type UsgsQuake } from '../net/usgs';
-import { ago, coord, h, mag } from '../ui/dom';
-import type { QuakeMap } from '../ui/map';
+import { h, keepFocus } from '../ui/dom';
+import { ago, coord, mag, magBadge } from '../ui/format';
+import { NODE_COLORS, type QuakeMap, type Swatch } from '../ui/map';
 import { compareCard } from './compare';
+
+/** The map key for the live network (also shown behind the sensor and About screens). */
+export const NETWORK_LEGEND: Swatch[] = [
+  [NODE_COLORS.idle, 'phone'],
+  [NODE_COLORS.pick, 'felt shaking, still checking'],
+  [NODE_COLORS.trigger, 'confirmed shaking / Tremor detection'],
+  ['transparent;border:2px solid var(--red)', 'provisional detection'],
+  ['transparent;border:1.5px solid var(--ink)', 'USGS earthquake'],
+  [NODE_COLORS.offline, 'phone offline'],
+];
 
 export interface NetworkCtx {
   live: LiveNetwork;
@@ -22,6 +33,7 @@ export function networkView(ctx: NetworkCtx) {
   root.append(announcer);
   let announced = 0;
 
+  map.clear();
   map.onSelect = (kind, id) => {
     selected = { kind, id };
     render();
@@ -54,8 +66,6 @@ export function networkView(ctx: NetworkCtx) {
     ]);
     const sel = selected?.kind === 'event' ? live.events.find((e) => e.id === selected!.id) : null;
     map.setShake(sel ? shakeGrid(sel.triggers) : []);
-    map.setWaves(null);
-    map.setTruth(null);
     const newest = live.early[0] ?? live.events[live.events.length - 1];
     if (!flewToData && newest) {
       flewToData = true;
@@ -80,7 +90,7 @@ export function networkView(ctx: NetworkCtx) {
             render();
           },
         },
-        h('span', { class: 'badge' }, q.mag === null ? '?' : q.mag.toFixed(1)),
+        h('span', { class: 'badge' }, magBadge(q.mag)),
         h('span', { class: 'where' }, q.place),
         h('span', { class: 'when' }, ago(q.time)),
       ),
@@ -103,7 +113,7 @@ export function networkView(ctx: NetworkCtx) {
           const m = matchUsgs(ev, live.usgs);
           return compareCard(
             'Network detection',
-            { lat: ev.lat, lon: ev.lon, time: ev.time, mag: ev.mag, nodes: ev.triggers.length, rms: ev.rms },
+            ev,
             m ? { lat: m.quake.lat, lon: m.quake.lon, time: m.quake.time, mag: m.quake.mag, label: 'USGS', url: m.quake.url } : null,
             live.usgsState === 'ok' ? 'No matching USGS event yet. Official solutions can take minutes, or this may be a false alarm.' : 'USGS feed unavailable, cannot cross-check right now.',
           );
@@ -175,7 +185,7 @@ export function networkView(ctx: NetworkCtx) {
                         render();
                       },
                     },
-                    h('span', { class: 'badge ours' }, e.mag === null ? '?' : e.mag.toFixed(1)),
+                    h('span', { class: 'badge ours' }, magBadge(e.mag)),
                     h('span', { class: 'where' }, m ? `Matches USGS: ${m.quake.place}` : coord(e.lat, e.lon), h('br'), h('span', { class: 'small muted' }, `${e.triggers.length} phones agreed`)),
                     h('span', { class: 'when' }, ago(e.time)),
                   ),
@@ -220,7 +230,7 @@ export function networkView(ctx: NetworkCtx) {
   }
 
   function relaysBox() {
-    const ta = h('textarea', { 'aria-label': 'Relay URLs, one per line', spellcheck: 'false' }) as HTMLTextAreaElement;
+    const ta = h('textarea', { 'aria-label': 'Relay URLs, one per line', spellcheck: 'false' });
     ta.value = ctx.relays.join('\n');
     return h(
       'details',
@@ -276,17 +286,4 @@ export function networkView(ctx: NetworkCtx) {
       map.onSelect = () => {};
     },
   };
-}
-
-/**
- * Rebuild a panel without losing keyboard focus: the element focused before is found again by
- * its data-key, or else by its tag and text.
- */
-function keepFocus(root: HTMLElement, rebuild: () => void) {
-  const key = (el: Element) => (el instanceof HTMLElement && el.dataset.key) || `${el.tagName}:${el.textContent}`;
-  const was = document.activeElement;
-  const k = was && was !== document.body && root.contains(was) ? key(was) : null;
-  rebuild();
-  if (k === null || root.contains(document.activeElement)) return;
-  for (const el of root.querySelectorAll<HTMLElement>(was!.tagName)) if (key(el) === k) return el.focus({ preventScroll: true });
 }

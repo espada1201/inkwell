@@ -142,6 +142,11 @@ export function earlyDetect(picks: Trigger[], listeners: Listener[], now: number
   return { events, waiting };
 }
 
+/** Provisional events that no confirmed event already explains: none within 80 km and a minute. */
+export function unconfirmed(early: EarlyEvent[], confirmed: DetectedEvent[]): EarlyEvent[] {
+  return early.filter((e) => !confirmed.some((c) => distanceKm(c, e) < 80 && Math.abs(c.time - e.time) < 60_000));
+}
+
 /**
  * Events located from vetted triggers that the phones listening when each struck do not
  * contradict: a few triggers fit one wavefront by chance far more often than every phone around

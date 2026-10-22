@@ -1,6 +1,7 @@
 import type { SensorNode } from '../app/sensor';
 import type { RejectReason } from '../core/sensor';
-import { coord, h } from '../ui/dom';
+import { h } from '../ui/dom';
+import { coord } from '../ui/format';
 import { drawTrace } from '../ui/trace';
 
 const REASONS: Record<RejectReason, string> = {
@@ -41,8 +42,8 @@ export function sensorView(s: SensorNode) {
   }
 
   function locationCard() {
-    const lat = h('input', { inputmode: 'decimal', placeholder: 'lat', 'aria-label': 'Latitude' }) as HTMLInputElement;
-    const lon = h('input', { inputmode: 'decimal', placeholder: 'lon', 'aria-label': 'Longitude' }) as HTMLInputElement;
+    const lat = h('input', { inputmode: 'decimal', placeholder: 'lat', 'aria-label': 'Latitude' });
+    const lon = h('input', { inputmode: 'decimal', placeholder: 'lon', 'aria-label': 'Longitude' });
     const msg = h('p', { class: 'small muted', role: 'status' });
     if (s.location) {
       lat.value = String(s.location.lat);

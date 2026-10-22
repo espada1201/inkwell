@@ -2,11 +2,10 @@ import type { DetectedEvent, Trigger } from '../core/associate';
 import { confirmedEvents, earlyDetect, type EarlyEvent, type Onset } from '../core/early';
 import { Bandpass } from '../core/filters';
 import { warningSummary, type WarningSummary } from '../core/impact';
-import { VP_KMS, VS_KMS } from '../core/physics';
-import { FS, ORIGIN_OFFSET_S, simulate, type Scenario, type Simulation } from '../core/scenarios';
-import type { Phase } from '../core/physics';
+import { VP_KMS, VS_KMS, waveRadiusKm, type Phase } from '../core/physics';
+import { FS, ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
 import type { RejectReason } from '../core/sensor';
-import { Emitter } from '../ui/dom';
+import { Emitter } from './emitter';
 
 export interface ReplayNodeView {
   id: string;
@@ -52,7 +51,7 @@ export class Replay extends Emitter {
   declared: { at: number; event: EarlyEvent } | null = null;
   /** When the first confirmed event formed (scenario ms). */
   confirmedAt: number | null = null;
-  arrivedTriggers: Trigger[] = [];
+  private arrivedTriggers: Trigger[] = [];
   private queue: Arrival[] = [];
   private next = 0;
   private picks = new Map<string, Trigger>();
@@ -98,7 +97,7 @@ export class Replay extends Emitter {
 
   /** Seconds since origin time (negative before the quake). */
   get sinceOrigin() {
-    return this.vt / 1000 - ORIGIN_OFFSET_S;
+    return sinceOrigin(this.vt);
   }
 
   play() {
@@ -194,7 +193,7 @@ export class Replay extends Emitter {
     const truth = this.sim?.scenario.truth;
     if (!truth || !this.declared) return null;
     const phones = this.sim!.nodes.map((n) => ({ lat: n.lat, lon: n.lon, pga: n.pga }));
-    return warningSummary(phones, truth, truth.depthKm, this.declared.at / 1000 - ORIGIN_OFFSET_S, RELAY_LATENCY_MS / 1000);
+    return warningSummary(phones, truth, truth.depthKm, sinceOrigin(this.declared.at), RELAY_LATENCY_MS / 1000);
   }
 
   /** Current shaking at a node (0..1 for display). */
@@ -205,11 +204,15 @@ export class Replay extends Emitter {
     return Math.min(1, m / 1.2);
   }
 
+  /** 0..1: the strongest shaking any phone feels right now. */
+  activity() {
+    return this.nodes.reduce((m, n) => Math.max(m, this.shake(n)), 0);
+  }
+
   waves() {
     const t = this.sim?.scenario.truth;
     const s = this.sinceOrigin;
     if (!t || s <= 0) return null;
-    const surf = (v: number) => Math.sqrt(Math.max(0, (v * s) ** 2 - t.depthKm ** 2));
-    return { center: t, pKm: surf(VP_KMS), sKm: surf(VS_KMS) };
+    return { center: t, pKm: waveRadiusKm(VP_KMS, s, t.depthKm), sKm: waveRadiusKm(VS_KMS, s, t.depthKm) };
   }
 }
