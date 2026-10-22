@@ -40,6 +40,10 @@ test('concert night: no earthquake is declared', async ({ page }) => {
   const card = page.getByTestId('warning');
   if (confirmed) await expect(card).toContainText(`${confirmed} more passed`);
   else await expect(card).not.toContainText('passed');
+  // With no quake there is no T+: the clock counts time into the replay.
+  await expect(page.getByTestId('clock')).toHaveText('1:20');
+  await expect(page.getByRole('slider', { name: 'Replay position' })).toHaveAttribute('aria-valuetext', '80 seconds into the replay');
+  await expect(page.locator('.timeline li.done .when').first()).toHaveText(/^\d:\d\d$/);
 });
 
 /** Keep every text a screen reader is asked to announce: what changes inside a live region, as it happens. */

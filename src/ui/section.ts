@@ -1,10 +1,7 @@
 import type { Replay } from '../app/replay';
 import { DEFAULT_DEPTH_KM, VP_KMS, VS_KMS, hypocentralKm } from '../core/physics';
-import { FS, ORIGIN_OFFSET_S, sinceOrigin } from '../core/scenarios';
+import { FS, ORIGIN_OFFSET_S } from '../core/scenarios';
 import { css, fit } from './canvas';
-
-const T_MIN = -5;
-const T_MAX = 50;
 
 /**
  * Record section: every phone's trace stacked by distance from the epicentre, time on x.
@@ -30,14 +27,18 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
   const depth = truth?.depthKm ?? DEFAULT_DEPTH_KM;
   const nodes = [...r.nodes].sort((a, b) => (a.distKm ?? 0) - (b.distKm ?? 0));
   const maxD = truth ? Math.max(20, ...nodes.map((n) => n.distKm ?? 0)) * 1.05 : nodes.length;
-  const x = (tOrigin: number) => padL + ((tOrigin - T_MIN) / (T_MAX - T_MIN)) * pw;
+  // Time on the replay clock: from just before the origin, or across a whole replay with no quake.
+  const [tMin, tMax] = truth ? [-5, sim.durationS - ORIGIN_OFFSET_S - 5] : [0, sim.durationS];
+  /** Scenario seconds at which the clock reads zero. */
+  const zero = -r.clockAt(0);
+  const x = (t: number) => padL + ((t - tMin) / (tMax - tMin)) * pw;
   const y = (d: number) => padT + (d / maxD) * ph;
 
   ctx.font = `10px ${css('--mono')}`;
   ctx.fillStyle = muted;
   ctx.strokeStyle = faint;
   ctx.lineWidth = 1;
-  for (let t = 0; t <= T_MAX; t += 10) {
+  for (let t = Math.ceil(tMin / 10) * 10; t <= tMax; t += 10) {
     ctx.beginPath();
     ctx.moveTo(x(t), padT);
     ctx.lineTo(x(t), padT + ph);
@@ -69,15 +70,15 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
       ctx.globalAlpha = 1;
       ctx.fillStyle = color;
       const tEnd = hypocentralKm(maxD * 0.92, depth) / v;
-      if (tEnd < T_MAX) ctx.fillText(label, x(tEnd) + 4, y(maxD * 0.92));
+      if (tEnd < tMax) ctx.fillText(label, x(tEnd) + 4, y(maxD * 0.92));
     }
   }
 
-  const now = r.sinceOrigin;
+  const now = r.clockAt(r.vt);
   const rowH = Math.max(6, Math.min(26, (ph / Math.max(nodes.length, 1)) * 2.2));
-  const x0 = Math.ceil(x(T_MIN));
-  const x1 = Math.floor(x(Math.min(now, T_MAX)));
-  const pxPerS = pw / (T_MAX - T_MIN);
+  const x0 = Math.ceil(x(tMin));
+  const x1 = Math.floor(x(Math.min(now, tMax)));
+  const pxPerS = pw / (tMax - tMin);
   nodes.forEach((n, i) => {
     const base = truth ? y(n.distKm ?? 0) : y(i + 0.5);
     // Background level from the quiet first seconds, so noise draws as a hairline.
@@ -89,7 +90,7 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
     ctx.beginPath();
     // One vertical stroke per pixel column: the peak shaking within it (a drum recorder's ink).
     for (let px = x0; px <= x1; px++) {
-      const tA = T_MIN + (px - padL) / pxPerS + ORIGIN_OFFSET_S;
+      const tA = tMin + (px - padL) / pxPerS + zero;
       const kA = Math.max(0, Math.floor(tA * FS));
       const kB = Math.min(n.trace.length, Math.ceil((tA + 1 / pxPerS) * FS));
       let m = 0;
@@ -102,18 +103,18 @@ export function drawSection(canvas: HTMLCanvasElement, r: Replay) {
     ctx.stroke();
     ctx.globalAlpha = 1;
     const mark = (tScen: number, color: string) => {
-      const t = sinceOrigin(tScen);
-      if (t > now || t < T_MIN || t > T_MAX) return;
+      const t = r.clockAt(tScen);
+      if (t > now || t < tMin || t > tMax) return;
       ctx.fillStyle = color;
       ctx.fillRect(x(t) - 1, base - rowH * 0.45, 2, rowH * 0.9);
     };
     // A confirmed onset, coloured by the wave the phone said it felt: it should sit on that wave's curve.
-    if (n.trigger && sinceOrigin(n.trigger.at) <= now) mark(n.trigger.t, n.trigger.phase === 'S' ? red : ink);
-    for (const rj of n.rejects) if (sinceOrigin(rj.at) <= now) mark(rj.t, amber);
+    if (n.trigger && n.trigger.at <= r.vt) mark(n.trigger.t, n.trigger.phase === 'S' ? red : ink);
+    for (const rj of n.rejects) if (rj.at <= r.vt) mark(rj.t, amber);
   });
 
   // Playhead
-  if (now >= T_MIN && now <= T_MAX) {
+  if (now >= tMin && now <= tMax) {
     ctx.strokeStyle = red;
     ctx.lineWidth = 1;
     ctx.beginPath();

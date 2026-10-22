@@ -103,9 +103,9 @@ export class Replay extends Emitter {
     return (this.sim?.durationS ?? 0) * 1000;
   }
 
-  /** Seconds since origin time (negative before the quake). */
-  get sinceOrigin() {
-    return sinceOrigin(this.vt);
+  /** The replay clock at scenario ms `at`, s: since the quake's origin (negative before it), or since the start when there is no quake. */
+  clockAt(at: number) {
+    return this.sim?.scenario.truth ? sinceOrigin(at) : at / 1000;
   }
 
   play() {
@@ -240,7 +240,7 @@ export class Replay extends Emitter {
 
   waves() {
     const t = this.sim?.scenario.truth;
-    const s = this.sinceOrigin;
+    const s = sinceOrigin(this.vt);
     if (!t || s <= 0) return null;
     return { center: t, pKm: waveRadiusKm(VP_KMS, s, t.depthKm), sKm: waveRadiusKm(VS_KMS, s, t.depthKm) };
   }

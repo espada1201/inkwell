@@ -1,6 +1,6 @@
 import type { Replay } from '../app/replay';
 import { shakeGrid, sRadiusKm } from '../core/impact';
-import { ORIGIN_OFFSET_S, SCENARIOS, sinceOrigin, type Scenario } from '../core/scenarios';
+import { ORIGIN_OFFSET_S, SCENARIOS, type Scenario } from '../core/scenarios';
 import type { RejectReason } from '../core/sensor';
 import { usgsEventUrl } from '../net/usgs';
 import { h } from '../ui/dom';
@@ -13,6 +13,8 @@ const ISOCHRONS = [5, 10, 20];
 /** Why phones withdrew their picks, in the sensor log's words. */
 const WHY: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'sensor paused' };
 const many = (n: number, one: string, more = `${one}s`) => `${n} ${n === 1 ? one : more}`;
+/** Minutes and seconds into a replay: 0:55. */
+const elapsed = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 export const REPLAY_LEGEND: Swatch[] = [
   [NODE_COLORS.idle, 'phone'],
@@ -47,6 +49,9 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     { class: 'seg', role: 'group', 'aria-label': 'Playback speed' },
     ...[1, 4, 10].map((s) => h('button', { 'data-speed': s, 'aria-pressed': String(r.speed === s), onclick: () => ((r.speed = s), update()) }, `${s}×`)),
   );
+
+  /** The clock at scenario ms `at`, as shown: from the quake's origin, or into a replay that has none. */
+  const clockText = (at: number) => (r.sim?.scenario.truth ? clockT(r.clockAt(at)) : elapsed(r.clockAt(at)));
 
   /** Fit the map to the loaded scenario's phones and epicentre. */
   function frame(s: Scenario) {
@@ -92,7 +97,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
         h(
           'li',
           { class: at !== null && at <= r.vt ? 'done' : '' },
-          h('span', { class: 'when mono' }, at !== null && at <= r.vt ? clockT(sinceOrigin(at)) : '—'),
+          h('span', { class: 'when mono' }, at !== null && at <= r.vt ? clockText(at) : '—'),
           h('b', {}, label),
           h('span', { class: 'note' }, note),
         ),
@@ -157,11 +162,16 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
 
   /** The one line screen readers hear: the latest milestone the replay has passed. */
   function milestone() {
-    const at = (ms: number) => clockT(sinceOrigin(ms));
-    if (r.vt >= r.duration)
-      return r.declared ? `Replay finished: declared at ${at(r.declared.at)}${r.confirmedAt !== null ? `, confirmed at ${at(r.confirmedAt)}` : ''}.` : 'Replay finished: no quake declared.';
-    if (r.confirmedAt !== null) return `Confirmed at ${at(r.confirmedAt)}.`;
-    return r.declared ? `Network declares a quake at ${at(r.declared.at)}.` : '';
+    const { declared, confirmedAt } = r;
+    const real = !!r.sim?.scenario.truth;
+    if (r.vt >= r.duration) {
+      if (!declared) return 'Replay finished: no quake declared.';
+      if (!real) return `Replay finished: a false alert at ${clockText(declared.at)}.`;
+      return `Replay finished: declared at ${clockText(declared.at)}${confirmedAt !== null ? `, confirmed at ${clockText(confirmedAt)}` : ''}.`;
+    }
+    if (confirmedAt !== null) return `Confirmed at ${clockText(confirmedAt)}.`;
+    if (!declared) return '';
+    return real ? `Network declares a quake at ${clockText(declared.at)}.` : `False alert: the network declares a quake at ${clockText(declared.at)}.`;
   }
 
   let lastKey = '';
@@ -169,12 +179,13 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   function update() {
     const sim = r.sim;
     if (!sim) return;
-    const t = r.sinceOrigin;
+    const t = r.clockAt(r.vt);
+    const truth = sim.scenario.truth;
     const m = milestone();
     if (said.textContent !== m) said.textContent = m;
-    clock.textContent = clockT(t);
+    clock.textContent = clockText(r.vt);
     scrub.value = String(Math.round((r.vt / r.duration) * 1000));
-    scrub.setAttribute('aria-valuetext', `${Math.abs(t).toFixed(0)} seconds ${t < 0 ? 'before' : 'after'} the quake began`);
+    scrub.setAttribute('aria-valuetext', truth ? `${Math.abs(t).toFixed(0)} seconds ${t < 0 ? 'before' : 'after'} the quake began` : `${Math.floor(t)} seconds into the replay`);
     playBtn.textContent = r.playing ? 'Pause' : r.vt >= r.duration ? 'Replay' : 'Play';
     speeds.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === r.speed)));
 
@@ -188,7 +199,6 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     stats.textContent = `${many(r.nodes.length, 'phone')} · ${trig} confirmed · ${withdrawn ? `${many(withdrawn, 'pick')} withdrawn on-device (${tally.join(', ')})` : 'no picks withdrawn'}`;
     map.setNodes(r.nodes.map((n) => ({ id: n.id, lat: n.lat, lon: n.lon, state: r.nodeState(n), shake: r.shake(n) })));
     map.setWaves(r.waves());
-    const truth = sim.scenario.truth;
     map.setTruth(truth && t > 0 ? truth : null);
     map.setEvents([
       ...r.events.map((e) => ({ id: e.id, lat: e.lat, lon: e.lon, mag: e.mag, selected: true, members: e.triggers })),
