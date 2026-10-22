@@ -161,7 +161,8 @@ export function networkView(ctx: NetworkCtx) {
   function nearCard() {
     const you = place.location;
     const card = (...body: (Node | null)[]) => h('section', { class: 'near', 'data-testid': 'near', 'aria-labelledby': 'near-title' }, h('h2', { id: 'near-title' }, 'Shaking near you?'), ...body);
-    if (!you || moving)
+    // A phone sharing as a sensor publishes where it is: moving it here, to look elsewhere, would misplace its picks.
+    if (!you || (moving && !place.canPublish))
       return card(
         placeForm(place, () => {
           moving = false;
@@ -177,7 +178,13 @@ export function networkView(ctx: NetworkCtx) {
       root.querySelector<HTMLElement>('[data-key=locate]')?.focus();
     };
     return card(
-      h('p', { class: 'small muted' }, `Near ${coord(you.lat, you.lon)} · `, h('button', { class: 'link', 'data-key': 'move', onclick: move }, 'change')),
+      h(
+        'p',
+        { class: 'small muted' },
+        `Near ${coord(you.lat, you.lon)} · `,
+        place.canPublish ? h('a', { href: '#sensor' }, 'change it under Be a sensor') : h('button', { class: 'link', 'data-key': 'move', onclick: move }, 'change'),
+        place.canPublish ? ', since this phone shares it' : null,
+      ),
       near.length
         ? h(
             'ul',

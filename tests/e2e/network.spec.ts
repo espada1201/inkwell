@@ -155,6 +155,13 @@ test('without a location the card asks once, by typed coordinates or the browser
   await page.reload();
   await expect(near).toContainText('Near 38.71°N 122.70°W');
   await expect(near.getByTestId('near-item').first()).toContainText('The Geysers');
+
+  // A phone sharing as a sensor publishes where it is: only the sensor screen moves it.
+  await page.evaluate(() => localStorage.setItem('tremor.join', '1'));
+  await page.reload();
+  await expect(near).toContainText('Near 38.71°N 122.70°W');
+  await expect(near.getByRole('button', { name: 'change' })).toHaveCount(0);
+  await expect(near.getByRole('link', { name: 'change it under Be a sensor' })).toHaveAttribute('href', '#sensor');
 });
 
 test('a hostile relay cannot inject forged or malformed events', async ({ page }) => {
