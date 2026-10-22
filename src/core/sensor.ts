@@ -111,6 +111,11 @@ export class NodeDetector {
     return Math.sqrt(this.lta);
   }
 
+  /** The shaking clears the trigger now: STA/LTA over the threshold, and RMS over the floor. */
+  get overTrigger(): boolean {
+    return this.ratio > this.threshold && Math.sqrt(this.sta) > this.floor;
+  }
+
   /** RMS shaking that would open a candidate now, m/s²: the threshold over the background, and never below the floor. */
   get triggerLevel(): number {
     return Math.max(Math.sqrt(this.threshold) * this.background, this.floor);
@@ -162,7 +167,7 @@ export class NodeDetector {
     if (this.warmingUp) return null;
 
     if (!this.cand) {
-      if (s.t >= this.holdUntil && this.ratio > this.threshold && Math.sqrt(this.sta) > this.floor) {
+      if (s.t >= this.holdUntil && this.overTrigger) {
         const g0 = this.gHist[0] ?? this.gNow;
         const gm = Math.hypot(...g0) || 1;
         this.cand = { t0: s.t, g0, down: [g0[0] / gm, g0[1] / gm, g0[2] / gm], ev: 0, eh: 0, phase: null, lastLoud: s.t, peak: a, peakEnv: env, maxTilt: 0, envs: [env] };

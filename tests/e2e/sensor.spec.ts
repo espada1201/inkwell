@@ -46,6 +46,7 @@ test.describe('be a sensor', () => {
     await expect(page.getByTestId('sensor-state')).toHaveText('Listening', { timeout: 10_000 });
     // The background it learned while warming up: about 12.5 mm/s² for this record.
     await expect(page.getByTestId('background')).toHaveText(/^1[0-5]\.\d mm\/s²$/);
+    await expect(page.getByTestId('meter-word')).toHaveText('Quiet');
 
     // The live trace is drawn.
     const inked = await page.locator('canvas.trace').evaluate((c: HTMLCanvasElement) => {
@@ -61,8 +62,9 @@ test.describe('be a sensor', () => {
     const onset = JSON.parse(relay.events().find((e) => e.kind === 4578)!.content).t - (start + 10_000);
     expect(onset).toBeGreaterThan(0);
     expect(onset).toBeLessThan(1000);
+    await expect(page.getByTestId('meter-word')).toHaveText('Shaking');
     // ...and the vetted trigger follows 15–30 s after the onset, linked to it.
-    await expect(page.getByTestId('sensor-log')).toContainText(/TRIGGER [\d.]+ m\/s² · P wave · sent/, { timeout: 40_000 });
+    await expect(page.getByTestId('sensor-log')).toContainText(/Confirmed shaking: (light|moderate|strong), [\d.]+ m\/s² · P wave · sent/, { timeout: 40_000 });
     const verdict = Date.now() - (start + 10_000 + onset);
     expect(verdict).toBeGreaterThan(15_000);
     expect(verdict).toBeLessThan(31_000);
