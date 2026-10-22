@@ -1,7 +1,6 @@
 import type { LiveNetwork } from '../app/live';
 import type { Place } from '../app/near';
 import { FELT_EVERY_MS, type Felt } from '../core/felt';
-import { loadIdentity } from '../net/identity';
 import { reach } from '../net/transport';
 import { matchUsgs } from '../net/usgs';
 import { h } from '../ui/dom';
@@ -17,7 +16,7 @@ const DYFI = 'https://earthquake.usgs.gov/data/dyfi/';
  * "I felt it": one question with five levels, one tap to send. It needs no sensor and no motion
  * permission, and takes the location that "Shaking near you?" keeps, asking for one if none is set.
  */
-export function feltDialog(live: LiveNetwork, place: Place) {
+export function feltDialog(live: LiveNetwork, place: Place, me: { sk: Uint8Array; pubkey: string }) {
   const body = h('div', { class: 'stack' });
   const el = h('dialog', { class: 'felt', 'aria-labelledby': 'felt-title' }, h('h2', { id: 'felt-title' }, 'I felt it'), body, h('form', { method: 'dialog' }, h('button', { class: 'btn' }, 'Close')));
 
@@ -32,7 +31,6 @@ export function feltDialog(live: LiveNetwork, place: Place) {
   }
 
   function show() {
-    const me = loadIdentity();
     const you = place.location;
     const last = live.lastFelt(me.pubkey, Date.now());
     if (!you) body.replaceChildren(placeForm(place, show));

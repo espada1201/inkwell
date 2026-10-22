@@ -2,7 +2,7 @@ import './styles.css';
 import { LiveNetwork } from './app/live';
 import { Replay } from './app/replay';
 import { SensorNode } from './app/sensor';
-import { safeStorage } from './net/identity';
+import { loadIdentity, safeStorage } from './net/identity';
 import { DEFAULT_RELAYS, RelayPool, reach } from './net/transport';
 import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
@@ -48,14 +48,16 @@ const logo = () => {
 const relays = relayList();
 const transport = new RelayPool(relays);
 const live = new LiveNetwork(transport, params.get('usgs') === 'hour' ? 'hour' : 'day');
-const sensor = new SensorNode(transport);
+// Once: without site storage each load is a fresh key, and the felt dialog must know the key it reported with.
+const me = loadIdentity();
+const sensor = new SensorNode(transport, me);
 const replay = new Replay();
 
 const tabs = h('nav', { class: 'tabs', 'aria-label': 'Sections' });
 const relayStatus = h('span', { 'data-testid': 'relay-status' });
 const usgsStatus = h('span', { class: 'usgs-status' });
 // "I felt it", and the chime once opted into, work from every screen, sensor or not.
-const felt = feltDialog(live, sensor);
+const felt = feltDialog(live, sensor, me);
 const bell = chime(live, sensor);
 const heli = h('canvas', { class: 'helicorder', 'aria-hidden': 'true', title: 'Activity: picks and triggers as they arrive, or the shaking in a replay' });
 // MapLibre labels its own canvas as the "Map" region.

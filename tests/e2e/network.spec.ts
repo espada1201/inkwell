@@ -258,6 +258,29 @@ test('a felt report sent from the header reaches the relay, and offers to tell U
   expect(relay.events().filter((e) => e.kind === 4580)).toHaveLength(1);
 });
 
+test('with site storage blocked, a felt report still says it went out, and reopening finds it', async ({ page, relay }) => {
+  // As some private windows do: every touch of localStorage throws.
+  await page.addInitScript(() =>
+    Object.defineProperty(window, 'localStorage', {
+      get: () => {
+        throw new DOMException('blocked', 'SecurityError');
+      },
+    }),
+  );
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
+  const dialog = page.getByRole('dialog', { name: 'I felt it' });
+  await dialog.getByLabel('Or type latitude, longitude').fill('38.7, -122.7');
+  await dialog.getByRole('button', { name: 'Set' }).click();
+  await dialog.getByRole('button', { name: /^light/ }).click();
+  await expect(dialog.getByRole('status')).toContainText('You reported light shaking at');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
+  await expect(dialog.getByRole('status')).toContainText('You can report again from');
+  await expect.poll(() => relay.events().filter((e) => e.kind === 4580).length).toBe(1);
+});
+
 test('felt reports show once three people in three places agree, and one key spamming shows nothing', async ({ page, relay }) => {
   await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
   await page.goto(`/?relays=${relay.url}#network`);

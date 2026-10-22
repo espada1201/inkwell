@@ -92,9 +92,8 @@ export class SensorNode extends Emitter {
     } else this.requestWakeLock();
   };
 
-  constructor(private readonly transport: Transport) {
+  constructor(private readonly transport: Transport, id = loadIdentity()) {
     super();
-    const id = loadIdentity();
     this.sk = id.sk;
     this.pubkey = id.pubkey;
     const store = safeStorage();
