@@ -375,6 +375,20 @@ describe('this phone on the network', () => {
     expect(heartbeats().map((m) => m.data.sps)).toEqual([50, 0]);
   });
 
+  it('withdraws a pick still being checked when it stops sharing, and goes on checking it for its log', async () => {
+    const { node, feed, sent } = phone();
+    await node.start();
+    feed({ durationS: 40, quake: { tP: 30, tS: 33, pga: 0.6 } });
+    const pick = sent.find((m) => m.type === 'pick')!;
+    node.setJoined(false);
+    expect(sent.filter((m) => m.type === 'retract')).toEqual([expect.objectContaining({ pick: pick.id, reason: 'interrupted' })]);
+    // Its verdict comes as before, for this phone only.
+    const before = sent.length;
+    feed({ durationS: 30 });
+    expect(sent).toHaveLength(before);
+    expect(node.log).toEqual([expect.objectContaining({ out: expect.objectContaining({ kind: 'trigger', t: pick.data.t }), published: false })]);
+  });
+
   it('withdraws a pick still being checked as soon as the tab is hidden', async () => {
     const { node, feed, sent, doc, on, heartbeats } = phone();
     await node.start();

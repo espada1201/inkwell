@@ -8,7 +8,7 @@ Be a sensor turns this phone into a seismometer. After the reader starts it, it 
 - `sensor-optin` publishes nothing until sharing is on and a location is set (typed, or the browser's); the location is snapped to 0.01°.
 - `sensor-background` shows the background the detector judges by, in mm/s², once warm-up ends, and a meter word: `Quiet`, `Something moving` or `Shaking`.
 - `sensor-pick` publishes a pick about a second after the shaking reaches the phone, with the wave it felt (P or S).
-- `sensor-verdict` confirms a quake-like shake 15 to 30 s after its onset as a trigger linked to its pick (`Confirmed shaking: moderate, 0.43 m/s² · P wave · sent`), or withdraws a knock, footsteps or a moved phone with its reason. Stopping, or hiding the tab, withdraws a pick still being checked at once.
+- `sensor-verdict` confirms a quake-like shake 15 to 30 s after its onset as a trigger linked to its pick (`Confirmed shaking: moderate, 0.43 m/s² · P wave · sent`), or withdraws a knock, footsteps or a moved phone with its reason. Stopping, hiding the tab or switching sharing off withdraws a pick still being checked at once (switched off, the phone goes on checking it for its own log).
 - `sensor-heartbeat` announces the phone to the network from the end of warm-up, and says it stopped (sps 0) before sharing is switched off.
 - `sensor-can-feel` says how far away this phone would notice an M4 and an M5, how long it has listened this session and this week, how many other phones listen within 25 km, and which recent USGS quakes it felt, missed, or was too far from.
 - `sensor-states` explains a refused permission and a device with no motion data.

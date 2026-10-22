@@ -3,7 +3,7 @@ import { hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
 import { NodeDetector, type DetectorOutput } from '../core/sensor';
 import { upperMedian } from '../core/stats';
 import { loadIdentity, safeStorage } from '../net/identity';
-import { HEARTBEAT_EVERY_MS, signHeartbeat, signOutput } from '../net/protocol';
+import { HEARTBEAT_EVERY_MS, signHeartbeat, signOutput, signRetraction } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import type { UsgsQuake } from '../net/usgs';
 import { Emitter } from './emitter';
@@ -166,8 +166,14 @@ export class SensorNode extends Emitter {
   }
 
   setJoined(on: boolean) {
-    // Leaving: say this phone has stopped while it still may, or it is counted on for minutes.
-    if (!on) this.heartbeat(false);
+    if (!on) {
+      // Leaving: withdraw a pick still being checked, whose verdict will not be sent (the check
+      // goes on here, for the log), and say this phone has stopped while it still may, or it is
+      // counted on for minutes.
+      if (this.openPick) this.transport.publish(signRetraction(this.sk, this.openPick.id, 'interrupted'));
+      this.openPick = null;
+      this.heartbeat(false);
+    }
     this.joined = on;
     safeStorage()?.setItem(JOIN_KEY, on ? '1' : '0');
     this.heartbeat();
