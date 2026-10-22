@@ -103,7 +103,7 @@ const TABS = {
     mount: () => {
       // The world first, so the view's own fly to the newest detection comes after and wins.
       map.fly(WORLD.center, WORLD.zoom);
-      return networkView({ live, map, relays, saveRelays });
+      return networkView({ live, map, relays, saveRelays, place: sensor });
     },
   },
   replay: { label: 'Replay', legend: REPLAY_LEGEND, shakeKey: true, mount: (arg) => replayView(replay, map, arg, Number(params.get('speed')) || 1) },

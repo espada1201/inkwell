@@ -304,4 +304,11 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 /* Kept in the page while empty, so screen readers hear it when it fills. */
 .relays-note:empty { margin: 0; }
 .outcomes li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 4px; font-size: 14px; }
-.outcomes .when { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+.outcomes .when, .near-list .when { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+.near { border: 1px solid var(--ink); background: var(--card); padding: 12px; display: grid; gap: 10px; }
+.near-list li { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 4px; }
+.place-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; }
+.place-form label { display: grid; gap: 4px; flex: 1 1 180px; font-size: 13px; }
+.place-form input { font: 13px var(--mono); padding: 8px; min-height: 40px; border: 1px solid var(--ink); background: var(--paper); border-radius: 2px; }
+.link { background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+.usgs-order { margin-top: 8px; }
