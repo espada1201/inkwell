@@ -1,5 +1,5 @@
 import { NODE_STALE_MS, SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
-import { nearYou, type Near, type Place } from '../app/near';
+import { NOTICED_LEVEL, nearYou, type Near, type Place } from '../app/near';
 import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid } from '../core/impact';
@@ -170,7 +170,7 @@ export function networkView(ctx: NetworkCtx) {
         }),
       );
     const near = nearYou(live, you);
-    const felt = near.some((x) => x.level !== null && x.level > 0);
+    const noticed = near.some((x) => x.level !== null && x.level >= NOTICED_LEVEL);
     const move = () => {
       moving = true;
       render();
@@ -197,7 +197,7 @@ export function networkView(ctx: NetworkCtx) {
             { class: 'empty' },
             live.usgsState === 'loading'
               ? 'Checking the USGS feed…'
-              : 'Nothing reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.',
+              : 'Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.',
             live.usgsState === 'error' ? ' The USGS feed cannot be reached right now, so this is from Tremor alone.' : null,
           ),
       h('p', {}, h('button', { class: 'btn', onclick: ctx.openFelt }, 'I felt it')),
@@ -207,9 +207,9 @@ export function networkView(ctx: NetworkCtx) {
         h('input', { type: 'checkbox', 'data-key': 'chime', checked: ctx.chime.on, 'aria-describedby': 'chime-help', onchange: (e: Event) => ctx.chime.set((e.target as HTMLInputElement).checked) }),
         h('span', {}, 'Chime when shaking is confirmed near me'),
       ),
-      h('p', { class: 'small muted', id: 'chime-help' }, 'Only while Tremor is open: a closed tab cannot alert you. For light or stronger shaking, never for provisional detections.'),
-      felt ? h('p', { class: 'small' }, 'If the ground shakes again: Drop, Cover and Hold On.', h('br'), 'Expect aftershocks, sometimes for days.') : null,
-      felt ? h('p', { class: 'small' }, 'Help next time: ', h('a', { href: '#sensor' }, 'leave an old phone on charge with Tremor open'), '.') : null,
+      h('p', { class: 'small muted', id: 'chime-help' }, 'Only while Tremor is open: a closed tab cannot alert you. For light or stronger shaking that phones confirmed or USGS lists; never for provisional detections, or for what people say they felt.'),
+      noticed ? h('p', { class: 'small' }, 'If the ground shakes again: Drop, Cover and Hold On.', h('br'), 'Expect aftershocks, sometimes for days.') : null,
+      noticed ? h('p', { class: 'small' }, 'Help next time: ', h('a', { href: '#sensor' }, 'leave an old phone on charge with Tremor open'), '.') : null,
     );
   }
 

@@ -1,14 +1,9 @@
 import type { LiveNetwork } from '../app/live';
-import { NEAR_MS, nearYou, type Place } from '../app/near';
+import { NEAR_MS, alerts, nearYou, type Place } from '../app/near';
 import { h } from '../ui/dom';
 
 /** What every chime says, on the page and in the notification. */
 const CHIME_TEXT = 'Shaking reported near you. Not an official warning.';
-/**
- * Light shaking, which people indoors notice. Weaker shaking, mostly from the small quakes close
- * by that USGS lists all day in active places, is listed on the card but does not chime.
- */
-const CHIME_LEVEL = 2;
 /** Older shaking is not news. USGS lists quakes abroad up to about 20 minutes after them. */
 const RECENT_MS = 30 * 60_000;
 
@@ -29,13 +24,13 @@ export function chime(live: LiveNetwork, place: Place) {
     h('button', { class: 'btn', onclick: () => (note.hidden = true) }, 'Dismiss'),
   );
 
-  /** When each recent shaking near you happened that confirmed reports say you would notice. Provisional detections never count: their phones may still withdraw. */
+  /** When each recent shaking near you happened that is worth an alert. */
   const shaking = () => {
     const now = Date.now();
     const you = place.location;
     if (!you) return [];
     return nearYou(live, you, now)
-      .filter((x) => x.kind !== 'provisional' && x.level !== null && x.level >= CHIME_LEVEL && now - x.time < RECENT_MS)
+      .filter((x) => alerts(x) && now - x.time < RECENT_MS)
       .map((x) => x.time);
   };
 

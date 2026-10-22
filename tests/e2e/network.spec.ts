@@ -113,10 +113,11 @@ test('shaking near you lists what was reported nearest first, with safety advice
   await page.goto(`/?relays=${relay.url}#network`);
   const near = page.getByTestId('near');
   const items = near.getByTestId('near-item');
-  await expect(items).toHaveCount(3);
-  await expect(items.nth(0)).toContainText(/USGS: 5 km NW of The Geysers, CA\d+ km from you · rough local shaking: \w/);
+  // The M4.6 in Central California, 270 km off, was too weak to feel here: the USGS list below has it, the card does not.
+  await expect(items).toHaveCount(2);
+  await expect(items.nth(0)).toContainText(/USGS: 5 km NW of The Geysers, CA\d+ km from you · rough local shaking: weak/);
   await expect(items.nth(1)).toContainText('USGS: 6 km NW of American Canyon, CA');
-  await expect(items.nth(2)).toContainText('USGS: Central California');
+  await expect(page.getByTestId('usgs-list')).toContainText('Central California');
   await expect(near).toContainText('Drop, Cover and Hold On');
   await expect(near.getByRole('link', { name: 'leave an old phone on charge with Tremor open' })).toHaveAttribute('href', '#sensor');
   await expect(near).not.toContainText(/official/i);
@@ -138,7 +139,7 @@ test('without a location the card asks once, by typed coordinates or the browser
   // Cape Town: far from every quake in the feed.
   await typed.fill('-33.9249, 18.4241');
   await near.getByRole('button', { name: 'Set' }).click();
-  await expect(near).toContainText('Nothing reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.');
+  await expect(near).toContainText('Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.');
   await expect(near).toContainText('Near 33.92°S 18.42°E');
   await expect(near).not.toContainText('Drop, Cover');
   await expect(near.getByRole('button', { name: 'change' })).toBeFocused();
@@ -267,10 +268,12 @@ test('felt reports show once three people in three places agree, and one key spa
   await expect(page.getByTestId('near-item').filter({ hasText: 'felt shaking' })).toContainText([/^felt3 people in 3 places felt shaking\d+ km from you · typically moderate/]);
 });
 
-test('the opt-in chime sounds once per shaking near you, and never for picks that were withdrawn', async ({ page, relay }) => {
+test('the opt-in chime sounds once per shaking confirmed near you, never for withdrawn picks or for what people say they felt', async ({ page, relay }) => {
   // Without the replayed Napa quake: here, halfway between two groups of phones 90 km apart.
-  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed() }));
   const here = { lat: 38.3, lon: -122.3 };
+  // USGS listed a quake that shook here 25 minutes ago, before the tap: not news to whoever tapped.
+  let listed = [{ id: 'before', mag: 4.5, place: 'Before the tap', time: Date.now() - 25 * 60_000, ...offset(here, 30, 0) }];
+  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed(listed) }));
   await page.addInitScript((at) => {
     localStorage.setItem('tremor.location', JSON.stringify(at));
     // Each tone, buzz and notification is counted instead of made.
@@ -301,7 +304,6 @@ test('the opt-in chime sounds once per shaking near you, and never for picks tha
   const rows = page.getByTestId('felt');
   await page.goto(`/?relays=${relay.url}#network`);
   await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
-  // Shaking reported before the tap is not news to whoever tapped.
   await send(relay.url, felt(Date.now() - 28 * 60_000, 3));
   await expect(rows).toHaveCount(1);
   const near = page.getByTestId('near');
@@ -332,17 +334,20 @@ test('the opt-in chime sounds once per shaking near you, and never for picks tha
   await send(relay.url, felt(Date.now(), 3));
   await expect(rows).toHaveCount(2);
   expect(await tones()).toBe(1);
-  // Weak shaking felt here 14 minutes ago does not chime; moderate shaking felt then 45 km north does.
-  await send(relay.url, felt(Date.now() - 14 * 60_000, 1));
+  // Strong shaking that people say they felt 45 km north is listed, but never chimes by itself: anyone can make three keys say anything.
+  await send(relay.url, felt(Date.now() - 14 * 60_000, 5, offset(here, 0, 45)));
   await expect(rows).toHaveCount(3);
+  await expect(page.getByTestId('near-item').filter({ hasText: 'typically very strong' })).toBeVisible();
   expect(await tones()).toBe(1);
-  await send(relay.url, felt(Date.now() - 14 * 60_000, 3, offset(here, 0, 45)));
-  await expect(rows).toHaveCount(4);
+  // USGS then lists one that shook here 40 minutes ago: old news.
+  listed = [...listed, { id: 'old', mag: 4.5, place: 'Long ago', time: Date.now() - 40 * 60_000, ...offset(here, -30, 0) }];
+  await page.getByRole('button', { name: 'past hour' }).click();
+  await expect(page.getByTestId('usgs-list')).toContainText('Long ago');
+  expect(await tones()).toBe(1);
+  // And one 12 minutes ago: another shaking, another chime.
+  listed = [...listed, { id: 'new', mag: 4.5, place: 'Just now', time: Date.now() - 12 * 60_000, ...offset(here, 0, -30) }];
+  await page.getByRole('button', { name: 'past day' }).click();
   await expect(note).toBeVisible();
-  expect(await tones()).toBe(2);
-  // Shaking felt 40 minutes ago is old news.
-  await send(relay.url, felt(Date.now() - 40 * 60_000, 3));
-  await expect(rows).toHaveCount(5);
   expect(await tones()).toBe(2);
 });
 
@@ -377,7 +382,7 @@ test('USGS outage shows a calm error state', async ({ page, relay }) => {
   await page.goto(`/?relays=${relay.url}#network`);
   await expect(page.getByText('The USGS feed could not be reached')).toBeVisible();
   // Nothing near you, but only Tremor could be asked.
-  await expect(page.getByTestId('near')).toContainText('Nothing reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad. The USGS feed cannot be reached right now, so this is from Tremor alone.');
+  await expect(page.getByTestId('near')).toContainText('Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad. The USGS feed cannot be reached right now, so this is from Tremor alone.');
 });
 
 test('without online tiles the map falls back to a bundled coastline', async ({ page, relay, consoleErrors }) => {

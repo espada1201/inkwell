@@ -27,9 +27,9 @@ plug it in, tap **Start sensor**, set a rough location and switch sharing on.
   15–30 s the phone checks it against the earlier background (picked up, door slam, footsteps),
   then confirms it as a *trigger* or retracts it. A card says how far away it would notice a quake.
 - **Network**: what was reported near you, then a live map. Picks from 4+ phones in 3+ places that
-  fit one wavefront, and that quiet phones nearby do not outvote, declare a provisional quake in
-  seconds; vetted triggers give the epicentre (± km), a rough magnitude and a USGS check. Anyone
-  can say "I felt it" (shown once 3 people in 3 places agree); an opt-in chime marks shaking nearby.
+  fit one wavefront, unless quiet phones nearby outvote them, flag a provisional quake in seconds;
+  vetted triggers give the epicentre (± km), a rough magnitude and a USGS check. Anyone can say "I
+  felt it" (shown once 3 people in 3 places agree); an opt-in chime marks confirmed shaking nearby.
 - **Replay**: real quakes (Napa 2014, Ridgecrest 2019, Christchurch 2011, or any M4+ from the
   past day's USGS feed) and a concert night with no quake, played into simulated phones that run
   the same detector, with a record section, a timeline and each phone's seconds of warning.
@@ -55,6 +55,6 @@ report (4579), heartbeat (34579, replaceable), retraction (NIP-09) and felt repo
 
 ## Develop and publish
 
-`npm run dev` (hot reload) · `npm run typecheck` · `npm test` · `npm run e2e` (Playwright; `npx
-playwright install chromium` once). CI runs them on every push to `main`. **GitHub Pages** deploys
-`main` once switched on (Settings → Pages → Source: GitHub Actions). MIT licence.
+`npm run dev` · `npm run typecheck` · `npm test` · `npm run e2e` (Playwright; `npx playwright
+install chromium` once). CI builds and runs the last three on each push to `main` and pull request.
+**GitHub Pages** deploys `main` once switched on (Settings → Pages → Source: GitHub Actions).

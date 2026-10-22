@@ -10,6 +10,10 @@ export type Place = Pick<SensorNode, 'location' | 'setLocation'>;
 const NEAR_KM = 100;
 export const NEAR_MS = 10 * 60_000;
 const NEAR_USGS_KM = 300;
+/** Quakes below about M2.5 are usually not felt, yet the shaking model, made for bigger ones, puts small ones close by at light or more. */
+const FELT_MAG = 2.5;
+/** Light shaking, which people indoors notice. Below it a row is listed, with nothing to do about it. */
+export const NOTICED_LEVEL = 2;
 
 /** Something reported near you, and how hard it shook you: roughly, for quakes (a level, as `intensityLevel` counts); as people told it, for felt reports. */
 export type Near = { km: number; time: number; level: number | null } & (
@@ -18,9 +22,13 @@ export type Near = { km: number; time: number; level: number | null } & (
   | { kind: 'felt'; people: number; places: number }
 );
 
-/** What has been reported near you, nearest first. */
+/** What has been reported near you that could have shaken you, nearest first. */
 export function nearYou(live: LiveNetwork, you: LatLon, now = Date.now()): Near[] {
-  const shook = (e: LatLon & { mag: number | null }, km: number, depthKm?: number) => (e.mag === null ? null : intensityLevel(pgaFor(e.mag, hypocentralKm(km, depthKm))));
+  const shook = (e: LatLon & { mag: number | null }, km: number, depthKm?: number) => {
+    if (e.mag === null) return null;
+    const level = intensityLevel(pgaFor(e.mag, hypocentralKm(km, depthKm)));
+    return e.mag < FELT_MAG ? Math.min(level, 1) : level;
+  };
   const ours: Near[] = [
     ...live.early.map((e) => ({ kind: 'provisional' as const, e })),
     ...live.events.filter((e) => now - e.time < NEAR_MS).map((e) => ({ kind: 'confirmed' as const, e })),
@@ -33,5 +41,13 @@ export function nearYou(live: LiveNetwork, you: LatLon, now = Date.now()): Near[
     const km = distanceKm(you, q);
     return { kind: 'usgs', km, time: q.time, mag: q.mag, place: q.place, level: shook(q, km, q.depthKm) };
   });
-  return [...[...ours, ...felt].filter((x) => x.km <= NEAR_KM), ...usgs.filter((x) => x.km <= NEAR_USGS_KM)].sort((a, b) => a.km - b.km);
+  // USGS lists every quake it locates, most of them too weak to feel this far away.
+  return [...[...ours, ...felt].filter((x) => x.km <= NEAR_KM), ...usgs.filter((x) => x.km <= NEAR_USGS_KM && x.level !== 0)].sort((a, b) => a.km - b.km);
 }
+
+/**
+ * Worth an alert: shaking people here would notice, found by phones' confirmed reports or by USGS.
+ * What people say they felt is listed but never alerts by itself, since anyone can make keys that
+ * say anything; a provisional detection's phones may still withdraw.
+ */
+export const alerts = (x: Near) => (x.kind === 'confirmed' || x.kind === 'usgs') && x.level !== null && x.level >= NOTICED_LEVEL;
