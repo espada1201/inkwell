@@ -2,7 +2,7 @@ import { finalizeEvent, validateEvent, verifyEvent, type Event } from 'nostr-too
 import type { Filter } from 'nostr-tools/filter';
 import { coarsen } from '../core/geo';
 import type { Phase } from '../core/physics';
-import type { RejectReason } from '../core/sensor';
+import type { DetectorOutput, RejectReason } from '../core/sensor';
 
 /**
  * Tremor's wire format: ordinary signed Nostr events, so any public relay can carry them.
@@ -123,6 +123,17 @@ export function signTrigger(sk: Uint8Array, tr: TriggerReport, pickId?: string, 
     },
     sk,
   );
+}
+
+/**
+ * What a phone signs for one detector output: a pick, then either the retraction of that pick
+ * (`open`) or a trigger linked to it. Null for a rejection with no pick out: nothing to withdraw.
+ * Retractions are dated when the phone gave up on the pick, the others at their onset.
+ */
+export function signOutput(sk: Uint8Array, loc: { lat: number; lon: number }, out: DetectorOutput, open?: string): Event | null {
+  if (out.kind === 'reject') return open ? signRetraction(sk, open, out.reason, Math.floor(out.at / 1000)) : null;
+  const p = { lat: loc.lat, lon: loc.lon, t: out.t, phase: out.phase };
+  return out.kind === 'pick' ? signPick(sk, p) : signTrigger(sk, { ...p, pga: out.pga, dur: out.durS }, open);
 }
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
