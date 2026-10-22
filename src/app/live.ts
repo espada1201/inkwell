@@ -27,6 +27,7 @@ const MAX_PER_NODE_HOUR = 30;
 const MAX_TRIGGERS = 5000;
 const MAX_PICKS = 5000;
 const MAX_WITHDRAWALS = 5000;
+const MAX_WITHDRAWALS_PER_NODE = MAX_PER_NODE_HOUR;
 const MAX_FELT = 2000;
 /** Phones kept at most: past it, the one silent longest goes. */
 export const MAX_NODES = 10_000;
@@ -85,7 +86,7 @@ export class LiveNetwork extends Emitter {
    * and only the pick's own author may retract it, so every retracting phone is kept until the
    * pick shows.
    */
-  private withdrawals = new Map<string, Withdrawal>();
+  private withdrawals = new Map<string, Withdrawal & { node: string }>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
   private recomputeQueued = false;
@@ -158,7 +159,10 @@ export class LiveNetwork extends Emitter {
       // NIP-09: only the author may retract their own pick.
       const p = this.picks.get(m.pick);
       if (p && p.node !== m.node) return;
-      this.withdrawals.set(`${m.pick}:${m.node}`, { reason: m.reason, at: m.at });
+      const key = `${m.pick}:${m.node}`;
+      const own = this.withdrawals.has(key) ? [] : [...this.withdrawals].filter(([, w]) => w.node === m.node);
+      if (own.length >= MAX_WITHDRAWALS_PER_NODE) this.withdrawals.delete(own[0][0]);
+      this.withdrawals.set(key, { reason: m.reason, at: m.at, node: m.node });
       if (this.withdrawals.size > MAX_WITHDRAWALS) this.withdrawals.delete(this.withdrawals.keys().next().value!);
       this.picks.delete(m.pick);
       this.queueRecompute();

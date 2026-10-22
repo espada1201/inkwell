@@ -87,8 +87,9 @@ describe('live network model', () => {
     const others = phones.slice(4);
     for (const p of others) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
     const hex = (i: number) => i.toString(16).padStart(64, '0');
-    const node = getPublicKey(others[0].sk);
-    for (let i = 0; i < 5000; i++) live.receive({ id: hex(i), node, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
+    const spammers = Array.from({ length: 200 }, () => generateSecretKey());
+    for (const sk of spammers) live.ingest(signHeartbeat(sk, { lat: 0, lon: 0, noise: 0.01, sps: 60 }));
+    for (let i = 0; i < 5000; i++) live.receive({ id: hex(i), node: getPublicKey(spammers[i % 200]), at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
     live.recompute();
     const [d] = live.provisional;
     expect(d.outcome).toBe('withdrawn');
@@ -154,6 +155,22 @@ describe('live network model', () => {
     for (let i = 0; i < 6000; i++) live.receive({ id: hex(i), node: `x${i}`, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
     live.ingest(pick);
     expect(live.picks.has(pick.id)).toBe(false);
+  });
+
+  it('one phone retracting picks it never sent cannot push out another phone\'s withdrawal', () => {
+    const [a, b] = phones;
+    for (const early of [false, true]) {
+      const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+      for (const p of [a, b]) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+      const pick = signPick(a.sk, a);
+      if (!early) live.ingest(pick);
+      live.ingest(signRetraction(a.sk, pick.id, 'footsteps'));
+      const hex = (i: number) => i.toString(16).padStart(64, '0');
+      const node = getPublicKey(b.sk);
+      for (let i = 0; i < 6000; i++) live.receive({ id: hex(i), node, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
+      live.ingest(pick);
+      expect(live.picks.has(pick.id)).toBe(false);
+    }
   });
 
   it('a pick its author withdrew before it arrived stays withdrawn when a stranger retracts it too', () => {
