@@ -108,6 +108,11 @@ export class NodeDetector {
     return Math.sqrt(this.lta);
   }
 
+  /** RMS shaking that would open a candidate now, m/s²: the threshold over the background, and never below the floor. */
+  get triggerLevel(): number {
+    return Math.max(Math.sqrt(this.threshold) * this.background, this.floor);
+  }
+
   push(s: Sample): DetectorOutput | null {
     if (this.lastT && s.t - this.lastT > 1000) {
       // The samples stopped (a hidden tab): start afresh, and withdraw a pick already sent.

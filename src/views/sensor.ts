@@ -26,6 +26,8 @@ export function sensorView(s: SensorNode) {
   const meterFill = h('i');
   const meterThr = h('b');
   const ratioText = h('span', { class: 'mono small muted' });
+  const background = h('dd', { 'data-testid': 'background' });
+  let shown = -Infinity;
   const left = h('div', { style: 'display:grid;gap:14px;align-content:start' });
   const right = h('div', { style: 'display:grid;gap:14px;align-content:start' });
   let dimmed = false;
@@ -38,6 +40,11 @@ export function sensorView(s: SensorNode) {
     meterFill.style.width = `${d ? scale(d.ratio) : 0}%`;
     meterThr.style.left = `${d ? scale(d.threshold) : 0}%`;
     ratioText.textContent = d ? `STA/LTA ${d.ratio.toFixed(1)} · threshold ${d.threshold.toFixed(1)}` : 'STA/LTA —';
+    // The detector's own background, once a second: it moves slowly, and digits that flicker are hard to read.
+    if (performance.now() - shown > 1000) {
+      shown = performance.now();
+      background.textContent = !d ? '—' : d.warmingUp ? 'learning…' : `${(d.background * 1000).toFixed(1)} mm/s²`;
+    }
     raf = dimmed || document.hidden ? 0 : requestAnimationFrame(loop);
   }
 
@@ -157,7 +164,7 @@ export function sensorView(s: SensorNode) {
           h('dt', {}, 'Sample rate'),
           h('dd', {}, s.fs ? `${s.fs} Hz` : '—'),
           h('dt', {}, 'Background'),
-          h('dd', {}, s.detector ? `${(s.noise * 1000).toFixed(1)} mm/s²` : '—'),
+          background,
           h('dt', {}, 'Screen lock'),
           h('dd', {}, s.wakeLock === 'on' ? 'kept awake' : s.wakeLock === 'unsupported' ? 'not supported' : 'off'),
           h('dt', {}, 'Battery'),

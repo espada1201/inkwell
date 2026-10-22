@@ -33,7 +33,6 @@ export class SensorNode extends Emitter {
   /** Ring buffer of recent shaking magnitude for the live trace. */
   trace: Float32Array = new Float32Array(0);
   head = 0;
-  noise = 0;
   log: LogEntry[] = [];
   location: LatLon | null;
   joined: boolean;
@@ -46,7 +45,7 @@ export class SensorNode extends Emitter {
   private noDataTimer: ReturnType<typeof setTimeout> | undefined;
   private lock: { release(): Promise<void> } | null = null;
   private openPick: { t: number; id: string } | null = null;
-  /** When the samples started flowing without a break, and when the last one came. */
+  /** When the phone last finished warming up, so has listened without a break, and when the last sample came. */
   private since = 0;
   private lastSample = 0;
   private readonly onMotion = (e: DeviceMotionEvent) => this.motion(e);
@@ -137,9 +136,7 @@ export class SensorNode extends Emitter {
     const a = e.accelerationIncludingGravity;
     if (!a || a.x === null || a.y === null || a.z === null) return;
     const t = performance.timeOrigin + e.timeStamp;
-    const resumed = this.lastSample > 0 && t - this.lastSample > 1000;
     this.lastSample = t;
-    if (resumed) this.since = t;
     if (!this.detector) {
       // Learn the sample rate from the reported interval before building filters.
       if (e.interval > 0) this.intervals.push(e.interval < 1 ? e.interval * 1000 : e.interval);
@@ -149,18 +146,21 @@ export class SensorNode extends Emitter {
       this.detector = new NodeDetector(this.fs);
       this.trace = new Float32Array(TRACE_S * this.fs);
       clearTimeout(this.noDataTimer);
-      this.since = t;
-      this.heartbeat();
     }
     const d = this.detector;
     const out = d.push({ t, x: a.x, y: a.y, z: a.z });
     this.trace[this.head] = d.level;
     this.head = (this.head + 1) % this.trace.length;
-    this.noise += (d.level - this.noise) * 0.002;
     const s: SensorState = d.warmingUp ? 'warming' : 'listening';
-    if (s !== this.state) this.set(s);
+    if (s !== this.state) {
+      this.set(s);
+      // Listening once the background is learned, after a break too: tell the network.
+      if (s === 'listening') {
+        this.since = t;
+        this.heartbeat();
+      }
+    }
     if (out) this.handle(out);
-    if (resumed) this.heartbeat();
   }
 
   private handle(out: DetectorOutput) {
@@ -191,10 +191,12 @@ export class SensorNode extends Emitter {
 
   /** I'm here and listening since `since`; or, with `listening` false, I have stopped. */
   private heartbeat(listening = true) {
-    if (!this.canPublish || !this.detector) return;
-    // No samples lately (a hidden tab whose timer still fires): stay silent and go stale.
-    if (listening && Date.now() - this.lastSample > 5000) return;
-    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: this.noise, sps: listening ? this.fs : 0, since: this.since }));
+    const d = this.detector;
+    if (!this.canPublish || !d) return;
+    // Not listening yet (still learning the background), or no samples lately (a hidden tab
+    // whose timer still fires): stay silent and go stale.
+    if (listening && (d.warmingUp || Date.now() - this.lastSample > 5000)) return;
+    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: d.background, sps: listening ? this.fs : 0, since: this.since }));
   }
 
   private async requestWakeLock() {

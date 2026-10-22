@@ -1,6 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SensorNode } from '../../src/app/sensor';
 import { NodeDetector, type DetectorOutput } from '../../src/core/sensor';
 import { synthesize, type SynthOptions } from '../../src/core/synth';
+import { parse, type Message } from '../../src/net/protocol';
 
 function run(o: Omit<SynthOptions, 'start' | 'durationS' | 'seed'> & { seed?: number; durationS?: number; start?: number }) {
   const det = new NodeDetector(50);
@@ -207,3 +209,74 @@ describe('telling P from S by which way the phone shakes', () => {
   });
 });
 
+describe('this phone on the network', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  /** Just enough of a browser around SensorNode: motion events, page visibility, a screen wake lock. */
+  function phone() {
+    const sent: Message[] = [];
+    const on: Record<string, (e?: unknown) => void> = {};
+    const target = { addEventListener: (k: string, f: (e?: unknown) => void) => void (on[k] = f), removeEventListener: (k: string) => void delete on[k] };
+    const doc = { ...target, visibilityState: 'visible' };
+    const locks = new Set<object>();
+    vi.stubGlobal('DeviceMotionEvent', class {});
+    vi.stubGlobal('window', target);
+    vi.stubGlobal('document', doc);
+    vi.stubGlobal('navigator', {
+      wakeLock: {
+        request: async () => {
+          const lock = { release: async () => void locks.delete(lock) };
+          locks.add(lock);
+          return lock;
+        },
+      },
+    });
+    const node = new SensorNode({ publish: (ev) => sent.push(parse(ev)!), subscribe: () => () => {}, statuses: () => [], onStatus: () => {}, close: () => {} });
+    node.setLocation({ lat: 37.77, lon: -122.42 });
+    node.setJoined(true);
+    /** The phone lies on a table for real time: each sample moves the clocks on by 20 ms. */
+    const feed = (o: Omit<SynthOptions, 'start' | 'seed'>) => {
+      for (const s of synthesize({ start: 0, seed: 1, ...o })) {
+        vi.advanceTimersByTime(20);
+        on.devicemotion?.({ accelerationIncludingGravity: s, interval: 20, timeStamp: performance.now() });
+      }
+    };
+    const heartbeats = () => sent.filter((m) => m.type === 'heartbeat');
+    return { node, sent, on, doc, locks, feed, heartbeats };
+  }
+
+  it('announces itself once warmed up, with the background it learned, listening since then', async () => {
+    const { node, feed, heartbeats } = phone();
+    const t0 = Date.now();
+    await node.start();
+    feed({ durationS: 4 });
+    expect(heartbeats()).toEqual([]);
+    feed({ durationS: 16 });
+    expect(heartbeats()).toHaveLength(1);
+    const hb = heartbeats()[0].data;
+    expect(hb.sps).toBe(50);
+    // Ten samples to learn the rate, then five seconds of warm-up.
+    expect(hb.since! - t0).toBeGreaterThan(5000);
+    expect(hb.since! - t0).toBeLessThan(5500);
+    expect(hb.noise / node.detector!.background).toBeGreaterThan(0.85);
+    expect(hb.noise / node.detector!.background).toBeLessThan(1.15);
+  });
+
+  it('after a break, announces itself again only once it has warmed up again', async () => {
+    const { node, feed, heartbeats } = phone();
+    await node.start();
+    feed({ durationS: 10 });
+    // No samples for ten seconds, as in a hidden tab.
+    vi.advanceTimersByTime(10_000);
+    const back = Date.now();
+    feed({ durationS: 4 });
+    expect(heartbeats()).toHaveLength(1);
+    feed({ durationS: 4 });
+    expect(heartbeats()).toHaveLength(2);
+    expect(heartbeats()[1].data.since! - back).toBeGreaterThanOrEqual(5000);
+  });
+});

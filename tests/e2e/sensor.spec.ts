@@ -42,6 +42,8 @@ test.describe('be a sensor', () => {
     await page.getByTestId('start').click();
     await feed(page, synthesize({ start: 0, durationS: 34, seed: 3, quake: { tP: 10, tS: 13, pga: 0.8 } }));
     await expect(page.getByTestId('sensor-state')).toHaveText('Listening', { timeout: 10_000 });
+    // The background it learned while warming up: about 12.5 mm/s² for this record.
+    await expect(page.getByTestId('background')).toHaveText(/^1[0-5]\.\d mm\/s²$/);
 
     // The live trace is drawn.
     const inked = await page.locator('canvas.trace').evaluate((c: HTMLCanvasElement) => {
