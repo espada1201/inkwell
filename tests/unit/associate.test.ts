@@ -48,7 +48,8 @@ describe('association', () => {
   });
 
   it('requires the minimum number of distinct nodes', () => {
-    const trig = quake({ lat: 35, lon: -118 }, T0, 2, 5, 'a');
+    // Three arrival times can nearly always be fitted by an epicentre and an origin time.
+    const trig = quake({ lat: 35, lon: -118 }, T0, 3, 5, 'a');
     expect(associate(trig)).toEqual([]);
     // the same node triggering three times is still only one node
     const same = quake({ lat: 35, lon: -118 }, T0, 3, 6, 'b').map((t) => ({ ...t, node: 'solo' }));
@@ -107,6 +108,42 @@ describe('association', () => {
     expect(evs).toHaveLength(1);
     expect(evs[0].triggers.filter((t) => t.phase === 'P').length).toBeGreaterThan(30);
     expect(distanceKm(evs[0], src)).toBeLessThan(8);
+  });
+
+  // Phones a few km apart cannot time a wavefront's curvature. Without a prior on distance the
+  // epicentre drifted to wherever the noise fitted best, often 70 km away and magnitudes too big.
+  it('places a small quake under a tight cluster of phones near them, with about the right magnitude', () => {
+    const src = { lat: 35, lon: -118 };
+    for (const [n, km, mag] of [[4, 2, 3.5], [5, 5, 4], [6, 3, 3.5]] as const)
+      for (let seed = 1; seed <= 20; seed++) {
+        const r = rng(100 + seed);
+        const trig: Trigger[] = Array.from({ length: n }, (_, i) => {
+          const p = offset(src, (r() - 0.5) * km, (r() - 0.5) * km);
+          const hyp = hypocentralKm(distanceKm(src, p));
+          return { id: `c${seed}-${i}`, node: `n${i}`, ...p, t: T0 + (hyp / VP_KMS + 0.15 * gauss(r)) * 1000, pga: pgaFor(mag, hyp) };
+        });
+        const [ev] = associate(trig);
+        expect(distanceKm(ev, src)).toBeLessThan(15);
+        expect(Math.abs(ev.mag! - mag)).toBeLessThan(1);
+      }
+  });
+
+  it('two phones that felt the P wave are enough to pin a distant quake seen mostly by its S wave', () => {
+    const src = { lat: 35, lon: -118 };
+    const city = offset(src, 100, 0);
+    for (let seed = 1; seed <= 10; seed++) {
+      const r = rng(500 + seed);
+      const trig: Trigger[] = Array.from({ length: 8 }, (_, i) => {
+        const p = offset(city, (r() - 0.5) * 30, (r() - 0.5) * 30);
+        const hyp = hypocentralKm(distanceKm(src, p));
+        const phase = i < 2 ? ('P' as const) : ('S' as const);
+        return { id: `d${seed}-${i}`, node: `n${i}`, ...p, t: T0 + (hyp / (phase === 'S' ? VS_KMS : VP_KMS) + 0.15 * gauss(r)) * 1000, pga: pgaFor(5, hyp), phase };
+      });
+      const evs = associate(trig);
+      expect(evs).toHaveLength(1);
+      expect(evs[0].triggers).toHaveLength(8);
+      expect(distanceKm(evs[0], src)).toBeLessThan(15);
+    }
   });
 
   it('puts close P triggers and distant S triggers from one quake into one event', () => {

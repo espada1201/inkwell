@@ -30,19 +30,41 @@ export interface AssociateOptions {
 }
 
 /**
+ * Recent cluster solutions. Callers re-associate nearly the same triggers several times a
+ * second while a quake or a busy minute unfolds, and most clusters come round again unchanged.
+ */
+const solved = new Map<string, Solution | null>();
+const SOLVED_MAX = 2000;
+
+function locateCached(members: Trigger[], minNodes: number): Solution | null {
+  const key = members.length <= 64 ? `${minNodes}|${members.map((c) => `${c.id},${c.t},${c.lat},${c.lon},${c.pga},${c.phase}`).join(';')}` : null;
+  if (key !== null && solved.has(key)) return solved.get(key)!;
+  const ref = members[0].t;
+  const sol = locate(
+    members.map((c) => ({ lat: c.lat, lon: c.lon, t: (c.t - ref) / 1000, pga: c.pga, phase: c.phase })),
+    { minArrivals: minNodes, maxOutliers: Math.floor(members.length * 0.3) },
+  );
+  if (key !== null) {
+    solved.set(key, sol);
+    if (solved.size > SOLVED_MAX) solved.delete(solved.keys().next().value!);
+  }
+  return sol;
+}
+
+/**
  * Space–time association. Two triggers of the same wave can belong to one earthquake only if
  * their time difference is no larger than that wave's travel time between the nodes (plus slack).
  *  1. From every unused trigger, grow a cluster of pairwise-compatible triggers (one per node).
  *  2. Locate the largest cluster by grid search, dropping bad clocks.
- *  3. Try adding the largest cluster of the other wave: from outside
- *     the network a quake's distance trades off against its origin time, and the gap between
- *     its P and S arrivals is what pins it.
+ *  3. Try adding the largest cluster of the other wave: from outside the network a quake's
+ *     distance trades off against its origin time, and the gap between its P and S arrivals is
+ *     what pins it.
  *  4. Re-gather every unused trigger the solution explains as an arrival of its own wave, and
  *     relocate, so an unlucky seed (e.g. a stray footstep) cannot bias membership.
  *  5. Later triggers the event explains as either wave are absorbed so they do not spawn ghosts.
  */
 export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
-  const minNodes = opts.minNodes ?? 3;
+  const minNodes = opts.minNodes ?? 4;
   const tol = opts.toleranceS ?? 1.5;
   const maxD = opts.maxDistanceKm ?? 400;
   const maxSpan = (opts.maxSpanS ?? 90) * 1000;
@@ -87,10 +109,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
 
   const solve = (members: Trigger[]) => {
     const ref = members[0].t;
-    const sol = locate(
-      members.map((c) => ({ lat: c.lat, lon: c.lon, t: (c.t - ref) / 1000, pga: c.pga, phase: c.phase })),
-      { minArrivals: minNodes, maxOutliers: Math.floor(members.length * 0.3) },
-    );
+    const sol = locateCached(members, minNodes);
     return sol && { sol, time: ref + sol.t0 * 1000, members: sol.used.map((k) => members[k]) };
   };
 
@@ -107,13 +126,19 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     // Clusters hold one wave, as compatibility is only defined within a wave.
     const phase = best[0].phase ?? 'P';
     if (fit && fit.sol.rms <= maxRms) {
+      // Two arrivals of the other wave that agree with each other are enough to pin the distance.
+      // They can only be as far from this wave's arrivals as the S−P gap at the largest distance.
+      const ts = fit.members.map((m) => m.t);
+      const gap = (maxD * (1 / VS_KMS - 1 / VP_KMS) + tol) * 1000;
+      const from = Math.min(...ts) - gap;
+      const to = Math.max(...ts) + gap;
       let partner: Trigger[] = [];
       sorted.forEach((t, i) => {
-        if (used.has(t.id) || deadSeeds.has(t.id) || (t.phase ?? 'P') === phase) return;
+        if (used.has(t.id) || deadSeeds.has(t.id) || (t.phase ?? 'P') === phase || t.t < from || t.t > to) return;
         const c = grow(i);
         if (c.length > partner.length) partner = c;
       });
-      if (partner.length >= minNodes) {
+      if (partner.length >= 2) {
         const joint = solve([...fit.members, ...partner].sort((a, b) => a.t - b.t));
         if (joint && joint.sol.rms <= maxRms && joint.members.length >= 0.8 * (fit.members.length + partner.length)) fit = joint;
       }

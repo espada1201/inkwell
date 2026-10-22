@@ -17,15 +17,27 @@ export function hypocentralKm(epicentralKm: number, depthKm = DEFAULT_DEPTH_KM):
   return Math.hypot(epicentralKm, depthKm);
 }
 
+/** log10 PGA gained per magnitude unit, and lost per log10 of (distance + 10 km). */
+const MAG_SCALE = 0.3;
+const ATTENUATION = 1.5;
+
 /** Peak ground acceleration in m/s² for magnitude M at hypocentral distance R. */
 export function pgaFor(mag: number, rKm: number): number {
-  return G * 10 ** (0.3 * mag - 1.5 * Math.log10(rKm + 10) - 0.5);
+  return G * 10 ** (MAG_SCALE * mag - ATTENUATION * Math.log10(rKm + 10) - 0.5);
 }
 
 /** Invert pgaFor for a single station. */
 export function magnitudeFrom(pga: number, rKm: number): number {
-  return (Math.log10(pga / G) + 1.5 * Math.log10(rKm + 10) + 0.5) / 0.3;
+  return (Math.log10(pga / G) + ATTENUATION * Math.log10(rKm + 10) + 0.5) / MAG_SCALE;
 }
+
+/**
+ * How much less likely a source becomes with distance, per unit of ln(R + 10 km). Shaking the
+ * same phones as hard from farther away takes a bigger quake (ATTENUATION / MAG_SCALE magnitude
+ * units per tenfold distance), and each magnitude unit is about ten times rarer
+ * (Gutenberg–Richter, b ≈ 1), so the prior probability falls as (R + 10)^-5.
+ */
+export const DISTANCE_PRIOR = ATTENUATION / MAG_SCALE;
 
 /** Felt intensity (rough Modified Mercalli mapping from PGA): thresholds in g. */
 const MMI_G = [0.0017, 0.014, 0.039, 0.092, 0.18, 0.34];

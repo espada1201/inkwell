@@ -1,5 +1,5 @@
 import { distanceKm, offset, type LatLon } from './geo';
-import { DEFAULT_DEPTH_KM, hypocentralKm, magnitudeFrom, speedOf, type Phase } from './physics';
+import { DEFAULT_DEPTH_KM, DISTANCE_PRIOR, hypocentralKm, magnitudeFrom, speedOf, type Phase } from './physics';
 
 export interface Arrival extends LatLon {
   /** Arrival (trigger onset) in seconds on any common clock. */
@@ -99,8 +99,7 @@ function quickMedian(a: Float64Array, n: number): number {
 /**
  * Epicentre by grid search on arrival times: for each trial point the origin time is the
  * median of (arrival − travel time), and the L1 misfit is robust to one or two bad clocks.
- * Coarse rings around the phones → two refinements, then outlier rejection one arrival at
- * a time.
+ * Coarse rings around the phones → two refinements, then outlier rejection.
  */
 export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution | null {
   const depth = opts.depthKm ?? DEFAULT_DEPTH_KM;
@@ -111,10 +110,16 @@ export function locate(arrivals: Arrival[], opts: LocateOptions = {}): Solution 
   let used = arrivals.map((_, i) => i);
   let best = search(arrivals, depth, opts);
   const maxOut = opts.maxOutliers ?? 2;
-  for (let pass = 0; pass < maxOut; pass++) {
-    const worst = best.res.reduce((w, r, i) => (Math.abs(r) > Math.abs(best.res[w]) ? i : w), 0);
-    if (Math.abs(best.res[worst]) <= outlier || used.length - 1 < minN) break;
-    used = used.filter((_, i) => i !== worst);
+  let dropped = 0;
+  while (dropped < maxOut) {
+    const bad = used.map((_, k) => k).filter((k) => Math.abs(best.res[k]) > outlier);
+    bad.sort((a, b) => Math.abs(best.res[b]) - Math.abs(best.res[a]));
+    // Dozens of arrivals pin the epicentre well enough to drop every bad clock at once; a
+    // handful could be dragged by one, so they lose the worst and try again.
+    const drop = new Set(bad.slice(0, used.length > 20 ? maxOut - dropped : 1));
+    if (!drop.size || used.length - drop.size < minN) break;
+    used = used.filter((_, k) => !drop.has(k));
+    dropped += drop.size;
     best = search(
       used.map((i) => arrivals[i]),
       depth,
@@ -169,6 +174,10 @@ const RANGE_ONE_WAVE_KM = 80;
 const RANGE_TWO_WAVES_KM = 250;
 const RING_RATIO = 0.07;
 
+/** Typical size of one phone's timing error (clock and pick), s: it scales the distance prior. */
+const TIMING_S = 0.12;
+const PRIOR_S = TIMING_S * DISTANCE_PRIOR;
+
 /** Grid misfits use at most this many arrivals: a few dozen pin an epicentre as well as a thousand. */
 const MAX_GRID_ARRIVALS = 40;
 
@@ -194,21 +203,27 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
   const n = arr.length;
   const r = new Float64Array(n);
 
+  // The misfit is the L1 timing error plus the distance prior in the same units: phones close
+  // together cannot time a wavefront's curvature, and without the prior a quake under them
+  // drifts to wherever the noise fits best, tens of km away with an inflated magnitude.
   // Costs only grow term by term, so summing stops as soon as a trial point is already worse
   // than the best so far: exact, and most grid points are far from the best.
   const misfit = (px: number, py: number, bound = Infinity) => {
     let farP2 = -1;
     let farS2 = -1;
+    let sumHyp = 0;
     for (let i = 0; i < n; i++) {
       const dx = px - A.x[i];
       const dy = py - A.y[i];
       const d2 = dx * dx + dy * dy;
       if (isS[i]) farS2 = Math.max(farS2, d2);
       else farP2 = Math.max(farP2, d2);
-      r[i] = t[i] - Math.sqrt(d2 + z2) / v[i];
+      const hyp = Math.sqrt(d2 + z2);
+      sumHyp += hyp;
+      r[i] = t[i] - hyp / v[i];
     }
     const t0 = quickMedian(r, n);
-    let cost = 0;
+    let cost = PRIOR_S * Math.log(sumHyp / n + 10);
     for (let i = 0; i < n && cost < bound; i++) cost += Math.abs(r[i] - t0);
     if (useSilent && cost < bound) {
       for (let k = 0; k < S.x.length && cost < bound; k++) {
