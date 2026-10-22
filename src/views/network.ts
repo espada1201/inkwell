@@ -1,5 +1,6 @@
 import type { LiveNetwork } from '../app/live';
 import { shakeGrid } from '../core/impact';
+import { reach } from '../net/transport';
 import { matchUsgs, type UsgsQuake } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
 import { ago, coord, mag, magBadge } from '../ui/format';
@@ -15,6 +16,9 @@ export const NETWORK_LEGEND: Swatch[] = [
   ['transparent;border:1.5px solid var(--ink)', 'USGS earthquake'],
   [NODE_COLORS.offline, 'phone offline'],
 ];
+
+/** The status dot for how well the relays can be reached, in the header and the relay list. */
+export const REACH_DOT = { open: 'ok', connecting: 'warn', down: 'bad' } as const;
 
 export interface NetworkCtx {
   live: LiveNetwork;
@@ -160,10 +164,15 @@ export function networkView(ctx: NetworkCtx) {
   }
 
   function detections() {
+    const relays = reach(live.transport.statuses());
+    const empty = (...text: (string | Node)[]) => h('p', { class: 'empty', 'data-testid': 'no-events' }, ...text);
     return h(
       'section',
       {},
       h('h2', {}, 'Detected by Tremor', h('small', {}, 'last 2 hours')),
+      relays === 'down'
+        ? h('p', { class: 'empty', role: 'status' }, 'Not connected to any relay, so nothing can be heard. Tremor keeps retrying; check your connection or the relay list below.')
+        : null,
       live.events.length
         ? h(
             'ul',
@@ -183,15 +192,19 @@ export function networkView(ctx: NetworkCtx) {
               );
             }),
           )
-        : h(
-            'p',
-            { class: 'empty', 'data-testid': 'no-events' },
-            'No network detections in the past two hours. That is normal: phones only notice strong shaking close by. ',
-            h('a', { href: '#replay' }, 'Watch a replay'),
-            ' or ',
-            h('a', { href: '#sensor' }, 'turn this phone into a sensor'),
-            '.',
-          ),
+        : relays === 'down'
+          ? null
+          : relays === 'connecting'
+            ? empty('Connecting to the relays…')
+            : live.early.length
+              ? empty('No confirmed detections yet.')
+              : empty(
+                  'No network detections in the past two hours. That is normal: phones only notice strong shaking close by. ',
+                  h('a', { href: '#replay' }, 'Watch a replay'),
+                  ' or ',
+                  h('a', { href: '#sensor' }, 'turn this phone into a sensor'),
+                  '.',
+                ),
     );
   }
 
@@ -262,9 +275,10 @@ export function networkView(ctx: NetworkCtx) {
         h(
           'ul',
           { class: 'relay-list' },
-          ...live.transport.statuses().map((s) =>
-            h('li', {}, h('i', { class: `dot ${s.state === 'open' ? 'ok' : s.state === 'connecting' ? 'warn' : 'bad'}` }), h('span', {}, s.url), h('span', { class: 'muted' }, ` ${s.state} · ↓${s.received}`)),
-          ),
+          ...live.transport.statuses().map((s) => {
+            const r = reach([s]);
+            return h('li', {}, h('i', { class: `dot ${REACH_DOT[r]}` }), h('span', {}, s.url), h('span', { class: 'muted' }, ` ${r === 'down' ? 'unreachable, retrying' : r} · ↓${s.received}`));
+          }),
         ),
       );
   }

@@ -23,6 +23,7 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   await send(relay.url, napa.picks);
   await expect(page.getByTestId('provisional')).toBeVisible();
   await expect(page.getByRole('alert')).toContainText('Provisional earthquake detection');
+  await expect(page.getByTestId('no-events')).toHaveText('No confirmed detections yet.');
 
   // Vetted triggers and retractions: a confirmed, located event.
   await send(relay.url, napa.finals);
@@ -78,6 +79,19 @@ test('typing in the relay list neither freezes the panel nor loses what is typed
   await expect(box).toBeFocused();
   await expect(box).toHaveValue(`${relay.url}\nwss://nos.lol`);
   await expect(page.locator('details.relays')).toHaveAttribute('open');
+});
+
+test('with every relay refusing, the panel says nothing can be heard rather than all is quiet', async ({ page }) => {
+  // The fixture closes every wss:// connection at once, as an unreachable relay would.
+  await page.goto('/?relays=wss://relay.one.example,wss://relay.two.example#network');
+  await expect(page.getByTestId('relay-status')).toHaveText('0/2 relays');
+  const down = page.getByRole('status').filter({ hasText: 'Not connected to any relay' });
+  await expect(down).toBeVisible();
+  await expect(down).toContainText('check your connection or the relay list');
+  await expect(page.getByTestId('no-events')).toHaveCount(0);
+  // It stays put while the relays are retried (after 1, 2, 4… s).
+  await page.waitForTimeout(2500);
+  await expect(down).toBeVisible();
 });
 
 test('USGS outage shows a calm error state', async ({ page, relay }) => {

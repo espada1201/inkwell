@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { filters, parse, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
-import { RelayPool } from '../../src/net/transport';
+import { RelayPool, reach } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
@@ -152,6 +152,19 @@ describe('relay pool against a local fake relay', () => {
     p.publish(signHeartbeat(sk, { lat: 1, lon: 1, noise: 0.01, sps: 50 }, now - 60));
     p.publish(signHeartbeat(sk, { lat: 1, lon: 1, noise: 0.02, sps: 50 }, now));
     await until(() => relay.events().length === 1 && JSON.parse(relay.events()[0].content).noise === 0.02);
+  });
+
+  it('a relay that cannot be reached counts as down, not connecting, while it retries', async () => {
+    const p = new RelayPool(['ws://127.0.0.1:1']);
+    cleanup.push(() => p.close());
+    expect(reach(p.statuses())).toBe('connecting');
+    await until(() => reach(p.statuses()) === 'down');
+    // Through the next retry, a second later, it stays down rather than flickering back.
+    const seen = new Set<string>();
+    for (const end = Date.now() + 1500; Date.now() < end; await new Promise((r) => setTimeout(r, 10))) seen.add(reach(p.statuses()));
+    expect([...seen]).toEqual(['down']);
+    expect(p.statuses()[0].failures).toBeGreaterThan(1);
+    expect(reach([])).toBe('down');
   });
 
   it('reconnects and resubscribes after the relay restarts', async () => {

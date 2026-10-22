@@ -6,6 +6,17 @@ export interface RelayStatus {
   url: string;
   state: RelayState;
   received: number;
+  /** Failed attempts since the relay was last open. */
+  failures: number;
+}
+
+/**
+ * The relays at a glance: one is open; or some are still on their first try; or all are down.
+ * A relay retrying after a failure is down, so the answer does not flicker with every retry.
+ */
+export function reach(st: RelayStatus[]): 'open' | 'connecting' | 'down' {
+  if (st.some((s) => s.state === 'open')) return 'open';
+  return st.some((s) => s.state === 'connecting' && !s.failures) ? 'connecting' : 'down';
 }
 
 /** The seam between Tremor and the outside world. Production: public Nostr relays. Tests: a local fake. */
@@ -44,7 +55,7 @@ class RelayConn {
     private readonly deliver: (subId: string, ev: Event) => void,
     private readonly changed: () => void,
   ) {
-    this.status = { url, state: 'connecting', received: 0 };
+    this.status = { url, state: 'connecting', received: 0, failures: 0 };
     this.connect();
   }
 
@@ -60,6 +71,7 @@ class RelayConn {
     this.ws = ws;
     ws.onopen = () => {
       this.backoff = 1000;
+      this.status.failures = 0;
       this.setState('open');
       for (const s of this.subs.values()) ws.send(JSON.stringify(req(s)));
       for (const m of this.queue.splice(0)) ws.send(m);
@@ -76,14 +88,19 @@ class RelayConn {
         this.deliver(msg[1], msg[2] as Event);
       }
     };
-    ws.onclose = () => {
-      if (this.ws === ws) this.retry();
+    // A failed socket fires error and then close in browsers, but only error in Node: the first one counts.
+    const failed = () => {
+      if (this.ws !== ws) return;
+      this.retry();
+      ws.close();
     };
-    ws.onerror = () => ws.close();
+    ws.onerror = failed;
+    ws.onclose = failed;
   }
 
   private retry() {
     this.ws = null;
+    this.status.failures++;
     this.setState('closed');
     if (this.closed) return;
     this.timer = setTimeout(() => this.connect(), this.backoff);

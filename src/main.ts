@@ -3,12 +3,12 @@ import { LiveNetwork } from './app/live';
 import { Replay } from './app/replay';
 import { SensorNode } from './app/sensor';
 import { safeStorage } from './net/identity';
-import { DEFAULT_RELAYS, RelayPool } from './net/transport';
+import { DEFAULT_RELAYS, RelayPool, reach } from './net/transport';
 import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
 import { QuakeMap, SHAKE_COLORS, type Swatch } from './ui/map';
 import { aboutView } from './views/about';
-import { NETWORK_LEGEND, networkView } from './views/network';
+import { NETWORK_LEGEND, REACH_DOT, networkView } from './views/network';
 import { PLAN_LEGEND, planView } from './views/plan';
 import { REPLAY_LEGEND, replayView } from './views/replay';
 import { sensorView } from './views/sensor';
@@ -79,7 +79,7 @@ map.ready.then(() => {
 function status() {
   const st = transport.statuses();
   const open = st.filter((s) => s.state === 'open').length;
-  relayStatus.replaceChildren(h('i', { class: `dot ${open ? 'ok' : st.some((s) => s.state === 'connecting') ? 'warn' : 'bad'}` }), `${open}/${st.length} relays`);
+  relayStatus.replaceChildren(h('i', { class: `dot ${REACH_DOT[reach(st)]}` }), `${open}/${st.length} relays`);
   usgsStatus.replaceChildren(h('i', { class: `dot ${live.usgsState === 'ok' ? 'ok' : live.usgsState === 'loading' ? 'warn' : 'bad'}` }), 'USGS');
 }
 live.on(status);
