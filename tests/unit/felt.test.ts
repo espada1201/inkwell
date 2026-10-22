@@ -21,7 +21,21 @@ describe('felt report clusters', () => {
     expect(clusterFelt(['a', 'b', 'c'].map((k) => felt(k, 0)))).toEqual([]);
   });
 
-  it('every report in a shaking is within 30 km and 10 minutes of every other, so reports cannot be chained', () => {
+  it('counts a key once per ten minutes, its first report, in whatever order the reports arrive', () => {
+    const reports = [felt('a', 0, 0, 1), felt('a', 0, 5, 5), felt('b', 12, 1, 3), felt('c', 25, 2, 5)];
+    for (const order of [reports, [...reports].reverse()]) {
+      expect(clusterFelt(order)).toEqual([expect.objectContaining({ people: 3, places: 3, lvl: 3, time: T })]);
+      expect(clusterFelt(order)[0].reports.map((r) => r.node)).toEqual(['a', 'b', 'c']);
+    }
+    // Ten minutes on, the same key counts again.
+    const later = [felt('a', 0, 0), felt('b', 5, 1), felt('c', 10, 2), felt('a', 0, 11), felt('d', 5, 12), felt('e', 10, 13)];
+    expect(clusterFelt(later).map((c) => c.reports.map((r) => r.node))).toEqual([
+      ['a', 'b', 'c'],
+      ['a', 'd', 'e'],
+    ]);
+  });
+
+  it('every report in a shaking is within 30 km and 10 minutes of its first, so reports cannot be chained', () => {
     expect(clusterFelt([felt('a', 0), felt('b', 20), felt('c', 40)])).toEqual([]);
     expect(clusterFelt([felt('a', 0, 0), felt('b', 5, 6), felt('c', 10, 12)])).toEqual([]);
   });

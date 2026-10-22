@@ -216,16 +216,16 @@ describe('live network model', () => {
     const now = Date.now();
     const [a, b, c] = phones;
     // No heartbeats: feeling shaking takes no sensor.
-    live.ingest(signFelt(a.sk, { ...a, t: now - 15 * 60_000, lvl: 2 }));
-    live.ingest(signFelt(a.sk, { ...a, t: now - 8 * 60_000, lvl: 5 }));
-    live.ingest(signFelt(a.sk, { ...a, t: now - 2 * 60_000, lvl: 2 }));
-    expect(live.felt.map((f) => f.t)).toEqual([now - 15 * 60_000, now - 2 * 60_000]);
+    live.ingest(signFelt(a.sk, { ...a, t: now - 9 * 60_000, lvl: 2 }));
+    live.ingest(signFelt(a.sk, { ...a, t: now - 5 * 60_000, lvl: 5 }));
     live.recompute();
     expect(live.feltClusters).toEqual([]);
-    live.ingest(signFelt(b.sk, { ...b, t: now - 60_000, lvl: 3 }));
-    live.ingest(signFelt(c.sk, { ...c, t: now, lvl: 4 }));
+    live.ingest(signFelt(b.sk, { ...b, t: now - 4 * 60_000, lvl: 3 }));
+    live.ingest(signFelt(c.sk, { ...c, t: now - 3 * 60_000, lvl: 4 }));
     live.recompute();
-    expect(live.feltClusters).toEqual([expect.objectContaining({ people: 3, places: 3, lvl: 3, time: now - 2 * 60_000 })]);
+    expect(live.feltClusters).toEqual([expect.objectContaining({ people: 3, places: 3, lvl: 3, time: now - 9 * 60_000 })]);
+    // a's second report came five minutes after its first, so it does not count.
+    expect(live.feltClusters[0].reports.map((r) => r.lvl)).toEqual([2, 3, 4]);
   });
 
   it('sends a felt report only when this key has sent none in the last ten minutes', () => {

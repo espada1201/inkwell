@@ -1,7 +1,7 @@
 import type { Event } from 'nostr-tools/pure';
 import type { DetectedEvent, Trigger } from '../core/associate';
 import { MIN_PICKS, confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
-import { clusterFelt, type Felt, type FeltCluster } from '../core/felt';
+import { FELT_EVERY_MS, clusterFelt, type Felt, type FeltCluster } from '../core/felt';
 import type { LatLon } from '../core/geo';
 import type { RejectReason } from '../core/sensor';
 import { HEARTBEAT_EVERY_MS, filters, parse, signFelt, type Heartbeat, type Message } from '../net/protocol';
@@ -28,8 +28,6 @@ const MAX_TRIGGERS = 5000;
 const MAX_PICKS = 5000;
 const MAX_WITHDRAWALS = 5000;
 const MAX_FELT = 2000;
-/** A key may report shaking it felt once per ten minutes. */
-export const FELT_EVERY_MS = 10 * 60_000;
 /** Phones kept at most: past it, the one silent longest goes. */
 export const MAX_NODES = 10_000;
 /** A phone shows as checking its pick for a minute unless it withdraws it, and as shaken for two after a trigger. */
@@ -168,7 +166,8 @@ export class LiveNetwork extends Emitter {
       this.picks.delete(m.pick);
       this.queueRecompute();
     } else if (m.type === 'felt') {
-      if (m.data.t < Date.now() - WINDOW_MS || this.lastFelt(m.node, m.data.t)) return;
+      // Every report is kept, so clustering alone decides which of a key's reports count, the same in any order.
+      if (m.data.t < Date.now() - WINDOW_MS || this.felt.some((f) => f.id === m.id)) return;
       this.felt.push({ id: m.id, node: m.node, ...m.data });
       if (this.felt.length > MAX_FELT) this.felt.shift();
       this.queueRecompute();

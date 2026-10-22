@@ -24,20 +24,36 @@ export interface FeltCluster extends LatLon {
 /** Reports this close in space and time can be one shaking. */
 const CLUSTER_KM = 30;
 const CLUSTER_MS = 10 * 60_000;
+/** A key's reports count once per ten minutes: the first of them. */
+export const FELT_EVERY_MS = 10 * 60_000;
+/** Degrees of latitude in CLUSTER_KM, to rule out far reports before measuring the distance. */
+const CLUSTER_DEG = CLUSTER_KM / 111;
 /** Keys are free and places are typed in, so a shaking counts only once this many of each agree. */
 const MIN_KEYS = 3;
 const MIN_CELLS = 3;
 
 /**
- * Felt reports grouped into shakings. A report joins the earliest group whose every report is
- * within 30 km and 10 minutes of it, so no chain of reports can stretch a shaking across a
- * region. Only groups from three keys in three cells are returned, oldest first.
+ * Felt reports grouped into shakings. Each key counts once per ten minutes. A report joins the
+ * earliest shaking that began within 30 km and 10 minutes of it, so no chain of reports can
+ * stretch a shaking across a region. Reports are taken in time order, ties by id, so every
+ * browser groups the same reports the same way whatever order they arrived in. Only groups from
+ * three keys in three cells are returned, oldest first.
  */
-// shortcut: each report is compared with every member of the open groups, n² under a flood; index groups by cell if floods are seen.
 export function clusterFelt(reports: Felt[]): FeltCluster[] {
   const groups: Felt[][] = [];
-  for (const r of [...reports].sort((a, b) => a.t - b.t)) {
-    const g = groups.find((g) => g.every((x) => r.t - x.t <= CLUSTER_MS && distanceKm(x, r) <= CLUSTER_KM));
+  const counted = new Map<string, number>();
+  // Groups are made in time order, so the ones before `open` began too long ago to take more.
+  let open = 0;
+  for (const r of [...reports].sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+    const last = counted.get(r.node);
+    if (last !== undefined && r.t - last < FELT_EVERY_MS) continue;
+    counted.set(r.node, r.t);
+    while (open < groups.length && r.t - groups[open][0].t > CLUSTER_MS) open++;
+    let g: Felt[] | undefined;
+    for (let i = open; i < groups.length && !g; i++) {
+      const first = groups[i][0];
+      if (Math.abs(first.lat - r.lat) <= CLUSTER_DEG && distanceKm(first, r) <= CLUSTER_KM) g = groups[i];
+    }
     if (g) g.push(r);
     else groups.push([r]);
   }

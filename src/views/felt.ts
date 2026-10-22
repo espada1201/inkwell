@@ -1,5 +1,5 @@
-import { FELT_EVERY_MS, type LiveNetwork } from '../app/live';
-import type { Felt } from '../core/felt';
+import type { LiveNetwork } from '../app/live';
+import { FELT_EVERY_MS, type Felt } from '../core/felt';
 import { loadIdentity } from '../net/identity';
 import { reach } from '../net/transport';
 import { matchUsgs } from '../net/usgs';
