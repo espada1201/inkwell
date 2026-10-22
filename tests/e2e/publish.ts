@@ -35,7 +35,6 @@ export function scenarioEvents(id: string) {
     heartbeats.push(signHeartbeat(sk, { lat: n.lat, lon: n.lon, noise: 0.01, sps: 50 }, Math.floor(sim.start / 1000)));
     let open: { t: number; id: string } | null = null;
     for (const o of n.outputs) {
-      // As a phone does: the pick a verdict settles is the open one with its onset.
       const ev = signOutput(sk, n, o, open?.t === o.t ? open.id : undefined);
       open = o.kind === 'pick' ? { t: o.t, id: ev!.id } : null;
       if (ev) (o.kind === 'pick' ? picks : finals).push(ev);

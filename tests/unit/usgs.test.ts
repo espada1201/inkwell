@@ -39,9 +39,7 @@ describe('the quake someone reports feeling', () => {
   const origin = Date.UTC(2026, 9, 21, 14, 3);
   const here = { lat: 37.8, lon: -122.27 };
   const quake = (id: string, mag: number, lat: number, lon: number, time = origin): UsgsQuake => ({ id, mag, place: id, time, lat, lon, depthKm: 8, url: `https://x/${id}` });
-  /** M4.5 8 km north: moderate shaking here, by the model. */
   const near = quake('near', 4.5, 37.87, -122.27);
-  /** The quake that a report made here this many seconds after the origin links to. */
   const felt = (afterS: number, quakes: UsgsQuake[]) => matchFelt({ ...here, t: origin + afterS * 1000 }, quakes)?.quake.id ?? null;
 
   it('is found by a report made minutes after it, once USGS has posted it', () => {
@@ -51,20 +49,14 @@ describe('the quake someone reports feeling', () => {
 
   it('began in the hour before the report, and shook the reporter at least weakly', () => {
     expect(felt(2 * 3600, [near])).toBeNull();
-    // A clock a minute behind still finds it; nobody felt a quake five minutes before it began.
     expect(felt(-60, [near])).toBe('near');
     expect(felt(-300, [near])).toBeNull();
-    // An M3 160 km away is too small and far to feel, even a minute after it.
     expect(felt(60, [quake('far', 3, 37.8, -120.45)])).toBeNull();
   });
 
   it('is the one that shook them hardest, then the latest', () => {
-    // A bigger quake 80 km away, just before the report, shook here only weakly.
     expect(felt(20 * 60, [quake('bigger', 5, 37.8, -121.36, origin + 18.5 * 60_000), near])).toBe('near');
-    // Two that shook here alike: the later.
     expect(felt(15 * 60, [near, quake('later', 4.5, 37.71, -122.27, origin + 10 * 60_000)])).toBe('later');
-    // An M2.4 right below, after an M4.5 40 km off: the model puts both at light here, but quakes that
-    // small are rarely felt, so it counts as weak, as the near-you card says, and the M4.5 wins.
     expect(felt(20 * 60, [quake('m45', 4.5, 38.16, -122.27), quake('micro', 2.4, 37.818, -122.27, origin + 15 * 60_000)])).toBe('m45');
   });
 });

@@ -9,7 +9,6 @@ describe('typed coordinates', () => {
   });
 
   it('refuses what it would have to guess at, and what is out of range', () => {
-    // A decimal comma, compass letters, other number forms, one number or three, and too far.
     for (const t of ['', '38.7', '52,52, 13,40', '37.77 S, 122.42 W', '1e1, 2', '0x10, 2', '1, 2, 3', '95, 10', '10, 181']) expect(parseLatLon(t), t).toBeNull();
   });
 });

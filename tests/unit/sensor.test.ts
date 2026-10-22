@@ -83,7 +83,6 @@ describe('per-phone trigger', () => {
   });
 
   it('learns the background afresh after a break, wherever the phone lies', () => {
-    // Turned on its side while listening, hidden for ten seconds, then laid flat again.
     for (const seed of [1, 2, 3]) {
       const det = new NodeDetector(50);
       let warm = 0;
@@ -99,7 +98,6 @@ describe('per-phone trigger', () => {
 });
 
 describe('disturbances that only just cross the trigger', () => {
-  // Their peak is a few times the background, so shares of the peak alone fall inside the noise.
   it('never confirms knocks or footstep trains of 0.3–0.8 m/s²', () => {
     for (const count of [1, 3, 10])
       for (const amp of [0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
@@ -109,7 +107,6 @@ describe('disturbances that only just cross the trigger', () => {
   });
 
   it('still confirms light quake shaking, short or long', () => {
-    // The odd one comes in short bursts and is taken for footsteps, as it was before this rule.
     let confirmed = 0;
     for (const decayS of [2, 3, 4, 5])
       for (const sp of [1, 5, 9])
@@ -144,7 +141,6 @@ describe('provisional picks', () => {
     const pick = out.find((o) => o.kind === 'pick')!;
     const trig = out.find((o) => o.kind === 'trigger')!;
     expect(pick.t).toBe(trig.t);
-    // Sent 0.4 s after the onset it marks: long enough to tell P from S.
     expect(pick.at - pick.t).toBeLessThanOrEqual(500);
     expect(trig.at - pick.t).toBeGreaterThanOrEqual(15_000);
   });
@@ -186,7 +182,6 @@ describe('provisional picks', () => {
     const det = new NodeDetector(50);
     const out: DetectorOutput[] = [];
     for (const s of synthesize({ start: 0, durationS: 90, seed: 7, quake: { tP: 30, tS: 34, pga: 0.6 } })) {
-      // Two seconds after the onset, the phone's clock is set back a minute.
       const r = det.push(s.t > 32_000 ? { ...s, t: s.t - 60_000 } : s);
       if (r) out.push(r);
     }
@@ -195,9 +190,6 @@ describe('provisional picks', () => {
   });
 
   it('starts afresh after a break or its clock being set back, then hears the next quake', () => {
-    // A door slam at 20 s raises the threshold and holds off the next onset for a moment. At 60 s
-    // the samples stop for ten seconds, or the clock is set back two minutes, ten minutes or a
-    // day, with nothing being checked or with footsteps being checked; a quake comes 40 s later.
     for (const jump of [10_000, -120_000, -600_000, -86_400_000])
       for (const footsteps of [undefined, { t: 58, count: 4 }]) {
         const det = new NodeDetector(50);
@@ -213,7 +205,6 @@ describe('provisional picks', () => {
   });
 
   it('never raises its threshold when its clock steps back by less than a second', () => {
-    // The slam's false alarm raises the threshold, which then only relaxes; at 60 s the clock is set back 0.9 s.
     const det = new NodeDetector(50);
     let was = Infinity;
     for (const s of synthesize({ start: 0, durationS: 70, seed: 7, slam: { t: 20 } })) {
@@ -260,7 +251,6 @@ describe('this phone on the network', () => {
     vi.unstubAllGlobals();
   });
 
-  /** Just enough of a browser around SensorNode: motion events, page visibility, a screen wake lock. */
   function phone() {
     const sent: Message[] = [];
     const on: Record<string, (e?: unknown) => void> = {};
@@ -282,7 +272,6 @@ describe('this phone on the network', () => {
     const node = new SensorNode({ publish: (ev) => sent.push(parse(ev)!), subscribe: () => () => {}, statuses: () => [], onStatus: () => {}, close: () => {} });
     node.setLocation({ lat: 37.77, lon: -122.42 });
     node.setJoined(true);
-    /** The phone lies on a table for real time: each sample moves the clocks on by 20 ms. */
     const feed = (o: Omit<SynthOptions, 'start' | 'seed'>) => {
       for (const s of synthesize({ start: 0, seed: 1, ...o })) {
         vi.advanceTimersByTime(20);
@@ -292,7 +281,6 @@ describe('this phone on the network', () => {
     const heartbeats = () => sent.filter((m) => m.type === 'heartbeat');
     return { node, sent, on, doc, locks, feed, heartbeats };
   }
-  /** Let promises already resolved, such as a granted wake lock, run their callbacks. */
   const settle = () => vi.advanceTimersByTimeAsync(0);
 
   it('announces itself once warmed up, with the background it learned, listening since then', async () => {
@@ -305,7 +293,6 @@ describe('this phone on the network', () => {
     expect(heartbeats()).toHaveLength(1);
     const hb = heartbeats()[0].data;
     expect(hb.sps).toBe(50);
-    // Ten samples to learn the rate, then five seconds of warm-up.
     expect(hb.since! - t0).toBeGreaterThan(5000);
     expect(hb.since! - t0).toBeLessThan(5500);
     expect(hb.noise / node.detector!.background).toBeGreaterThan(0.85);
@@ -331,13 +318,11 @@ describe('this phone on the network', () => {
     await Promise.all([node.start(), node.start()]);
     await settle();
     expect(locks.size).toBe(1);
-    // Two minutes of listening: a heartbeat once warmed up, then one a minute.
     feed({ durationS: 126 });
     expect(heartbeats()).toHaveLength(3);
     node.stop();
     await settle();
     expect(locks.size).toBe(0);
-    // Stopped before the screen lock was even granted.
     await node.start();
     node.stop();
     await settle();
@@ -382,7 +367,6 @@ describe('this phone on the network', () => {
     const pick = sent.find((m) => m.type === 'pick')!;
     node.setJoined(false);
     expect(sent.filter((m) => m.type === 'retract')).toEqual([expect.objectContaining({ pick: pick.id, reason: 'interrupted' })]);
-    // Its verdict comes as before, for this phone only.
     const before = sent.length;
     feed({ durationS: 30 });
     expect(sent).toHaveLength(before);
@@ -397,7 +381,6 @@ describe('this phone on the network', () => {
     on.visibilitychange();
     expect(sent.filter((m) => m.type === 'retract')).toHaveLength(1);
     expect(heartbeats().at(-1)!.data.sps).toBe(0);
-    // Back after ten seconds: nothing is withdrawn twice.
     vi.advanceTimersByTime(10_000);
     doc.visibilityState = 'visible';
     on.visibilitychange();
@@ -441,14 +424,12 @@ describe('this phone on the network', () => {
     await node.start();
     feed({ durationS: 65 });
     node.stop();
-    // Ten samples to learn the rate, five seconds of warm-up, then a minute of listening.
     const { session, week } = node.listened();
     expect(session).toBeGreaterThan(59_000);
     expect(session).toBeLessThan(60_000);
     expect(week).toBe(session);
     const next = phone().node;
     expect(next.listened()).toEqual({ session: 0, week });
-    // A new week starts from nothing.
     vi.setSystemTime(Date.now() + 7 * 86400_000);
     expect(next.listened().week).toBe(0);
   });
@@ -458,7 +439,6 @@ describe('this phone on the network', () => {
     await node.start();
     const t0 = Date.now();
     feed({ durationS: 110, quake: { tP: 30, tS: 33, pga: 0.6 } });
-    /** A USGS quake 10 km down, whose P wave reaches this phone `arrivalS` into the record. */
     const usgs = (id: string, mag: number, km: number, arrivalS: number) => ({
       id, mag, place: id, depthKm: 10, url: '', ...offset(node.location!, km, 0),
       time: t0 + arrivalS * 1000 - (hypocentralKm(km, 10) / VP_KMS) * 1000,
@@ -478,7 +458,6 @@ describe('this phone on the network', () => {
   });
 
   it('inverts the shaking model into how far away a quake would still be noticed', () => {
-    // A quiet phone notices 0.1 m/s²: "an M4 within about 50 km and an M5 within about 90 km".
     expect(reachKm(4, 0.1)).toBeCloseTo(51.33, 2);
     expect(reachKm(5, 0.1)).toBeCloseTo(88.16, 2);
     for (const [mag, pga] of [[4, 0.1], [5, 0.1], [5, 0.5]]) expect(pgaFor(mag, hypocentralKm(reachKm(mag, pga)))).toBeCloseTo(pga, 10);
@@ -493,7 +472,6 @@ describe('this phone on the network', () => {
     expect(parse(pick)).toMatchObject({ type: 'pick', data: { ...here, t, phase: 'S' } });
     const trigger = signOutput(sk, here, { kind: 'trigger', t, at: t + 20_000, phase: 'S', pga: 0.3, durS: 4 }, pick.id)!;
     expect(parse(trigger)).toMatchObject({ type: 'trigger', pick: pick.id, data: { ...here, t, phase: 'S', pga: 0.3, dur: 4 } });
-    // A retraction is dated when the phone gave up on its pick; with no pick open there is nothing to withdraw.
     const gaveUp = { kind: 'reject', t, at: t + 20_000, reason: 'footsteps' } as const;
     expect(parse(signOutput(sk, here, gaveUp, pick.id)!)).toMatchObject({ type: 'retract', pick: pick.id, at: Math.floor((t + 20_000) / 1000) * 1000 });
     expect(signOutput(sk, here, gaveUp)).toBeNull();

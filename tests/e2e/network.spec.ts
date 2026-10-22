@@ -10,10 +10,6 @@ import { scenarioEvents, send } from './publish';
 const napa = scenarioEvents('napa-2014');
 const truth = napa.sim.scenario.truth!;
 
-/**
- * Four listening phones around one spot that each felt a quake's P wave 15 s ago: each can pick
- * it and withdraw that pick, or confirm it with a trigger as shaken by a quake of magnitude `mag`.
- */
 function pickers(src = { lat: 37.9, lon: -122.3 }) {
   const t0 = Date.now() - 15_000;
   return Array.from({ length: 4 }, (_, i) => {
@@ -31,7 +27,6 @@ function pickers(src = { lat: 37.9, lon: -122.3 }) {
   });
 }
 
-/** Contrast ratio of an element's text against the background of the row button it sits in. */
 function contrastOnRow(el: Element) {
   const rgb = (c: string) => c.match(/[\d.]+/g)!.slice(0, 3).map(Number);
   const lum = (c: string) => {
@@ -46,7 +41,6 @@ function contrastOnRow(el: Element) {
 test.use({ usgs: usgsFeed([{ id: 'nc-replayed', mag: truth.mag, place: '6 km NW of American Canyon, CA', time: napa.sim.origin, lat: truth.lat, lon: truth.lon, depth: truth.depthKm }]) });
 
 test('phones on a relay become a detected, USGS-verified earthquake', async ({ page, relay }) => {
-  // Someone a few kilometres from the epicentre, whose location the sensor screen saved.
   await page.addInitScript((at) => localStorage.setItem('tremor.location', JSON.stringify(at)), { lat: truth.lat + 0.05, lon: truth.lon });
   await page.goto(`/?relays=${relay.url}#network`);
   await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
@@ -55,7 +49,6 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
 
   await send(relay.url, napa.heartbeats);
   await expect(page.getByTestId('stat-nodes')).toHaveText(String(napa.heartbeats.length));
-  // A phone silent for three minutes is offline, and the explanation says so.
   await expect(page.locator('.stats')).toHaveAttribute('title', /^Phones listening now \(heard from in the last 3 minutes\)/);
 
   // Raw picks alone: a provisional detection, seconds after the P wave in real life.
@@ -74,7 +67,6 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   await expect(page.getByTestId('event-list')).toContainText('Matches USGS');
   await expect(ours).toHaveCount(1);
   await expect(ours).toContainText(/^[\d.]+Tremor detection\d+ km from you · rough local shaking: \w/);
-  // The provisional detection stays listed with how it ended, and the announcer says so too.
   await expect(page.getByTestId('outcome')).toHaveCount(1);
   await expect(page.getByTestId('outcome')).toContainText(/^Confirmed: M\d\.\d, matches USGS/);
   await expect(page.getByRole('alert')).toContainText(/Confirmed: M\d\.\d, matches USGS/);
@@ -87,11 +79,9 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   const est = { lat: Number(await loc.getAttribute('data-lat')), lon: Number(await loc.getAttribute('data-lon')) };
   expect(distanceKm(est, truth)).toBeLessThan(15);
   await expect(page.getByTestId('verdict')).toContainText('Off by');
-  // It says how far off it could be, and USGS's epicentre is inside that.
   const km = Number((await page.getByTestId('est-km').innerText()).match(/^± (\d+) km/)![1]);
   expect(distanceKm(est, truth)).toBeLessThanOrEqual(km);
   await expect(page.getByTestId('est-mag')).toHaveText(/^M\d\.\d–\d\.\d$/);
-  // Measured on simulated quakes, which shake by Tremor's own model: it says so.
   await expect(page.getByTestId('compare')).toContainText('In tests on simulated quakes, nine times in ten');
   await expect(page.getByTestId('compare')).toContainText('which reads big quakes low');
 });
@@ -111,12 +101,10 @@ test('a provisional detection its phones withdraw stays listed as not confirmed,
 });
 
 test('shaking near you lists what was reported nearest first, with safety advice after a felt one', async ({ page, relay }) => {
-  // Near The Geysers, about 60 km from the replayed Napa quake and 270 km from the one in Central California.
   await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
   await page.goto(`/?relays=${relay.url}#network`);
   const near = page.getByTestId('near');
   const items = near.getByTestId('near-item');
-  // The M4.6 in Central California, 270 km off, was too weak to feel here: the USGS list below has it, the card does not.
   await expect(items).toHaveCount(2);
   await expect(items.nth(0)).toContainText(/USGS: 5 km NW of The Geysers, CA\d+ km from you · rough local shaking: weak/);
   await expect(items.nth(1)).toContainText('USGS: 6 km NW of American Canyon, CA');
@@ -124,7 +112,6 @@ test('shaking near you lists what was reported nearest first, with safety advice
   await expect(near).toContainText('Drop, Cover and Hold On');
   await expect(near.getByRole('link', { name: 'leave an old phone on charge with Tremor open' })).toHaveAttribute('href', '#sensor');
   await expect(near).not.toContainText(/official/i);
-  // The USGS list is nearest first too, until asked for the whole world.
   const usgs = page.getByTestId('usgs-list').getByRole('button');
   await expect(usgs.first()).toContainText('The Geysers');
   await page.getByRole('button', { name: 'worldwide' }).click();
@@ -139,7 +126,6 @@ test('without a location the card asks once, by typed coordinates or the browser
   await near.getByRole('button', { name: 'Set' }).click();
   await expect(near.getByRole('status')).toHaveText('Type a latitude and a longitude, for example 37.80, -122.27.');
   await expect(typed).toHaveAttribute('aria-invalid', 'true');
-  // Cape Town: far from every quake in the feed.
   await typed.fill('-33.9249, 18.4241');
   await near.getByRole('button', { name: 'Set' }).click();
   await expect(near).toContainText('Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad.');
@@ -159,7 +145,6 @@ test('without a location the card asks once, by typed coordinates or the browser
   await expect(near).toContainText('Near 38.71°N 122.70°W');
   await expect(near.getByTestId('near-item').first()).toContainText('The Geysers');
 
-  // A phone sharing as a sensor publishes where it is: only the sensor screen moves it.
   await page.evaluate(() => localStorage.setItem('tremor.join', '1'));
   await page.reload();
   await expect(near).toContainText('Near 38.71°N 122.70°W');
@@ -188,8 +173,6 @@ test('keyboard focus stays put while live updates stream in', async ({ page, rel
   await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
   const day = page.getByRole('button', { name: 'past day' });
   await day.focus();
-  // A part of the panel whose content did not change is left in place, not rebuilt and read out again.
-  // The panel catches up with the header on its next frame: mark the part once it says the relay is open.
   await expect(page.getByTestId('no-events')).toContainText('No network detections');
   await page.getByTestId('no-events').evaluate((el) => (el.dataset.mark = 'kept'));
   await send(relay.url, napa.heartbeats.slice(0, 3));
@@ -205,7 +188,6 @@ test('typing in the relay list neither freezes the panel nor loses what is typed
   const box = page.getByLabel('Relay URLs, one per line');
   await box.fill(`${relay.url}\nwss://nos.lol`);
   await send(relay.url, napa.heartbeats.slice(0, 3));
-  // Well before the panel's 15 s refresh, which is all a frozen panel would show.
   await expect(page.getByTestId('stat-nodes')).toHaveText('3', { timeout: 5000 });
   await expect(box).toBeFocused();
   await expect(box).toHaveValue(`${relay.url}\nwss://nos.lol`);
@@ -213,14 +195,12 @@ test('typing in the relay list neither freezes the panel nor loses what is typed
 });
 
 test('with every relay refusing, the panel says nothing can be heard rather than all is quiet', async ({ page }) => {
-  // The fixture closes every wss:// connection at once, as an unreachable relay would.
   await page.goto('/?relays=wss://relay.one.example,wss://relay.two.example#network');
   await expect(page.getByTestId('relay-status')).toHaveText('0/2 relays');
   const down = page.getByRole('status').filter({ hasText: 'Not connected to any relay' });
   await expect(down).toBeVisible();
   await expect(down).toContainText('check your connection or the relay list');
   await expect(page.getByTestId('no-events')).toHaveCount(0);
-  // It stays put while the relays are retried (after 1, 2, 4… s).
   await page.waitForTimeout(2500);
   await expect(down).toBeVisible();
 });
@@ -233,12 +213,10 @@ test('a felt report made with no relay connected says it is waiting to go out', 
   const dialog = page.getByRole('dialog', { name: 'I felt it' });
   await dialog.getByRole('button', { name: /^strong/ }).click();
   await expect(dialog.getByRole('status')).toContainText('No relay is connected yet: it goes out once one is, while this page stays open.');
-  // No listed quake matches, so USGS's own form takes it.
   await expect(dialog.getByRole('link', { name: 'Tell USGS too' })).toHaveAttribute('href', 'https://earthquake.usgs.gov/data/dyfi/');
 });
 
 test('a felt report sent from the header reaches the relay, and offers to tell USGS about the quake it matches', async ({ page, relay }) => {
-  // USGS lists a quake from six minutes ago (it posts minutes after one), a few kilometres from this browser.
   await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed([{ id: 'nc-felt', mag: 4.2, place: '3 km E of Cobb, CA', time: Date.now() - 6 * 60_000, lat: 38.82, lon: -122.69 }]) }));
   await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
   await page.goto(`/?relays=${relay.url}#network`);
@@ -253,7 +231,6 @@ test('a felt report sent from the header reaches the relay, and offers to tell U
   await expect(usgs).toHaveAttribute('href', 'https://earthquake.usgs.gov/earthquakes/eventpage/nc-felt/tellus');
   await expect(usgs).toBeFocused();
   await expect.poll(() => relay.events().filter((e) => e.kind === 4580).map((e) => JSON.parse(e.content))).toEqual([expect.objectContaining({ v: 1, lat: 38.7, lon: -122.7, lvl: 2 })]);
-  // Within ten minutes the card's own button finds the report already made, and sends nothing more.
   await dialog.getByRole('button', { name: 'Close' }).click();
   await page.getByTestId('near').getByRole('button', { name: 'I felt it' }).click();
   await expect(dialog.getByRole('status')).toContainText('You can report again from');
@@ -288,11 +265,9 @@ test('felt reports show once three people in three places agree, and one key spa
   await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
   await page.goto(`/?relays=${relay.url}#network`);
   await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
-  // One key reporting from twelve places around Sacramento, every 20 s.
   const spammer = generateSecretKey();
   const sacramento = { lat: 38.58, lon: -121.49 };
   await send(relay.url, Array.from({ length: 12 }, (_, i) => signFelt(spammer, { ...offset(sacramento, 2 * i, 0), t: Date.now() - i * 20_000, lvl: 5 })));
-  // Then three people a few kilometres apart near Santa Rosa.
   const santaRosa = { lat: 38.44, lon: -122.71 };
   await send(relay.url, [0, 4, 8].map((km, i) => signFelt(generateSecretKey(), { ...offset(santaRosa, km, 0), t: Date.now() - i * 60_000, lvl: 3 })));
   const felt = page.getByTestId('felt');
@@ -302,14 +277,11 @@ test('felt reports show once three people in three places agree, and one key spa
 });
 
 test('the opt-in chime sounds once per shaking confirmed near you, never for withdrawn picks or for what people say they felt', async ({ page, relay }) => {
-  // Without the replayed Napa quake: here, halfway between two groups of phones 90 km apart.
   const here = { lat: 38.3, lon: -122.3 };
-  // USGS listed a quake that shook here 25 minutes ago, before the tap: not news to whoever tapped.
   let listed = [{ id: 'before', mag: 4.5, place: 'Before the tap', time: Date.now() - 25 * 60_000, ...offset(here, 30, 0) }];
   await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed(listed) }));
   await page.addInitScript((at) => {
     localStorage.setItem('tremor.location', JSON.stringify(at));
-    // Each tone, buzz and notification is counted instead of made.
     const w = window as unknown as { chimes: { tones: number; buzzes: number; notes: string[] } };
     w.chimes = { tones: 0, buzzes: 0, notes: [] };
     const node = () => ({ connect: (n: unknown) => n, start: () => w.chimes.tones++, stop() {}, frequency: {}, gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} } });
@@ -332,7 +304,6 @@ test('the opt-in chime sounds once per shaking confirmed near you, never for wit
     };
   }, here);
   const tones = async () => (await page.evaluate(() => (window as unknown as { chimes: { tones: number } }).chimes)).tones;
-  /** Three people a few kilometres apart who felt shaking at time t. */
   const felt = (t: number, lvl: number, from = here) => [0, 4, 8].map((km) => signFelt(generateSecretKey(), { ...offset(from, km, 0), t, lvl }));
   const rows = page.getByTestId('felt');
   await page.goto(`/?relays=${relay.url}#network`);
@@ -343,7 +314,6 @@ test('the opt-in chime sounds once per shaking confirmed near you, never for wit
   await expect(near).toContainText('Only while Tremor is open: a closed tab cannot alert you.');
   await near.getByLabel('Chime when shaking is confirmed near me').check();
 
-  // Phones 45 km south pick, then withdraw: provisional, then not confirmed, and silent throughout.
   const south = pickers({ lat: 37.9, lon: -122.3 });
   await send(relay.url, south.map((p) => p.heartbeat));
   await send(relay.url, south.map((p) => p.pick));
@@ -353,7 +323,6 @@ test('the opt-in chime sounds once per shaking confirmed near you, never for wit
   await expect(page.getByTestId('outcome')).toContainText('Not confirmed');
   expect(await tones()).toBe(0);
 
-  // Phones 45 km north confirm a quake that shook here: one chime, heard, felt, shown and notified.
   const north = pickers({ lat: 38.7, lon: -122.3 });
   await send(relay.url, [...north.map((p) => p.heartbeat), ...north.map((p) => p.trigger(5))]);
   await expect(page.getByTestId('stat-events')).toHaveText('1');
@@ -363,21 +332,17 @@ test('the opt-in chime sounds once per shaking confirmed near you, never for wit
   await note.getByRole('button', { name: 'Dismiss' }).click();
   await expect(note).toBeHidden();
 
-  // People here felt it too: the same shaking, so no second chime.
   await send(relay.url, felt(Date.now(), 3));
   await expect(rows).toHaveCount(2);
   expect(await tones()).toBe(1);
-  // Strong shaking that people say they felt 45 km north is listed, but never chimes by itself: anyone can make three keys say anything.
   await send(relay.url, felt(Date.now() - 14 * 60_000, 5, offset(here, 0, 45)));
   await expect(rows).toHaveCount(3);
   await expect(page.getByTestId('near-item').filter({ hasText: 'typically very strong' })).toBeVisible();
   expect(await tones()).toBe(1);
-  // USGS then lists one that shook here 40 minutes ago: old news.
   listed = [...listed, { id: 'old', mag: 4.5, place: 'Long ago', time: Date.now() - 40 * 60_000, ...offset(here, -30, 0) }];
   await page.getByRole('button', { name: 'past hour' }).click();
   await expect(page.getByTestId('usgs-list')).toContainText('Long ago');
   expect(await tones()).toBe(1);
-  // And one 12 minutes ago: another shaking, another chime.
   listed = [...listed, { id: 'new', mag: 4.5, place: 'Just now', time: Date.now() - 12 * 60_000, ...offset(here, 0, -30) }];
   await page.getByRole('button', { name: 'past day' }).click();
   await expect(note).toBeVisible();
@@ -394,7 +359,6 @@ test('the relay editor says why it saved nothing, and which lines were wrong', a
   await expect(note).toContainText('relay.damus.io, nostr.wine, ws://relay.example.com');
   await expect(note).not.toContainText('nos.lol');
   await expect(box).toHaveAttribute('aria-invalid', 'true');
-  // Nothing was saved and the page did not reload under the user.
   expect(await page.evaluate(() => localStorage.getItem('tremor.relays'))).toBeNull();
   await expect(box).toHaveValue('relay.damus.io\nwss://nos.lol\nnostr.wine\nws://relay.example.com');
 });
@@ -420,7 +384,6 @@ test('USGS outage shows a calm error state', async ({ page, relay }) => {
   await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
   await page.goto(`/?relays=${relay.url}#network`);
   await expect(page.getByText('The USGS feed could not be reached')).toBeVisible();
-  // Nothing near you, but only Tremor could be asked.
   await expect(page.getByTestId('near')).toContainText('Nothing strong enough to feel has been reported near you yet. USGS usually posts within about 2.5 min in California, about 8 min elsewhere in the US and about 20 min abroad. The USGS feed cannot be reached right now, so this is from Tremor alone.');
 });
 

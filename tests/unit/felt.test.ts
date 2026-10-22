@@ -5,7 +5,6 @@ import { offset } from '../../src/core/geo';
 const at = { lat: 37.8, lon: -122.27 };
 const T = Date.parse('2026-10-22T10:00:00Z');
 let n = 0;
-/** A report by `node`, `eastKm` east of `at`, felt `min` minutes after T. */
 const felt = (node: string, eastKm: number, min = 0, lvl = 2): Felt => ({ id: `r${n++}`, node, ...offset(at, eastKm, 0), t: T + min * 60_000, lvl });
 
 describe('felt report clusters', () => {
@@ -16,7 +15,6 @@ describe('felt report clusters', () => {
   });
 
   it('shows nothing from fewer than three keys or fewer than three places', () => {
-    // One key in five places, and three keys in one building.
     expect(clusterFelt([0, 2, 4, 6, 8].map((km) => felt('spam', km)))).toEqual([]);
     expect(clusterFelt(['a', 'b', 'c'].map((k) => felt(k, 0)))).toEqual([]);
   });
@@ -27,7 +25,6 @@ describe('felt report clusters', () => {
       expect(clusterFelt(order)).toEqual([expect.objectContaining({ people: 3, places: 3, lvl: 3, time: T })]);
       expect(clusterFelt(order)[0].reports.map((r) => r.node)).toEqual(['a', 'b', 'c']);
     }
-    // Ten minutes on, the same key counts again.
     const later = [felt('a', 0, 0), felt('b', 5, 1), felt('c', 10, 2), felt('a', 0, 11), felt('d', 5, 12), felt('e', 10, 13)];
     expect(clusterFelt(later).map((c) => c.reports.map((r) => r.node))).toEqual([
       ['a', 'b', 'c'],

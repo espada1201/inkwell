@@ -4,7 +4,6 @@ import { signHeartbeat } from '../../src/net/protocol';
 import { expect, test } from './fixtures';
 import { send } from './publish';
 
-/** Feed a recorded accelerometer series to the page as DeviceMotion events, in real time (50 Hz). Returns the wall clock time of its start. */
 async function feed(page: import('@playwright/test').Page, record: { x: number; y: number; z: number }[]) {
   return page.evaluate((rec) => {
     const start = Date.now();
@@ -37,7 +36,6 @@ test.describe('be a sensor', () => {
     await expect(page.getByTestId('sensor-state')).toHaveText('Ready');
     await expect(page.getByTestId('publish-note')).toContainText('Nothing leaves this phone');
 
-    // A decimal comma is refused, not read as 37 and -122: that would put the phone 60 km off.
     await page.getByLabel('Latitude').fill('37,77493');
     await page.getByLabel('Longitude').fill('-122,41942');
     await page.getByRole('button', { name: 'Set' }).click();
@@ -54,7 +52,6 @@ test.describe('be a sensor', () => {
     await page.getByTestId('start').click();
     const start = await feed(page, synthesize({ start: 0, durationS: 34, seed: 3, quake: { tP: 10, tS: 13, pga: 0.8 } }));
     await expect(page.getByTestId('sensor-state')).toHaveText('Listening', { timeout: 10_000 });
-    // The background it learned while warming up: about 12.5 mm/s² for this record.
     await expect(page.getByTestId('background')).toHaveText(/^1[0-5]\.\d mm\/s²$/);
     await expect(page.getByTestId('meter-word')).toHaveText('Quiet');
 
@@ -67,13 +64,11 @@ test.describe('be a sensor', () => {
     });
     expect(inked).toBeGreaterThan(100);
 
-    // The provisional pick marks the onset within a second of the P wave reaching the phone, 10 s in...
     await expect.poll(() => relay.events().filter((e) => e.kind === 4578).length, { timeout: 20_000 }).toBe(1);
     const onset = JSON.parse(relay.events().find((e) => e.kind === 4578)!.content).t - (start + 10_000);
     expect(onset).toBeGreaterThan(0);
     expect(onset).toBeLessThan(1000);
     await expect(page.getByTestId('meter-word')).toHaveText('Shaking');
-    // ...and the vetted trigger follows 15–30 s after the onset, linked to it.
     await expect(page.getByTestId('sensor-log')).toContainText(/Confirmed shaking: (light|moderate|strong), [\d.]+ m\/s² · P wave · sent/, { timeout: 40_000 });
     const verdict = Date.now() - (start + 10_000 + onset);
     expect(verdict).toBeGreaterThan(15_000);
@@ -100,7 +95,6 @@ test.describe('be a sensor', () => {
     await page.getByLabel('Longitude').fill('-122.42');
     await page.getByRole('button', { name: 'Set' }).click();
     await expect(page.getByTestId('neighbours')).toHaveText('No other phones heard listening within 25 km.');
-    // Two phones across the bay, one that has stopped, and one in Sacramento.
     const phone = (lat: number, lon: number, sps = 50) => signHeartbeat(generateSecretKey(), { lat, lon, noise: 0.01, sps });
     await send(relay.url, [phone(37.8, -122.27), phone(37.7, -122.47), phone(37.75, -122.4, 0), phone(38.58, -121.49)]);
     await expect(page.getByTestId('neighbours')).toHaveText('Heard from 2 other phones listening within 25 km.');
@@ -108,17 +102,14 @@ test.describe('be a sensor', () => {
     await page.getByTestId('start').click();
     await feed(page, synthesize({ start: 0, durationS: 8, seed: 1 }));
     await expect(page.getByTestId('sensor-state')).toHaveText('Listening', { timeout: 10_000 });
-    // A quiet phone notices shaking from 0.1 m/s², which the shaking model puts this far out.
     await expect(page.getByTestId('reach')).toHaveText('Would notice an M4 within about 50 km and an M5 within about 90 km.');
     await expect(card).toContainText('Listening time: under a minute this session, under a minute this week.');
-    // The feed's quakes all came before it listened.
     await expect(card).toContainText('No USGS quake since it began listening was strong enough here to register.');
   });
 
   test('works by keyboard: focus stays put as the screen redraws, and typed coordinates are kept', async ({ page }) => {
     await page.goto('/#sensor');
     await page.getByTestId('start').focus();
-    /** Tab on, let a redraw that may follow happen, and check where focus is. */
     const tab = async (to: import('@playwright/test').Locator) => {
       await page.keyboard.press('Tab');
       await page.waitForTimeout(100);
@@ -134,7 +125,6 @@ test.describe('be a sensor', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W');
     await expect(page.getByRole('button', { name: 'Set' })).toBeFocused();
-    // Starting moves focus to the button that stops it.
     await page.getByTestId('start').focus();
     await page.keyboard.press('Enter');
     await expect(page.getByRole('button', { name: 'Stop sensor' })).toBeFocused();

@@ -3,7 +3,6 @@ import { signHeartbeat } from '../../src/net/protocol';
 import { expect, test } from './fixtures';
 import { send } from './publish';
 
-/** Phones that announce right now that they are listening at these spots. */
 const listeningAt = (spots: [number, number][]) => spots.map(([lat, lon]) => signHeartbeat(generateSecretKey(), { lat, lon, noise: 0.01, sps: 50 }));
 
 test('planning a network for Kathmandu', async ({ page }) => {
@@ -16,7 +15,6 @@ test('planning a network for Kathmandu', async ({ page }) => {
   // A busy hour of bumped and jostled phones without a quake.
   await expect(page.getByTestId('kpi-false')).toHaveText(/^0\/60$/);
   await expect(page.locator('.plan-story')).toContainText('With 50 phones listening across Kathmandu');
-  // The first alert is timed where people get it: at the phones, a relay hop after the network declares.
   await expect(page.getByTestId('kpi-alert')).toHaveText(/^(\d+\.\d s|—)$/);
   await expect(page.getByTestId('kpis')).toContainText('at the phones, after the rupture');
   // The "how many phones" curve fills in point by point.
@@ -48,14 +46,11 @@ test('planning for Here: the phones listening now beside the number that would c
   const gap = page.getByTestId('plan-gap');
   await expect(gap).toHaveText(/^Right now no phones listen within 20 km of you; about \d+ would catch an M6 beneath you 9 times in 10, alerting phones about \d+\.\d s after it begins\. Plan with \d+ phones here$/, { timeout: 60_000 });
 
-  // Three phones start listening nearby and one 60 km away: the plan follows the three.
   await send(relay.url, listeningAt([[37.8, -122.27], [37.85, -122.3], [37.72, -122.2], [38.35, -122.27]]));
   await expect(gap).toContainText('Right now 3 phones listen within 20 km of you; about', { timeout: 60_000 });
   await expect(page.locator('output')).toHaveText('3 phones');
-  // Early detection needs four phones, so three never declare a quake.
   await expect(page.locator('.plan-story')).toContainText('With 3 phones listening within 20 km of you, none of the 24 simulated M6 quakes beneath you was detected', { timeout: 60_000 });
 
-  // The target is a link to the same plan with that many phones.
   const link = gap.getByRole('link');
   const href = (await link.getAttribute('href'))!;
   expect(href).toMatch(/^#plan\/37\.8,-122\.27\/6\/under\/\d+$/);
@@ -72,7 +67,6 @@ test('a planned spot opens from its link without a saved location, and any spot 
   await expect(page.locator('.plan-story')).toContainText('With 25 phones listening within 20 km of 37.80°N 122.27°W', { timeout: 60_000 });
   await expect(page.getByTestId('plan-gap')).toContainText(/^Right now no phones listen within 20 km of 37\.80°N 122\.27°W; about \d+ would catch an M6 beneath 37\.80°N 122\.27°W/, { timeout: 60_000 });
 
-  // Without a saved location, Here asks for coordinates and refuses ones off the globe.
   await page.locator('[data-city="kathmandu"]').click();
   await expect(page.getByTestId('plan-gap')).toBeHidden();
   await here.click();

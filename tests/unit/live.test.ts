@@ -84,7 +84,6 @@ describe('live network model', () => {
     four.forEach((p, i) => live.ingest(signRetraction(p.sk, picks[i].id, i < 3 ? 'footsteps' : 'impulse')));
     live.recompute();
     expect(live.provisional.map((d) => d.outcome)).toEqual(['withdrawn']);
-    // A phone with a heartbeat retracts as many picks it never sent as the network keeps.
     const others = phones.slice(4);
     for (const p of others) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
     const hex = (i: number) => i.toString(16).padStart(64, '0');
@@ -94,7 +93,6 @@ describe('live network model', () => {
     const [d] = live.provisional;
     expect(d.outcome).toBe('withdrawn');
     expect(d.withdrew.map((w) => w.reason).sort()).toEqual(['footsteps', 'footsteps', 'footsteps', 'impulse']);
-    // Other phones then confirm a quake there and then.
     for (const p of others) live.ingest(signTrigger(p.sk, { ...p, dur: 5 }));
     live.recompute();
     expect(live.events).toHaveLength(1);
@@ -116,7 +114,6 @@ describe('live network model', () => {
     confirmed.recompute(now);
     expect(confirmed.provisional.map((d) => d.outcome)).toEqual(['confirmed']);
     expect(confirmed.provisional[0].confirmed).toBe(confirmed.events[0]);
-    // Its picks age out after a minute, but the phones may still confirm: it waits two.
     unconfirmed.recompute(now + 70_000);
     expect(unconfirmed.provisional.map((d) => d.outcome)).toEqual(['open']);
     unconfirmed.recompute(now + 121_000);
@@ -178,7 +175,6 @@ describe('live network model', () => {
     const n = live.nodes.get(getPublicKey(p.sk))!;
     expect(live.isOnline(n, Date.now() - 5 * 60_000)).toBe(true);
     expect(live.isOnline(n, Date.now() - 11 * 60_000)).toBe(false);
-    // After saying it stopped, it listens again only from when it is next heard.
     live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 0 }, now + 1));
     live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50 }, now + 2));
     expect(live.isOnline(live.nodes.get(getPublicKey(p.sk))!, Date.now())).toBe(false);
@@ -187,7 +183,6 @@ describe('live network model', () => {
   it('keeps a bounded number of phones, dropping the one silent longest', () => {
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     const at = Date.now() - 60_000;
-    // Keys cost nothing, so this is what a flood of fresh ones looks like once verified.
     const beat = (i: number, t: number): Message => ({ id: `hb${i}`, node: `node${i}`, at: t, type: 'heartbeat', data: { lat: 1, lon: 2, noise: 0.01, sps: 50 } });
     for (let i = 0; i < MAX_NODES; i++) live.receive(beat(i, at + (i === 7 ? -30_000 : i)));
     live.receive(beat(MAX_NODES, at + MAX_NODES));
@@ -214,8 +209,6 @@ describe('live network model', () => {
   });
 
   it('a few triggers that line up by chance are no quake when the phones around them heard nothing', () => {
-    // A grid of phones 2 km apart; five near the middle trigger as if on one wavefront. Six by six
-    // holds every phone the wave reaches; more phones would only add signing time.
     const city = Array.from({ length: 36 }, (_, i) => ({ sk: generateSecretKey(), ...offset(src, 2 * ((i % 6) - 2.5), 2 * (Math.floor(i / 6) - 2.5)) }));
     const five = [14, 15, 20, 21, 28].map((i) => city[i]);
     const listening = T0 - 600_000;
@@ -257,7 +250,6 @@ describe('live network model', () => {
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     const now = Date.now();
     const [a, b, c] = phones;
-    // No heartbeats: feeling shaking takes no sensor.
     live.ingest(signFelt(a.sk, { ...a, t: now - 9 * 60_000, lvl: 2 }));
     live.ingest(signFelt(a.sk, { ...a, t: now - 5 * 60_000, lvl: 5 }));
     live.recompute();
@@ -266,7 +258,6 @@ describe('live network model', () => {
     live.ingest(signFelt(c.sk, { ...c, t: now - 3 * 60_000, lvl: 4 }));
     live.recompute();
     expect(live.feltClusters).toEqual([expect.objectContaining({ people: 3, places: 3, lvl: 3, time: now - 9 * 60_000 })]);
-    // a's second report came five minutes after its first, so it does not count.
     expect(live.feltClusters[0].reports.map((r) => r.lvl)).toEqual([2, 3, 4]);
   });
 
@@ -289,14 +280,6 @@ describe('a quake felt only from one side, by a town 100 km away', () => {
     vi.useRealTimers();
   });
 
-  /**
-   * Forty phones in a town 30 km across, 100 km west of an M6.5, run through the real phone
-   * detector (`simulate`). This browser hears each phone's heartbeat once a minute, and its picks,
-   * retractions and (unless left out) triggers a relay's latency after they were sent, each
-   * trigger naming the pick it settles, as a phone's does. Returns the network 150 s after the
-   * origin, and how many times it showed the quake twice: as a provisional detection beside a
-   * confirmed one.
-   */
   function heard(seed: number, triggers = true) {
     const quake = { lat: 37, lon: -122, depthKm: 10, mag: 6.5 };
     const start = Date.UTC(2026, 9, 1, 12);
@@ -336,7 +319,6 @@ describe('a quake felt only from one side, by a town 100 km away', () => {
     expect(live.events).toHaveLength(1);
     expect(twice).toBe(0);
     expect(live.provisional.map((d) => d.outcome)).toEqual(['confirmed']);
-    // Its record ("Confirmed: M…") follows the quake as the later triggers placed and sized it, not as the first few did.
     expect(live.provisional[0].confirmed).toBe(live.events[0]);
   });
 

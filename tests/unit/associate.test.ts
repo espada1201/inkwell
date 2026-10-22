@@ -33,7 +33,6 @@ describe('association', () => {
     expect(u.km).toBeLessThan(10);
     expect(u.mag![0]).toBeLessThanOrEqual(5);
     expect(u.mag![1]).toBeGreaterThanOrEqual(ev.mag!);
-    // The same event, rebuilt on the next update, is not traced again.
     expect(eventUncertainty({ ...ev })).toBe(u);
   });
 
