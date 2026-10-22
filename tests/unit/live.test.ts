@@ -1,10 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { LiveNetwork, MAX_NODES } from '../../src/app/live';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
-import { signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
+import { ORIGIN_OFFSET_S, simulate } from '../../src/core/scenarios';
+import { RELAY_LATENCY_MS } from '../../src/core/simnet';
+import { HEARTBEAT_EVERY_MS, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import type { Transport } from '../../src/net/transport';
 
 class NullTransport implements Transport {
@@ -70,6 +72,34 @@ describe('live network model', () => {
     expect(d.outcome).toBe('withdrawn');
     expect(d.picks).toHaveLength(4);
     expect(d.withdrew.map((w) => w.reason).sort()).toEqual(['footsteps', 'footsteps', 'footsteps', 'impulse']);
+  });
+
+  it('a provisional detection closed as not confirmed keeps its reasons when other retractions push theirs out, and can still be confirmed', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const four = phones.slice(0, 4);
+    for (const p of four) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const picks = four.map((p) => signPick(p.sk, p));
+    picks.forEach((ev) => live.ingest(ev));
+    live.recompute();
+    four.forEach((p, i) => live.ingest(signRetraction(p.sk, picks[i].id, i < 3 ? 'footsteps' : 'impulse')));
+    live.recompute();
+    expect(live.provisional.map((d) => d.outcome)).toEqual(['withdrawn']);
+    // A phone with a heartbeat retracts as many picks it never sent as the network keeps.
+    const others = phones.slice(4);
+    for (const p of others) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const hex = (i: number) => i.toString(16).padStart(64, '0');
+    const node = getPublicKey(others[0].sk);
+    for (let i = 0; i < 5000; i++) live.receive({ id: hex(i), node, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
+    live.recompute();
+    const [d] = live.provisional;
+    expect(d.outcome).toBe('withdrawn');
+    expect(d.withdrew.map((w) => w.reason).sort()).toEqual(['footsteps', 'footsteps', 'footsteps', 'impulse']);
+    // Other phones then confirm a quake there and then.
+    for (const p of others) live.ingest(signTrigger(p.sk, { ...p, dur: 5 }));
+    live.recompute();
+    expect(live.events).toHaveLength(1);
+    expect(live.provisional.map((x) => x.outcome)).toEqual(['confirmed']);
+    expect(d.confirmed).toBe(live.events[0]);
   });
 
   it('a provisional detection is closed as confirmed by the event its phones confirm, or as unconfirmed after two minutes', () => {
@@ -249,5 +279,75 @@ describe('live network model', () => {
     expect(live.reportFelt(me, src, 5)).toBe(false);
     expect(sent.map((ev) => JSON.parse(ev.content).lvl)).toEqual([3]);
     expect(live.lastFelt(me.pubkey, Date.now())).toMatchObject({ lvl: 3, lat: 37.9, lon: -122.3 });
+  });
+});
+
+describe('a quake felt only from one side, by a town 100 km away', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] }));
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  /**
+   * Forty phones in a town 30 km across, 100 km west of an M6.5, run through the real phone
+   * detector (`simulate`). This browser hears each phone's heartbeat once a minute, and its picks,
+   * retractions and (unless left out) triggers a relay's latency after they were sent, each
+   * trigger naming the pick it settles, as a phone's does. Returns the network 150 s after the
+   * origin, and how many times it showed the quake twice: as a provisional detection beside a
+   * confirmed one.
+   */
+  function heard(seed: number, triggers = true) {
+    const quake = { lat: 37, lon: -122, depthKm: 10, mag: 6.5 };
+    const start = Date.UTC(2026, 9, 1, 12);
+    const origin = start + ORIGIN_OFFSET_S * 1000;
+    const city = offset(quake, -100, 0);
+    const sim = simulate({ id: 'one-sided', title: '', place: '', blurb: '', truth: { ...quake, usgsId: '', date: new Date(origin).toISOString() }, city, radiusKm: 15, nodes: 40, disturbed: 0.1, seed }, start);
+    const arrivals: Message[] = [];
+    sim.nodes.forEach((n, i) => {
+      for (let at = start - HEARTBEAT_EVERY_MS + (i * HEARTBEAT_EVERY_MS) / sim.nodes.length; at < origin + 150_000; at += HEARTBEAT_EVERY_MS)
+        arrivals.push({ id: `${n.id}:hb@${at}`, node: n.id, at, type: 'heartbeat', data: { lat: n.lat, lon: n.lon, noise: 0.01, sps: 50, since: start - 600_000 } });
+      let open = '';
+      for (const o of n.outputs) {
+        const id = `${n.id}:${o.kind}@${o.t}`;
+        const at = o.at + RELAY_LATENCY_MS;
+        const settles = open === `${n.id}:pick@${o.t}` ? open : null;
+        if (o.kind === 'pick') arrivals.push({ id, node: n.id, at, type: 'pick', data: { lat: n.lat, lon: n.lon, t: o.t, phase: o.phase } });
+        else if (o.kind === 'reject' && settles) arrivals.push({ id, node: n.id, at, type: 'retract', pick: settles, reason: o.reason });
+        else if (o.kind === 'trigger' && triggers) arrivals.push({ id, node: n.id, at, type: 'trigger', data: { lat: n.lat, lon: n.lon, t: o.t, phase: o.phase, pga: o.pga, dur: o.durS }, pick: settles });
+        open = o.kind === 'pick' ? id : '';
+      }
+    });
+    vi.setSystemTime(start - HEARTBEAT_EVERY_MS);
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    live.start();
+    let twice = 0;
+    live.on(() => void (live.early.length && live.events.length && twice++));
+    for (const m of arrivals.sort((a, b) => a.at - b.at)) {
+      vi.advanceTimersByTime(Math.max(0, m.at - Date.now()));
+      live.receive(m);
+    }
+    vi.advanceTimersByTime(origin + 150_000 - Date.now());
+    return { live, twice };
+  }
+
+  it('shows it once, and its provisional detection ends confirmed, though the first few triggers place it 90 km off', () => {
+    const { live, twice } = heard(1);
+    expect(live.events).toHaveLength(1);
+    expect(twice).toBe(0);
+    expect(live.provisional.map((d) => d.outcome)).toEqual(['confirmed']);
+  });
+
+  it('shows it once, and its provisional detection ends confirmed, as its picks age out and the last few place it 200 km off', () => {
+    const { live, twice } = heard(14);
+    expect(live.events).toHaveLength(1);
+    expect(twice).toBe(0);
+    expect(live.provisional.map((d) => d.outcome)).toEqual(['confirmed']);
+  });
+
+  it('keeps it one provisional detection when nothing confirms it, as its picks age out', () => {
+    const { live } = heard(14, false);
+    expect(live.events).toHaveLength(0);
+    expect(live.provisional.map((d) => d.outcome)).toEqual(['unconfirmed']);
   });
 });

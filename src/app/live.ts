@@ -1,6 +1,6 @@
 import type { Event } from 'nostr-tools/pure';
 import type { DetectedEvent, Trigger } from '../core/associate';
-import { MIN_PICKS, confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
+import { MIN_PICKS, confirmedEvents, earlyDetect, explainedBy, nearby, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
 import { FELT_EVERY_MS, clusterFelt, type Felt, type FeltCluster } from '../core/felt';
 import type { LatLon } from '../core/geo';
 import type { RejectReason } from '../core/sensor';
@@ -158,6 +158,8 @@ export class LiveNetwork extends Emitter {
       const held = this.pending.filter((p) => p.node === m.node);
       this.pending = this.pending.filter((p) => p.node !== m.node);
       held.forEach((p) => this.receive(p));
+      // Which phones are listening, and where, decides what their silence vetoes, so a phone first heard after the picks still has its say.
+      this.queueRecompute();
     } else if (m.type !== 'felt' && !this.nodes.has(m.node)) {
       // Picks, triggers and retractions count only from phones that have announced themselves.
       this.pending = [...this.pending, m].slice(-500);
@@ -179,6 +181,8 @@ export class LiveNetwork extends Emitter {
     } else {
       if (m.data.t < Date.now() - WINDOW_MS) return;
       const t: Trigger = { id: m.id, node: m.node, lat: m.data.lat, lon: m.data.lon, t: m.data.t, pga: m.type === 'trigger' ? m.data.pga : 0, phase: m.data.phase };
+      // The pick a trigger settles ties the confirmed quake to the provisional detection that pick was part of.
+      if (m.type === 'trigger' && m.pick) t.pick = m.pick;
       const n = this.nodes.get(m.node)!;
       if (m.type === 'pick') {
         if (this.picks.has(t.id) || this.burst(m.node, [...this.picks.values()])) return;
@@ -258,10 +262,11 @@ export class LiveNetwork extends Emitter {
 
   /** Follow each provisional detection until it is confirmed, its phones withdraw, or it has waited too long. */
   private settle(now: number) {
-    // Two detections are one quake by the rule that says when a confirmed one explains a provisional one.
-    const same = (a: EarlyEvent, b: DetectedEvent) => !unconfirmed([a], [b]).length;
     for (const e of this.early) {
-      const d = this.provisional.find((x) => x.outcome === 'open' && same(e, x.event));
+      // The same detection again: one that shares a pick with it, wherever each was placed, or failing that one nearby.
+      const ids = new Set(e.triggers.map((t) => t.id));
+      const open = this.provisional.filter((x) => x.outcome === 'open');
+      const d = open.find((x) => x.picks.some((p) => ids.has(p.id))) ?? open.find((x) => nearby(e, x.event));
       if (!d) this.provisional.push({ event: e, declared: now, picks: [...e.triggers], outcome: 'open', confirmed: null, withdrew: [] });
       else {
         d.event = e;
@@ -270,8 +275,9 @@ export class LiveNetwork extends Emitter {
     }
     for (const d of this.provisional) {
       if (d.outcome === 'confirmed') continue;
-      d.confirmed = this.events.find((c) => same(d.event, c)) ?? null;
-      d.withdrew = d.picks.flatMap((p) => this.withdrawals.get(`${p.id}:${p.node}`) ?? []);
+      d.confirmed = explainedBy(d.event, d.picks, this.events) ?? null;
+      // Once it has ended, the reasons it ended with are its record: the withdrawals behind them can be pushed out or pruned first.
+      if (d.outcome === 'open') d.withdrew = d.picks.flatMap((p) => this.withdrawals.get(`${p.id}:${p.node}`) ?? []);
       if (d.confirmed) d.outcome = 'confirmed';
       else if (d.outcome === 'open' && !this.early.includes(d.event)) {
         // No longer declared: too few of its phones are left to confirm it, or it has waited long enough.

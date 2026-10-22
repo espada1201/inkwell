@@ -45,19 +45,26 @@ function seen(live: LiveNetwork, probes: number[]) {
   });
 }
 
+/** Time given after each message: past the 200 ms batch, so the recompute it queued has run before the next arrives. */
+const BETWEEN_MS = 250;
+
 /**
- * Feeds `pre` in order, then `msgs` in every order, and returns the orders that leave the network
- * looking different from the first one.
+ * Feeds `pre` in order, then `msgs` in every order, from the clock at `now` and with BETWEEN_MS
+ * after each message, and returns the orders that leave the network looking different from the
+ * first one. The network is read as its own recomputes left it.
  */
 function divergences(pre: Message[], msgs: [string, Message][], now: number) {
   const probes = [...new Set([...pre, ...msgs.map(([, m]) => m)].flatMap((m) => [m.at, 'data' in m && 't' in m.data ? m.data.t : m.at]))].sort();
   let first: string | null = null;
   const bad: string[] = [];
   for (const order of permutations(msgs)) {
+    vi.setSystemTime(now);
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
-    for (const m of pre) live.receive(m);
-    for (const [, m] of order) live.receive(m);
-    live.recompute(now);
+    for (const m of [...pre, ...order.map(([, m]) => m)]) {
+      live.receive(m);
+      vi.advanceTimersByTime(BETWEEN_MS);
+    }
+    vi.clearAllTimers();
     const s = seen(live, probes);
     if (first === null) first = s;
     else if (s !== first) bad.push(order.map(([k]) => k).join(' '));
@@ -74,7 +81,7 @@ function phone(i: number, t0: number) {
 const msg = (ev: Event) => parse(ev)!;
 
 describe('the live network converges', () => {
-  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }));
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] }));
   afterEach(() => {
     vi.clearAllTimers();
     vi.useRealTimers();
@@ -141,6 +148,32 @@ describe('the live network converges', () => {
       now,
     );
     expect(first.early).toHaveLength(1);
+    expect(bad).toEqual([]);
+  });
+
+  it('on no provisional quake where phones that stayed quiet are heard from, before the picks or after them', () => {
+    const now = Date.now();
+    const t0 = now - 15_000;
+    const at = (east: number, north: number) => {
+      const p = offset(src, east, north);
+      return { sk: generateSecretKey(), ...p, t: t0 + (hypocentralKm(distanceKm(src, p)) / VP_KMS) * 1000 };
+    };
+    // Four phones around the source felt it start; two within 4 km of it felt nothing.
+    const pickers = [at(10, 0), at(-12, 3), at(2, 14), at(-4, -15)];
+    const quiet = [at(3, 3), at(-3, 2)];
+    const hb = (p: (typeof pickers)[number]) => msg(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50, since: now - 600_000 }));
+    const picks = pickers.map((p) => msg(signPick(p.sk, p)));
+    // Without the quiet phones, the four picks make a quake.
+    const alone = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    for (const m of [...pickers.map(hb), ...picks]) alone.receive(m);
+    vi.advanceTimersByTime(BETWEEN_MS);
+    expect(alone.early).toHaveLength(1);
+    const { first, bad } = divergences(
+      pickers.map(hb),
+      [['hbQuiet1', hb(quiet[0])], ['hbQuiet2', hb(quiet[1])], ...picks.map((m, i): [string, Message] => [`pick${'ABCD'[i]}`, m])],
+      now,
+    );
+    expect(first.early).toEqual([]);
     expect(bad).toEqual([]);
   });
 
