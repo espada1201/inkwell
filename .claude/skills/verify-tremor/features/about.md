@@ -6,7 +6,7 @@ About explains, in five steps, how a phone becomes part of the network (feel, te
 
 - `about-steps` describes detection, the pick about a second after the shaking arrives, the on-device checks against the background from before it, the network's agreement rule with how far off a location could be, and the USGS check with its M4.5 limit outside the US.
 - `about-limits` says what Tremor is not: no official warnings (and where to turn them on instead), fairly strong shaking only, rough magnitudes that read low for big quakes, a sensor or chime only while the page stays open, and open relays where phones, picks and felt reports can be faked. It names who came first: the Quake-Catcher Network, MyShake and Android's Earthquake Alerts.
-- `about-privacy` says nothing leaves before opt-in and a location, locations are snapped to 0.01° (felt reports too), and the key stays in the browser.
+- `about-privacy` says nothing leaves before opt-in and a location, or a felt report, locations are snapped to 0.01° (felt reports too), and the key stays in the browser.
 - `about-protocol` names the event kinds and the `#tremor` tag, and links to the code.
 
 ## How to get to it (user POV)
