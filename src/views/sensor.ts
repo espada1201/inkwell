@@ -2,7 +2,7 @@ import type { LiveNetwork } from '../app/live';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
 import { distanceKm, parseLatLon, type LatLon } from '../core/geo';
 import { h, keepFocus } from '../ui/dom';
-import { WITHDRAWN, coord, intensityWord, mag } from '../ui/format';
+import { WITHDRAWN, coord, intensityWord, mag, many } from '../ui/format';
 import { drawTrace } from '../ui/trace';
 
 /** A still phone's own flicker keeps STA/LTA under 2.5: at most 2.0 over three hours of quiet tables. */
@@ -88,7 +88,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
       h('p', {}, `Listening time: ${duration(session)} this session, ${duration(week)} this week.`),
       !here
         ? h('p', { class: 'small muted' }, 'Set a location to see the phones and quakes near you.')
-        : h('p', { 'data-testid': 'neighbours' }, phones ? `Heard from ${phones} other phone${phones === 1 ? '' : 's'} listening within ${NEAR_KM} km.` : `No other phones heard listening within ${NEAR_KM} km.`),
+        : h('p', { 'data-testid': 'neighbours' }, phones ? `Heard from ${many(phones, 'other phone')} listening within ${NEAR_KM} km.` : `No other phones heard listening within ${NEAR_KM} km.`),
       !here || !d
         ? null
         : live.usgsState === 'loading'
