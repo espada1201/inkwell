@@ -193,4 +193,14 @@ describe('association', () => {
     expect(evs[0].triggers.length).toBeGreaterThan(20);
     expect(distanceKm(evs[0], src)).toBeLessThan(5);
   });
+
+  it('finds the same quakes whatever order the triggers arrive in, even when two onsets tie', () => {
+    // Relays deliver in any order, so every browser must see the same quakes. Here t2 and t4 tie, as do t1 and t5.
+    const at = (id: string, s: number, lat: number, lon: number): Trigger => ({ id, node: id, lat, lon, t: T0 + s * 1000, pga: 0.5, phase: 'P' });
+    const trig = [at('t0', 7, 37.933, -122.713), at('t1', 8, 38.041, -122.489), at('t2', 5, 37.647, -122.08), at('t3', 11, 37.772, -122.471), at('t4', 5, 37.772, -121.985), at('t5', 8, 38.174, -121.78)];
+    const permutations = (xs: Trigger[]): Trigger[][] => (xs.length <= 1 ? [xs] : xs.flatMap((x, i) => permutations(xs.filter((_, j) => j !== i)).map((rest) => [x, ...rest])));
+    const quakes = (ts: Trigger[]) => associate(ts, { minNodes: 3 }).map((e) => e.triggers.map((t) => t.id).sort().join());
+    const seen = new Set(permutations(trig).map((order) => quakes(order).join(' | ')));
+    expect([...seen]).toHaveLength(1);
+  });
 });

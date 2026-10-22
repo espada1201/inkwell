@@ -68,12 +68,15 @@ function locateCached(members: Trigger[], minNodes: number): Solution | null {
  *     relocate, so an unlucky seed (e.g. a stray footstep) cannot bias membership.
  *  5. Later triggers the event explains as either wave are absorbed so they do not spawn ghosts.
  */
+/** Onset order, ties broken by id: the input's order must not decide which phones form a quake. */
+const byOnset = (a: Trigger, b: Trigger) => a.t - b.t || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
   const minNodes = opts.minNodes ?? 4;
   const maxSpan = MAX_SPAN_S * 1000;
   const maxRms = opts.maxRmsS ?? 1.5;
 
-  const sorted = [...triggers].sort((a, b) => a.t - b.t);
+  const sorted = [...triggers].sort(byOnset);
   const used = new Set<string>();
   const deadSeeds = new Set<string>();
   const events: DetectedEvent[] = [];
@@ -178,7 +181,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     const to = Math.max(...ts) + gap;
     const partner = largest((t) => (t.phase ?? 'P') === phase || t.t < from || t.t > to);
     if (partner.length >= 2) {
-      const joint = solve([...base, ...partner].sort((a, b) => a.t - b.t));
+      const joint = solve([...base, ...partner].sort(byOnset));
       if (good(joint) && joint.members.length >= 0.8 * (base.length + partner.length)) fit = joint;
     }
     if (!good(fit)) {
@@ -190,7 +193,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     const explained = (t: Trigger) => Math.abs((t.t - f0.time) / 1000 - hypocentralKm(distanceKm(f0.sol, t)) / speedOf(t.phase)) <= 2;
     const regather = new Map<string, Trigger>();
     for (const t of sorted) if (!used.has(t.id) && !regather.has(t.node) && explained(t)) regather.set(t.node, t);
-    if (regather.size >= minNodes) fit = solve([...regather.values()].sort((a, b) => a.t - b.t)) ?? fit;
+    if (regather.size >= minNodes) fit = solve([...regather.values()].sort(byOnset)) ?? fit;
     if (!good(fit) || fit.members.length < minNodes) {
       deadSeeds.add(seed[0].id);
       continue;
