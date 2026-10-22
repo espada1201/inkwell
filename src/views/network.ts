@@ -17,6 +17,10 @@ export function networkView(ctx: NetworkCtx) {
   let selected: { kind: 'event' | 'usgs'; id: string } | null = null;
   let flewToData = false;
   const root = h('div', { class: 'panel-inner' });
+  // Screen readers hear of a new provisional detection once; everything after this is redrawn freely.
+  const announcer = h('p', { class: 'sr-only', role: 'alert' });
+  root.append(announcer);
+  let announced = 0;
 
   map.onSelect = (kind, id) => {
     selected = { kind, id };
@@ -69,6 +73,7 @@ export function networkView(ctx: NetworkCtx) {
         {
           class: 'row',
           'aria-pressed': on ? 'true' : 'false',
+          'data-key': `usgs:${q.id}`,
           onclick: () => {
             selected = { kind: 'usgs', id: q.id };
             map.fly(q, 7);
@@ -83,6 +88,10 @@ export function networkView(ctx: NetworkCtx) {
   }
 
   function render() {
+    const n = live.early.length;
+    if (n > announced) announcer.textContent = `${n === 1 ? `Provisional earthquake detection near ${coord(live.early[0].lat, live.early[0].lon)}` : `${n} provisional earthquake detections`}. Waiting for the phones to confirm.`;
+    else if (!n) announcer.textContent = '';
+    announced = n;
     const onlineNodes = [...live.nodes.values()].filter((n) => live.isOnline(n)).length;
     const st = live.transport.statuses();
     const open = st.filter((s) => s.state === 'open').length;
@@ -117,7 +126,7 @@ export function networkView(ctx: NetworkCtx) {
             ? h('p', { class: 'empty' }, `No earthquakes listed in the past ${live.usgsWindow}.`)
             : h('ul', { class: 'list', 'data-testid': 'usgs-list' }, ...live.usgs.slice(0, 12).map(quakeRow));
 
-    root.replaceChildren(
+    const children = [
       h(
         'div',
         {},
@@ -135,7 +144,7 @@ export function networkView(ctx: NetworkCtx) {
       ...live.early.map((e) =>
         h(
           'section',
-          { class: 'warn-card', role: 'alert', 'data-testid': 'provisional' },
+          { class: 'warn-card', 'data-testid': 'provisional' },
           h('header', {}, h('b', {}, 'Provisional detection'), h('span', { class: 'mono' }, ago(e.time))),
           h('p', {}, `${e.triggers.length} phones felt shaking start in a pattern that fits one source near ${coord(e.lat, e.lon)}, and the phones nearby that stayed quiet do not outvote them. Waiting for the phones to confirm.`),
         ),
@@ -159,6 +168,7 @@ export function networkView(ctx: NetworkCtx) {
                     {
                       class: 'row',
                       'aria-pressed': selected?.kind === 'event' && selected.id === e.id ? 'true' : 'false',
+                      'data-key': `event:${e.id}`,
                       onclick: () => {
                         selected = { kind: 'event', id: e.id };
                         map.fly(e, 8);
@@ -201,7 +211,11 @@ export function networkView(ctx: NetworkCtx) {
       ),
       h('p', { class: 'honest' }, 'Community science, not an official warning system. Phones only feel fairly strong shaking, and anyone can publish to public relays. For official alerts use your national seismic service.'),
       relaysBox(),
-    );
+    ];
+    keepFocus(root, () => {
+      while (announcer.nextSibling) announcer.nextSibling.remove();
+      root.append(...children);
+    });
     syncMap();
   }
 
@@ -262,4 +276,17 @@ export function networkView(ctx: NetworkCtx) {
       map.onSelect = () => {};
     },
   };
+}
+
+/**
+ * Rebuild a panel without losing keyboard focus: the element focused before is found again by
+ * its data-key, or else by its tag and text.
+ */
+function keepFocus(root: HTMLElement, rebuild: () => void) {
+  const key = (el: Element) => (el instanceof HTMLElement && el.dataset.key) || `${el.tagName}:${el.textContent}`;
+  const was = document.activeElement;
+  const k = was && was !== document.body && root.contains(was) ? key(was) : null;
+  rebuild();
+  if (k === null || root.contains(document.activeElement)) return;
+  for (const el of root.querySelectorAll<HTMLElement>(was!.tagName)) if (key(el) === k) return el.focus({ preventScroll: true });
 }

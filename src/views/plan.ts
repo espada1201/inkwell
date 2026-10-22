@@ -69,7 +69,7 @@ export function planView(map: QuakeMap, arg: string | undefined) {
       syncMap();
     } else {
       points = [...points.filter((x) => x.phones !== msg.summary.phones), msg.summary];
-      if (SWEEP.every((n) => points.some((x) => x.phones === n))) status.textContent = `Done: ${QUAKES} quakes and ${QUAKES / 2} busy minutes per network size.`;
+      if (SWEEP.every((n) => points.some((x) => x.phones === n))) status.textContent = `Done: ${QUAKES} quakes and a busy hour per network size.`;
       renderChart();
     }
   };
@@ -128,12 +128,17 @@ export function planView(map: QuakeMap, arg: string | undefined) {
       ),
     );
     slider.value = String(PHONES.indexOf(state.phones));
+    showPhones();
+  }
+
+  function showPhones() {
     phonesOut.textContent = `${state.phones} phones`;
+    slider.setAttribute('aria-valuetext', phonesOut.textContent);
   }
 
   slider.addEventListener('input', () => {
     state.phones = PHONES[Number(slider.value)];
-    phonesOut.textContent = `${state.phones} phones`;
+    showPhones();
     run();
   });
 

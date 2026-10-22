@@ -22,6 +22,7 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   // Raw picks alone: a provisional detection, seconds after the P wave in real life.
   await send(relay.url, napa.picks);
   await expect(page.getByTestId('provisional')).toBeVisible();
+  await expect(page.getByRole('alert')).toContainText('Provisional earthquake detection');
 
   // Vetted triggers and retractions: a confirmed, located event.
   await send(relay.url, napa.finals);
@@ -37,7 +38,9 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
 });
 
 test('a hostile relay cannot inject forged or malformed events', async ({ page }) => {
-  const hostile: FakeRelay = await startRelay(0, { verify: false });
+  // Broken shapes go straight to the page, unchecked by the relay; none may throw.
+  const hb = napa.heartbeats[3];
+  const hostile: FakeRelay = await startRelay(0, { verify: false, junk: [{ ...hb, tags: [null] }, { ...hb, tags: 'tremor' }, { ...hb, tags: undefined }] });
   try {
     await page.goto(`/?relays=${hostile.url}#network`);
     await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
@@ -48,6 +51,16 @@ test('a hostile relay cannot inject forged or malformed events', async ({ page }
   } finally {
     await hostile.close();
   }
+});
+
+test('keyboard focus stays put while live updates stream in', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  const day = page.getByRole('button', { name: 'past day' });
+  await day.focus();
+  await send(relay.url, napa.heartbeats.slice(0, 3));
+  await expect(page.getByTestId('stat-nodes')).toHaveText('3');
+  await expect(day).toBeFocused();
 });
 
 test('USGS outage shows a calm error state', async ({ page, relay }) => {

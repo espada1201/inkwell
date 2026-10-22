@@ -10,7 +10,8 @@ feed. Old phones become community infrastructure.
 1. Open the Terminal app. If `brew -v` says command not found, install Homebrew from
    https://brew.sh and run the "Next steps" lines it prints.
 2. Install Node: `brew install node`
-3. On this page click **Code → Download ZIP** and unzip it, then: `cd ~/Downloads/inkwell-main`
+3. On this page click **Code → Download ZIP** and unzip it. In Terminal type `cd ` (with a space),
+   drag the unzipped folder onto the Terminal window and press Return.
 4. Start Tremor: `npm install && npm start`
 5. Open the address it prints (http://localhost:4173). Press Ctrl+C in Terminal to stop.
 
@@ -26,15 +27,15 @@ plug it in, tap **Start sensor**, set a rough location and switch sharing on.
   which way the phone shakes (P waves are mostly up and down, S side to side). The phone then
   vets it for 15–30 s (rotated = picked up, under 1 s = door slam, many short knocks = footsteps)
   and either confirms it as a *trigger* or retracts it. Screen wake lock, battery readout, dim mode.
-- **Network**: live map of phones, picks, detections and USGS quakes. Four or more picks that fit
-  one wavefront, which the quiet phones nearby do not outvote, declare a provisional quake within
-  seconds. Vetted triggers then give the epicentre (grid search on arrival times), a rough
-  magnitude, a crowd shaking map and a side-by-side check against USGS.
+- **Network**: live map of phones, picks, detections and USGS quakes. Picks from 4+ phones in 3+
+  places that fit one wavefront, and that the quiet phones nearby do not outvote, declare a
+  provisional quake within seconds. Vetted triggers, judged the same way, give the epicentre, a
+  rough magnitude, a crowd shaking map and a side-by-side check against USGS.
 - **Replay**: real historical quakes (Napa 2014, Ridgecrest 2019, Christchurch 2011) and a
   concert night with no quake, played into simulated phones that run the same detector, with a
   record section, a timeline and how many seconds of warning each phone would have had.
 - **Plan**: how many phones does a city need? 5 to 2,000 simulated phones, modelled on the real
-  detector and run through the same network code, face 24 quakes and 12 busy quake-free minutes,
+  detector and run through the same network code, face 24 quakes and a busy hour without one,
   plus a curve from 10 to 1,000 phones.
 
 **Wire format**: signed Nostr events tagged `#tremor`: pick (kind 4578, `ph` = P or S), trigger
@@ -56,5 +57,4 @@ to a 0.01° (~1 km) grid on the phone and again on every receiver. Relays are ed
 `npx playwright install chromium` once). CI runs these and the build on pushes to `main` and PRs.
 
 **GitHub Pages**: the Pages workflow deploys `main` once Pages is switched on (Settings → Pages →
-Source: GitHub Actions); it needs a public repository. If this repo is renamed to `tremor`, links
-follow and the unzipped folder becomes `tremor-main`. MIT licence.
+Source: GitHub Actions); it needs a public repository. MIT licence.

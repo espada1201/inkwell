@@ -143,6 +143,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const t = r.sinceOrigin;
     clock.textContent = fmtT(t);
     scrub.value = String(Math.round((r.vt / r.duration) * 1000));
+    scrub.setAttribute('aria-valuetext', `${Math.abs(t).toFixed(0)} seconds ${t < 0 ? 'before' : 'after'} the quake began`);
     playBtn.textContent = r.playing ? 'Pause' : r.vt >= r.duration ? 'Replay' : 'Play';
     speeds.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === r.speed)));
 

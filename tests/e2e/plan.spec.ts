@@ -7,7 +7,8 @@ test('planning a network for Kathmandu', async ({ page }) => {
 
   // The simulation runs in a worker; the page stays responsive and reports results.
   await expect(page.getByTestId('kpi-detected')).toHaveText(/^\d+\/24$/, { timeout: 30_000 });
-  await expect(page.getByTestId('kpi-false')).toHaveText(/^0\/12$/);
+  // A busy hour of bumped and jostled phones without a quake.
+  await expect(page.getByTestId('kpi-false')).toHaveText(/^0\/60$/);
   await expect(page.locator('.plan-story')).toContainText('With 50 phones listening across Kathmandu');
   // The "how many phones" curve fills in point by point.
   await expect(page.getByTestId('sweep').locator('circle').first()).toBeVisible({ timeout: 30_000 });
@@ -18,9 +19,11 @@ test('planning a network for Kathmandu', async ({ page }) => {
   await expect(page.locator('.plan-story')).toContainText('M7', { timeout: 30_000 });
 
   // The phone count is a keyboard-friendly slider.
-  await page.getByRole('slider', { name: 'Phones listening' }).focus();
+  const slider = page.getByRole('slider', { name: 'Phones listening' });
+  await slider.focus();
   await page.keyboard.press('ArrowRight');
   await expect(page.locator('output')).toHaveText('75 phones');
+  await expect(slider).toHaveAttribute('aria-valuetext', '75 phones');
   await expect(page).toHaveURL(/\/75$/);
   await expect(page.locator('.plan-story')).toContainText('With 75 phones', { timeout: 30_000 });
 });

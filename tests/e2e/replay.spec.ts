@@ -43,5 +43,6 @@ test('switching scenarios and scrubbing works with the keyboard', async ({ page 
   await scrub.focus();
   await page.keyboard.press('End');
   await expect(page.getByTestId('clock')).toHaveText(/T\+55\.0 s/);
+  await expect(scrub).toHaveAttribute('aria-valuetext', '55 seconds after the quake began');
   await expect(page.getByTestId('compare')).toBeVisible();
 });

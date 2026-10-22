@@ -13,7 +13,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
-    baseURL: 'http://127.0.0.1:4173',
+    baseURL: 'http://127.0.0.1:4174',
     launchOptions: { executablePath, args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] },
     trace: 'retain-on-failure',
   },
@@ -22,10 +22,11 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } }, testMatch: /mobile\.spec/ },
   ],
   webServer: {
-    // CI has just built the app; locally, build first so the tests never run a stale copy.
-    command: `${process.env.CI ? '' : 'npx vite build && '}npx vite preview --port 4173 --strictPort --host 127.0.0.1`,
-    url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    // CI has just built the app; locally, build first. Its own port, and never a server left
+    // running (`npm start` uses 4173), so the tests always see the code as it is now.
+    command: `${process.env.CI ? '' : 'npx vite build && '}npx vite preview --port 4174 --strictPort --host 127.0.0.1`,
+    url: 'http://127.0.0.1:4174',
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });
