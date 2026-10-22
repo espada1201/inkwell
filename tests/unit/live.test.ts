@@ -152,6 +152,21 @@ describe('live network model', () => {
     expect(confirmed((p) => signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 0, since: listening }, Math.floor((T0 - 60_000) / 1000)))).toBe(1);
   });
 
+  it('says how each phone is drawn: checking a pick, confirmed shaking, idle or offline', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const [a, b, c, d] = phones;
+    for (const p of [a, b, c]) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    live.ingest(signHeartbeat(d.sk, { ...d, noise: 0.01, sps: 0 }));
+    live.ingest(signPick(a.sk, a));
+    live.ingest(signTrigger(b.sk, { ...b, dur: 3 }));
+    const withdrawn = signPick(c.sk, c);
+    live.ingest(withdrawn);
+    live.ingest(signRetraction(c.sk, withdrawn.id, 'footsteps'));
+    const states = Object.fromEntries(live.nodeStates().map((n) => [n.id, n.state]));
+    const key = (p: (typeof phones)[number]) => getPublicKey(p.sk);
+    expect(states).toEqual({ [key(a)]: 'pick', [key(b)]: 'trigger', [key(c)]: 'idle', [key(d)]: 'offline' });
+  });
+
   it('reports the USGS feed as unavailable when it fails', async () => {
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     await live.refreshUsgs();

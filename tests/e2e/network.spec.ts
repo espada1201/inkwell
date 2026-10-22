@@ -58,9 +58,26 @@ test('keyboard focus stays put while live updates stream in', async ({ page, rel
   await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
   const day = page.getByRole('button', { name: 'past day' });
   await day.focus();
+  // A part of the panel whose content did not change is left in place, not rebuilt and read out again.
+  await page.getByTestId('no-events').evaluate((el) => (el.dataset.mark = 'kept'));
   await send(relay.url, napa.heartbeats.slice(0, 3));
   await expect(page.getByTestId('stat-nodes')).toHaveText('3');
   await expect(day).toBeFocused();
+  await expect(page.getByTestId('no-events')).toHaveAttribute('data-mark', 'kept');
+});
+
+test('typing in the relay list neither freezes the panel nor loses what is typed', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  await page.locator('details.relays summary').click();
+  const box = page.getByLabel('Relay URLs, one per line');
+  await box.fill(`${relay.url}\nwss://nos.lol`);
+  await send(relay.url, napa.heartbeats.slice(0, 3));
+  // Well before the panel's 15 s refresh, which is all a frozen panel would show.
+  await expect(page.getByTestId('stat-nodes')).toHaveText('3', { timeout: 5000 });
+  await expect(box).toBeFocused();
+  await expect(box).toHaveValue(`${relay.url}\nwss://nos.lol`);
+  await expect(page.locator('details.relays')).toHaveAttribute('open');
 });
 
 test('USGS outage shows a calm error state', async ({ page, relay }) => {

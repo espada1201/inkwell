@@ -295,3 +295,6 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* ── network (live screen) ───────────────────────────── */
+.stack { display: grid; gap: 12px; }

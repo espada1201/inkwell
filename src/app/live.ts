@@ -4,6 +4,7 @@ import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset 
 import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat, type Message } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
+import type { MapNode } from '../ui/map';
 import { Emitter } from './emitter';
 
 export interface LiveNode extends Heartbeat {
@@ -25,6 +26,9 @@ const MAX_PICKS = 5000;
 const MAX_WITHDRAWALS = 5000;
 /** Phones kept at most: past it, the one silent longest goes. */
 export const MAX_NODES = 10_000;
+/** A phone shows as checking its pick for a minute unless it withdraws it, and as shaken for two after a trigger. */
+const PICKING_MS = 60_000;
+const SHAKEN_MS = 120_000;
 
 /**
  * The live citizen network as seen from this browser: every heartbeat, pick and trigger on
@@ -205,6 +209,17 @@ export class LiveNetwork extends Emitter {
   activity(now = Date.now()) {
     const recent = (t: number) => now - t < 8000;
     return Math.min(1, ([...this.picks.values()].filter((p) => recent(p.t)).length + this.triggers.filter((t) => recent(t.t)).length) / 6);
+  }
+
+  /** Every phone as the map draws it now: offline, confirmed shaking, checking a pick, or idle. */
+  nodeStates(now = Date.now()): MapNode[] {
+    const picking = new Set([...this.picks.values()].filter((p) => now - p.t < PICKING_MS).map((p) => p.node));
+    return [...this.nodes.values()].map((n) => ({
+      id: n.id,
+      lat: n.lat,
+      lon: n.lon,
+      state: !this.isOnline(n, now) ? 'offline' : n.lastTrigger !== null && now - n.lastTrigger < SHAKEN_MS ? 'trigger' : picking.has(n.id) ? 'pick' : 'idle',
+    }));
   }
 
   /**
