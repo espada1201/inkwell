@@ -301,8 +301,8 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 .here-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .here-form[hidden] { display: none; }
 .here-form input { width: 100%; min-width: 0; background: var(--card); border: 1px solid var(--ink); padding: 8px; font: 13px var(--mono); border-radius: 2px; }
-.here-form p { grid-column: 1 / -1; margin: 0; }
-.plan-gap { margin: 0; font-size: 15px; border-left: 3px solid var(--ink); padding: 2px 0 2px 12px; }
+.here-form p { grid-column: 1 / -1; }
+.plan-gap { font-size: 15px; border-left: 3px solid var(--ink); padding: 2px 0 2px 12px; }
 .recent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .recent li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: baseline; border: 1px solid var(--rule); background: var(--card); padding: 8px 10px; border-radius: 2px; }
 .recent li.muted { display: block; border: 0; background: none; padding: 0; }
@@ -338,4 +338,4 @@ dialog.felt::backdrop { background: rgb(29 28 26 / 0.45); }
 .usgs-gap { margin-top: 8px; }
 .chime-note { position: fixed; z-index: 20; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(440px, calc(100vw - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1.5px solid var(--red); background: var(--card); color: var(--ink); box-shadow: 0 6px 20px rgb(29 28 26 / 0.25); }
 .chime-note[hidden] { display: none; }
-.chime-note p { margin: 0; font-weight: 500; }
+.chime-note p { font-weight: 500; }
