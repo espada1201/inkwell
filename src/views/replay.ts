@@ -4,17 +4,14 @@ import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid, sRadiusKm } from '../core/impact';
 import { MIN_REPLAY_MAG, ORIGIN_OFFSET_S, SCENARIOS, parseQuakeLink, quakeLink, type QuakeRef, type Scenario } from '../core/scenarios';
-import type { RejectReason } from '../core/sensor';
 import { usgsEventUrl } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
-import { ago, clockT, coord, mag, many, utc } from '../ui/format';
+import { WITHDRAWN, ago, clockT, coord, mag, many, utc } from '../ui/format';
 import { NODE_COLORS, type MapRing, type QuakeMap, type Swatch } from '../ui/map';
 import { drawSection } from '../ui/section';
 import { compareCard, give } from './compare';
 
 const ISOCHRONS = [5, 10, 20];
-/** Why phones withdrew their picks, in the sensor log's words. */
-const WHY: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'sensor paused' };
 /** Minutes and seconds into a replay: 0:55. */
 const elapsed = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 /** A replayed quake puts its simulated phones around the viewer's saved location when it is this close to it. */
@@ -270,7 +267,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     lastHeavy = now;
 
     const { confirmed: trig, withdrawn, why } = r.counts();
-    const tally = [...why].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${WHY[k]} ${n}`);
+    const tally = [...why].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${WITHDRAWN[k]} ${n}`);
     stats.textContent = `${many(r.nodes.length, 'simulated phone')} · ${trig} confirmed · ${withdrawn ? `${many(withdrawn, 'pick')} withdrawn on-device (${tally.join(', ')})` : 'no picks withdrawn'}`;
     map.setNodes(r.nodes.map((n) => ({ id: n.id, lat: n.lat, lon: n.lon, state: r.nodeState(n), shake: r.shake(n) })));
     map.setWaves(r.waves());

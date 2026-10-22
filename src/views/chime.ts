@@ -1,6 +1,6 @@
 import type { LiveNetwork } from '../app/live';
+import { NEAR_MS, nearYou, type Place } from '../app/near';
 import { h } from '../ui/dom';
-import { NEAR_MS, nearYou, type Place } from './network';
 
 /** What every chime says, on the page and in the notification. */
 const CHIME_TEXT = 'Shaking reported near you. Not an official warning.';

@@ -1,4 +1,5 @@
 import { intensityLevel } from '../core/physics';
+import type { RejectReason } from '../core/sensor';
 
 /** Display formats, one home each, so every screen writes a number the same way. */
 
@@ -19,6 +20,9 @@ export function ago(ms: number, now = Date.now()): string {
   return `${Math.round(s / 86400)} d ago`;
 }
 
+/** Local time of day: 3:42 PM. */
+export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
 export const utc = (ms: number) => new Date(ms).toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
 
 export const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%`);
@@ -31,6 +35,9 @@ export const many = (n: number, one: string, more = `${one}s`) => `${n} ${n === 
 export const INTENSITY_WORDS = ['not felt', 'weak', 'light', 'moderate', 'strong', 'very strong', 'severe'] as const;
 /** Roughly how a peak acceleration feels, in words. */
 export const intensityWord = (pga: number) => INTENSITY_WORDS[intensityLevel(pga)];
+
+/** Why a phone withdrew its pick, in its sensor log's words. */
+export const WITHDRAWN: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'stopped before the check finished' };
 
 /** Seconds from a quake's origin on a replay clock: T−3.0 s, T+12.4 s. */
 export const clockT = (s: number) => `${s < 0 ? 'T−' : 'T+'}${Math.abs(s).toFixed(1)} s`;

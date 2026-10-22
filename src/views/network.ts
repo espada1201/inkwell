@@ -1,17 +1,15 @@
 import { NODE_STALE_MS, SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
-import type { SensorNode } from '../app/sensor';
+import { nearYou, type Near, type Place } from '../app/near';
 import { eventUncertainty } from '../core/associate';
-import type { FeltCluster } from '../core/felt';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid } from '../core/impact';
-import { hypocentralKm, intensityLevel, pgaFor } from '../core/physics';
-import type { RejectReason } from '../core/sensor';
 import { reach } from '../net/transport';
 import { matchUsgs, type UsgsQuake } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
-import { INTENSITY_WORDS, ago, coord, mag, magBadge } from '../ui/format';
+import { INTENSITY_WORDS, WITHDRAWN, ago, clock, coord, mag, magBadge } from '../ui/format';
 import { NODE_COLORS, SHAKE_COLORS, type QuakeMap, type Swatch } from '../ui/map';
 import { compareCard, give } from './compare';
+import { placeForm } from './place';
 
 /** The map key for the live network (also shown behind the sensor and About screens). */
 export const NETWORK_LEGEND: Swatch[] = [
@@ -40,82 +38,20 @@ export interface NetworkCtx {
   chime: { readonly on: boolean; set(on: boolean): void };
 }
 
-/** This browser's rough location, which the sensor screen sets too. */
-export type Place = Pick<SensorNode, 'location' | 'setLocation'>;
-
 type Selection = { kind: 'event' | 'usgs'; id: string };
 /** How far back the panel looks. */
 const HOURS = WINDOW_MS / 3600_000;
-/** Why phones withdrew their picks, in the sensor log's words. */
-const WITHDREW: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'sensor paused' };
-export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-/** Tremor detections this close to you in the last ten minutes are near you, as are felt reports this close and USGS quakes this close in their feed. */
-const NEAR_KM = 100;
-export const NEAR_MS = 10 * 60_000;
-const NEAR_USGS_KM = 300;
-
-const feltText = (c: FeltCluster) => `${c.people} people in ${c.places} places felt shaking`;
 /** Why a quake can be missing from the USGS list. */
 const USGS_GAP = 'Outside the US, USGS may not list quakes below about M4.5.';
-
-/**
- * What has been reported near you, nearest first, with how hard it shook you: roughly, for
- * quakes; as people told it, for felt reports.
- */
-export function nearYou(live: LiveNetwork, you: LatLon, now = Date.now()) {
-  const quake = (kind: 'provisional' | 'confirmed' | 'usgs', title: string, e: LatLon & { time: number; mag: number | null }, depthKm?: number) => {
-    const km = distanceKm(you, e);
-    return { kind, title, km, time: e.time, badge: magBadge(e.mag), level: e.mag === null ? null : intensityLevel(pgaFor(e.mag, hypocentralKm(km, depthKm))) };
-  };
-  const ours = [
-    ...live.early.map((e) => quake('provisional', 'Provisional Tremor detection', e)),
-    ...live.events.filter((e) => now - e.time < NEAR_MS).map((e) => quake('confirmed', 'Tremor detection', e)),
-    ...live.feltClusters.map((c) => ({ kind: 'felt' as const, title: feltText(c), km: distanceKm(you, c), time: c.time, badge: 'felt', level: c.lvl })),
-  ];
-  return [...ours.filter((x) => x.km <= NEAR_KM), ...live.usgs.map((q) => quake('usgs', `USGS: ${q.place}`, q, q.depthKm)).filter((x) => x.km <= NEAR_USGS_KM)].sort((a, b) => a.km - b.km);
-}
-
-/** Asks where you are, roughly: by the browser's location or typed coordinates. `then` follows once it is set. */
-export function placeForm(place: Place, then: () => void) {
-  const msg = h('p', { class: 'small', role: 'status' });
-  const typed = h('input', { inputmode: 'decimal', autocomplete: 'off', placeholder: '37.80, -122.27' });
-  const set = (p: LatLon) => {
-    place.setLocation(p);
-    // The browser can answer after the form has gone.
-    if (form.isConnected) then();
-  };
-  const locate = () => {
-    if (!navigator.geolocation) return void (msg.textContent = 'This browser cannot tell where it is. Type rough coordinates instead.');
-    msg.textContent = 'Locating…';
-    navigator.geolocation.getCurrentPosition(
-      (p) => set({ lat: p.coords.latitude, lon: p.coords.longitude }),
-      () => (msg.textContent = 'No location given. You can type rough coordinates instead.'),
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 600_000 },
-    );
-  };
-  const submit = (e: Event) => {
-    e.preventDefault();
-    const n = typed.value.split(/[\s,]+/).filter(Boolean).map(Number);
-    if (n.length === 2 && Math.abs(n[0]) <= 90 && Math.abs(n[1]) <= 180) return set({ lat: n[0], lon: n[1] });
-    typed.setAttribute('aria-invalid', 'true');
-    msg.textContent = 'Type a latitude and a longitude, for example 37.80, -122.27.';
-  };
-  const form = h(
-    'div',
-    { class: 'stack' },
-    h('p', {}, 'Where are you, roughly? Tremor snaps it to about 1 km and keeps it in this browser.'),
-    h('button', { class: 'btn', 'data-key': 'locate', onclick: locate }, 'Use my approximate location'),
-    h('form', { class: 'place-form', onsubmit: submit }, h('label', {}, 'Or type latitude, longitude', typed), h('button', { class: 'btn', type: 'submit' }, 'Set')),
-    msg,
-  );
-  return form;
-}
+const feltText = (c: { people: number; places: number }) => `${c.people} people in ${c.places} places felt shaking`;
+/** What a row of "Shaking near you?" is called. */
+const nearTitle = (x: Near) => (x.kind === 'felt' ? feltText(x) : x.kind === 'usgs' ? `USGS: ${x.place}` : x.kind === 'provisional' ? 'Provisional Tremor detection' : 'Tremor detection');
 
 /** How a provisional detection ended, in the words of both the panel and the screen-reader announcer. */
 function outcomeText(d: Provisional, usgs: UsgsQuake[]) {
   if (d.confirmed) return `Confirmed: ${mag(d.confirmed.mag)}${matchUsgs(d.confirmed, usgs) ? ', matches USGS' : ''}`;
   const w = d.withdrew;
-  const why = w.length ? `${w.length} of ${d.picks.length} phones withdrew (${[...new Set(w.map((x) => (x.reason ? WITHDREW[x.reason] : 'no reason given')))].join(', ')}) at ${clock(Math.max(...w.map((x) => x.at)))}` : '';
+  const why = w.length ? `${w.length} of ${d.picks.length} phones withdrew (${[...new Set(w.map((x) => (x.reason ? WITHDRAWN[x.reason] : 'no reason given')))].join(', ')}) at ${clock(Math.max(...w.map((x) => x.at)))}` : '';
   if (d.outcome === 'withdrawn') return `Not confirmed: ${why}`;
   if (d.outcome === 'unconfirmed') return `Still unconfirmed after ${SETTLE_MS / 60_000} min${why && `; ${why}`}`;
   return 'Waiting for the phones to confirm';
@@ -250,8 +186,8 @@ export function networkView(ctx: NetworkCtx) {
               h(
                 'li',
                 { 'data-testid': 'near-item' },
-                h('span', { class: `badge${x.kind === 'provisional' || x.kind === 'confirmed' ? ' ours' : ''}` }, x.badge),
-                h('span', {}, x.title, h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km from you${x.level === null ? '' : ` · ${x.kind === 'felt' ? 'typically' : 'rough local shaking:'} ${INTENSITY_WORDS[x.level]}`}`)),
+                h('span', { class: `badge${x.kind === 'provisional' || x.kind === 'confirmed' ? ' ours' : ''}` }, x.kind === 'felt' ? 'felt' : magBadge(x.mag)),
+                h('span', {}, nearTitle(x), h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km from you${x.level === null ? '' : ` · ${x.kind === 'felt' ? 'typically' : 'rough local shaking:'} ${INTENSITY_WORDS[x.level]}`}`)),
                 h('span', { class: 'when' }, ago(x.time)),
               ),
             ),

@@ -1,11 +1,12 @@
 import type { LiveNetwork } from '../app/live';
+import type { Place } from '../app/near';
 import { FELT_EVERY_MS, type Felt } from '../core/felt';
 import { loadIdentity } from '../net/identity';
 import { reach } from '../net/transport';
 import { matchUsgs } from '../net/usgs';
 import { h } from '../ui/dom';
-import { INTENSITY_WORDS, coord } from '../ui/format';
-import { clock, placeForm, type Place } from './network';
+import { INTENSITY_WORDS, clock, coord } from '../ui/format';
+import { placeForm } from './place';
 
 /** What each level feels like, weak to very strong. */
 const FEELS = ['Barely felt, like a truck passing', 'Windows, doors and dishes rattled', 'Felt by everyone; small things fell over', 'Hard to stand; furniture moved', 'Hard to stay on your feet; buildings damaged'];

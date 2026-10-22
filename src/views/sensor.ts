@@ -1,17 +1,9 @@
 import type { LiveNetwork } from '../app/live';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
 import { distanceKm, type LatLon } from '../core/geo';
-import type { RejectReason } from '../core/sensor';
 import { h, keepFocus } from '../ui/dom';
-import { coord, intensityWord, mag } from '../ui/format';
+import { WITHDRAWN, coord, intensityWord, mag } from '../ui/format';
 import { drawTrace } from '../ui/trace';
-
-const REASONS: Record<RejectReason, string> = {
-  handling: 'phone moved',
-  impulse: 'bump or door slam',
-  footsteps: 'footsteps',
-  interrupted: 'stopped before the check finished',
-};
 
 /** A still phone's own flicker keeps STA/LTA under 2.5: at most 2.0 over three hours of quiet tables. */
 const STIRRING = 2.5;
@@ -197,7 +189,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
                   h('span', {}, new Date(l.out.t).toLocaleTimeString()),
                   l.out.kind === 'trigger'
                     ? h('span', { class: 'tag trig' }, `Confirmed shaking: ${intensityWord(l.out.pga)}, ${l.out.pga.toFixed(2)} m/s² · ${l.out.phase} wave${l.published ? ' · sent' : ' · not sent'}`)
-                    : h('span', { class: 'tag rej' }, `${l.published ? 'withdrawn' : 'ignored'}: ${REASONS[l.out.reason]}`),
+                    : h('span', { class: 'tag rej' }, `${l.published ? 'withdrawn' : 'ignored'}: ${WITHDRAWN[l.out.reason]}`),
                 ),
               ),
             )
