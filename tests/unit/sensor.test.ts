@@ -193,6 +193,35 @@ describe('provisional picks', () => {
     const pick = out.find((o) => o.kind === 'pick')!;
     expect(out.find((o) => o.kind !== 'pick')).toMatchObject({ kind: 'reject', t: pick.t, reason: 'interrupted' });
   });
+
+  it('starts afresh after a break or its clock being set back, then hears the next quake', () => {
+    // A door slam at 20 s raises the threshold and holds off the next onset for a moment. At 60 s
+    // the samples stop for ten seconds, or the clock is set back two minutes, ten minutes or a
+    // day, with nothing being checked or with footsteps being checked; a quake comes 40 s later.
+    for (const jump of [10_000, -120_000, -600_000, -86_400_000])
+      for (const footsteps of [undefined, { t: 58, count: 4 }]) {
+        const det = new NodeDetector(50);
+        const out: DetectorOutput[] = [];
+        for (const s of synthesize({ start: 0, durationS: 150, seed: 7, slam: { t: 20 }, footsteps, quake: { tP: 100, tS: 104, pga: 0.6 } })) {
+          const r = det.push(s.t > 60_000 ? { ...s, t: s.t + jump } : s);
+          if (r) out.push(r);
+        }
+        const what = `clock ${jump / 1000} s, ${footsteps ? 'footsteps' : 'nothing'} being checked`;
+        expect(out.map((o) => (o.kind === 'reject' ? o.reason : o.kind)), what).toEqual(['pick', 'impulse', ...(footsteps ? ['pick', 'interrupted'] : []), 'pick', 'trigger']);
+        expect(det.threshold, what).toBe(det.base);
+      }
+  });
+
+  it('never raises its threshold when its clock steps back by less than a second', () => {
+    // The slam's false alarm raises the threshold, which then only relaxes; at 60 s the clock is set back 0.9 s.
+    const det = new NodeDetector(50);
+    let was = Infinity;
+    for (const s of synthesize({ start: 0, durationS: 70, seed: 7, slam: { t: 20 } })) {
+      det.push(s.t > 60_000 ? { ...s, t: s.t - 900 } : s);
+      if (s.t > 40_000) expect(det.threshold).toBeLessThanOrEqual(was);
+      was = det.threshold;
+    }
+  });
 });
 
 describe('telling P from S by which way the phone shakes', () => {
@@ -346,6 +375,20 @@ describe('this phone on the network', () => {
     expect(heartbeats().map((m) => m.data.sps)).toEqual([50, 0]);
   });
 
+  it('withdraws a pick still being checked when it stops sharing, and goes on checking it for its log', async () => {
+    const { node, feed, sent } = phone();
+    await node.start();
+    feed({ durationS: 40, quake: { tP: 30, tS: 33, pga: 0.6 } });
+    const pick = sent.find((m) => m.type === 'pick')!;
+    node.setJoined(false);
+    expect(sent.filter((m) => m.type === 'retract')).toEqual([expect.objectContaining({ pick: pick.id, reason: 'interrupted' })]);
+    // Its verdict comes as before, for this phone only.
+    const before = sent.length;
+    feed({ durationS: 30 });
+    expect(sent).toHaveLength(before);
+    expect(node.log).toEqual([expect.objectContaining({ out: expect.objectContaining({ kind: 'trigger', t: pick.data.t }), published: false })]);
+  });
+
   it('withdraws a pick still being checked as soon as the tab is hidden', async () => {
     const { node, feed, sent, doc, on, heartbeats } = phone();
     await node.start();
@@ -361,6 +404,22 @@ describe('this phone on the network', () => {
     feed({ durationS: 10 });
     expect(sent.filter((m) => m.type === 'retract')).toHaveLength(1);
     expect(node.log).toHaveLength(1);
+  });
+
+  it('says it has stopped with the background it had, when hidden and when stopped', async () => {
+    const { node, feed, doc, on, heartbeats } = phone();
+    await node.start();
+    feed({ durationS: 10 });
+    let had = node.detector!.background;
+    doc.visibilityState = 'hidden';
+    on.visibilitychange();
+    expect(heartbeats().at(-1)!.data).toMatchObject({ sps: 0, noise: expect.closeTo(had, 3) });
+    doc.visibilityState = 'visible';
+    on.visibilitychange();
+    feed({ durationS: 10 });
+    had = node.detector!.background;
+    node.stop();
+    expect(heartbeats().at(-1)!.data).toMatchObject({ sps: 0, noise: expect.closeTo(had, 3) });
   });
 
   it('dates what it sends by the wall clock, even when the event clock has fallen behind', async () => {
@@ -419,7 +478,10 @@ describe('this phone on the network', () => {
   });
 
   it('inverts the shaking model into how far away a quake would still be noticed', () => {
-    for (const [mag, pga] of [[4, 0.1], [5, 0.1], [5, 0.5]]) expect(pgaFor(mag, hypocentralKm(reachKm(mag, pga)))).toBeCloseTo(pga, 4);
+    // A quiet phone notices 0.1 m/s²: "an M4 within about 50 km and an M5 within about 90 km".
+    expect(reachKm(4, 0.1)).toBeCloseTo(51.33, 2);
+    expect(reachKm(5, 0.1)).toBeCloseTo(88.16, 2);
+    for (const [mag, pga] of [[4, 0.1], [5, 0.1], [5, 0.5]]) expect(pgaFor(mag, hypocentralKm(reachKm(mag, pga)))).toBeCloseTo(pga, 10);
     expect(reachKm(4, 5)).toBe(0);
   });
 

@@ -1,9 +1,9 @@
 import { coarsen, distanceKm, type LatLon } from '../core/geo';
-import { hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
+import { DEFAULT_DEPTH_KM, distanceFor, hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
 import { NodeDetector, type DetectorOutput } from '../core/sensor';
 import { upperMedian } from '../core/stats';
 import { loadIdentity, safeStorage } from '../net/identity';
-import { HEARTBEAT_EVERY_MS, signHeartbeat, signOutput } from '../net/protocol';
+import { HEARTBEAT_EVERY_MS, signHeartbeat, signOutput, signRetraction } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import type { UsgsQuake } from '../net/usgs';
 import { Emitter } from './emitter';
@@ -38,15 +38,8 @@ function weekStart(t: number): number {
 
 /** How far from its epicentre, km, a quake 10 km deep still shakes the ground this hard (m/s²): `pgaFor` inverted. 0 if not even right above it. */
 export function reachKm(mag: number, pga: number): number {
-  let lo = 0;
-  let hi = 2000;
-  if (pgaFor(mag, hypocentralKm(lo)) < pga) return 0;
-  while (hi - lo > 0.001) {
-    const mid = (lo + hi) / 2;
-    if (pgaFor(mag, hypocentralKm(mid)) >= pga) lo = mid;
-    else hi = mid;
-  }
-  return lo;
+  const r = distanceFor(mag, pga);
+  return r > DEFAULT_DEPTH_KM ? Math.sqrt(r ** 2 - DEFAULT_DEPTH_KM ** 2) : 0;
 }
 
 /**
@@ -87,7 +80,6 @@ export class SensorNode extends Emitter {
     // Hidden tabs get no motion events: say so at once rather than count as a quiet phone.
     if (document.visibilityState === 'hidden') {
       this.interrupt();
-      this.heartbeat(false);
       this.saveListened();
     } else this.requestWakeLock();
   };
@@ -142,7 +134,6 @@ export class SensorNode extends Emitter {
 
   stop() {
     this.interrupt();
-    this.heartbeat(false);
     this.saveListened();
     window.removeEventListener('devicemotion', this.onMotion);
     document.removeEventListener('visibilitychange', this.onVisible);
@@ -165,8 +156,14 @@ export class SensorNode extends Emitter {
   }
 
   setJoined(on: boolean) {
-    // Leaving: say this phone has stopped while it still may, or it is counted on for minutes.
-    if (!on) this.heartbeat(false);
+    if (!on) {
+      // Leaving: withdraw a pick still being checked, whose verdict will not be sent (the check
+      // goes on here, for the log), and say this phone has stopped while it still may, or it is
+      // counted on for minutes.
+      if (this.openPick) this.transport.publish(signRetraction(this.sk, this.openPick.id, 'interrupted'));
+      this.openPick = null;
+      this.heartbeat(false);
+    }
     this.joined = on;
     safeStorage()?.setItem(JOIN_KEY, on ? '1' : '0');
     this.heartbeat();
@@ -213,10 +210,13 @@ export class SensorNode extends Emitter {
     });
   }
 
-  /** The samples stop here: a pick still being checked never will be now. */
+  /** The samples stop here: withdraw a pick still being checked, which never will be now, and say this phone has stopped. */
   private interrupt() {
+    // Interrupted, the detector starts afresh: report the background it had.
+    const noise = this.detector?.background;
     const out = this.detector?.interrupt(Date.now());
     if (out) this.handle(out);
+    this.heartbeat(false, noise);
   }
 
   private set(s: SensorState) {
@@ -276,14 +276,14 @@ export class SensorNode extends Emitter {
     this.emit();
   }
 
-  /** I'm here and listening since the end of the warm-up; or, with `listening` false, I have stopped. */
-  private heartbeat(listening = true) {
+  /** I'm here and listening since the end of the warm-up; or, with `listening` false, I have stopped. `noise`: the background to report, if not the detector's now. */
+  private heartbeat(listening = true, noise?: number) {
     const d = this.detector;
     if (!this.canPublish || !d) return;
     // Not listening yet (still learning the background), or no samples lately (a hidden tab
     // whose timer still fires): stay silent and go stale.
     if (listening && (d.warmingUp || Date.now() - this.lastSample > 5000)) return;
-    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: d.background, sps: listening ? this.fs : 0, since: this.stretches.at(-1)?.from }));
+    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: noise ?? d.background, sps: listening ? this.fs : 0, since: this.stretches.at(-1)?.from }));
   }
 
   /** Keep this week's listening time in this browser. */
