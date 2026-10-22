@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import { defineConfig, devices } from '@playwright/test';
 
-// Use a preinstalled Chromium when the bundled revision is not downloaded (e.g. sandboxed builds).
-const local = '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+// Use a preinstalled Chromium when the bundled revision is not downloaded (e.g. sandboxed builds):
+// its headless shell, the build CI and `npx playwright install chromium` run headless tests in.
+const local = '/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell';
 const executablePath = process.env.CHROMIUM_PATH ?? (existsSync(local) ? local : undefined);
 // Its own port, never `npm start`'s 4173; E2E_PORT lets several checkouts test side by side.
 const port = Number(process.env.E2E_PORT) || 4174;
+const desktop = { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 } };
 
 export default defineConfig({
   testDir: 'tests/e2e',
@@ -20,8 +22,12 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 } }, testIgnore: /mobile\.spec/ },
+    { name: 'desktop', use: desktop, testIgnore: /(mobile|sensor)\.spec/ },
     { name: 'phone', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } }, testMatch: /mobile\.spec/ },
+    // The sensor tests feed motion in real time, and a phone that misses a second of it starts
+    // listening over. Browsers drawing maps beside them can hold a page up for seconds, so they
+    // run last, one at a time.
+    { name: 'sensor', use: desktop, testMatch: /sensor\.spec/, dependencies: ['desktop', 'phone'], workers: 1 },
   ],
   webServer: {
     // CI has just built the app; locally, build first. Never a server left running, so the

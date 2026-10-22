@@ -58,15 +58,6 @@ test.describe('be a sensor', () => {
     await expect(page.getByTestId('background')).toHaveText(/^1[0-5]\.\d mm\/s²$/);
     await expect(page.getByTestId('meter-word')).toHaveText('Quiet');
 
-    // The live trace is drawn.
-    const inked = await page.locator('canvas.trace').evaluate((c: HTMLCanvasElement) => {
-      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
-      let n = 0;
-      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
-      return n;
-    });
-    expect(inked).toBeGreaterThan(100);
-
     // The provisional pick marks the onset within a second of the P wave reaching the phone, 10 s in...
     await expect.poll(() => relay.events().filter((e) => e.kind === 4578).length, { timeout: 20_000 }).toBe(1);
     const onset = JSON.parse(relay.events().find((e) => e.kind === 4578)!.content).t - (start + 10_000);
@@ -88,6 +79,16 @@ test.describe('be a sensor', () => {
     expect(JSON.parse(trigger.content).pga).toBeGreaterThan(0.3);
     // The phone lay flat and the quake's first wave shook it up and down: a P wave.
     expect(JSON.parse(pick.content).ph).toBe('P');
+
+    // The live trace is drawn. Looked at last: reading a canvas back can stall the page for seconds
+    // (headless Chromium), and a phone that misses a second of samples starts listening over.
+    const inked = await page.locator('canvas.trace').evaluate((c: HTMLCanvasElement) => {
+      const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+      let n = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+      return n;
+    });
+    expect(inked).toBeGreaterThan(100);
   });
 
   test('it says what this phone can feel: how far, how long, and who listens nearby', async ({ page, relay }) => {
