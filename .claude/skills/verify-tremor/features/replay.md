@@ -5,7 +5,7 @@ Replay plays a real quake into a network of simulated phones: each phone's recor
 ## Sub-features
 
 - `replay-scenario` plays a bundled quake (Napa M6.0, Ridgecrest M7.1, Christchurch M6.1) to a declaration, a confirmation and a warning-time card.
-- `replay-compare` compares the simulated phones' location, time and magnitude with the USGS catalogue, with a link to its event page.
+- `replay-compare` compares the simulated phones' location, time and magnitude with the USGS catalogue, with a link to its event page. It says how far off the location could be (`± N km`, also a dashed ring on the map) and gives the magnitude as a range, and notes that real phones size quakes more roughly than simulated ones.
 - `replay-no-quake` plays Concert night: no alert, and the withdrawn picks counted by the phone's reason.
 - `replay-controls` plays, pauses, changes speed and scrubs, by pointer and by keyboard.
 - `replay-milestones` tells screen readers each milestone once (declared, confirmed, finished), not every second.
@@ -24,7 +24,7 @@ Replay plays a real quake into a network of simulated phones: each phone's recor
 Preconditions: the baseline; `open('#replay/napa-2014', 'speed=10')` unless a step says otherwise.
 
 - **Declare and confirm (`replay-scenario`).** Wait for `getByTestId('replay-status')` to read `Network declares a quake at T+…`, then for `getByTestId('play')` to read `Replay`. The timeline `What the network knew, and when` has 4 `li.done`; `getByTestId('warned')` reads `warned/felt`, with most of the felt phones warned for Napa.
-- **Compare (`replay-compare`).** In `getByTestId('compare')`, `est-loc` carries `data-lat`/`data-lon` within about 15 km of the USGS epicentre (Napa 38.215, −122.312) and `verdict` starts `Off by`. The `USGS page` link points at `earthquake.usgs.gov/earthquakes/eventpage/…`.
+- **Compare (`replay-compare`).** In `getByTestId('compare')`, `est-loc` carries `data-lat`/`data-lon` within about 15 km of the USGS epicentre (Napa 38.215, −122.312) and `verdict` starts `Off by`. `est-km` reads `± N km` and the USGS epicentre lies within N km of `est-loc`; `est-mag` reads a range such as `M5.3–6.4` that holds 6.0. Below the card a line starts `Simulated phones shake by the same model`. The map shows a dashed ring labelled `± N km`, and the `Key` lists `where a detection could be`. The `USGS page` link points at `earthquake.usgs.gov/earthquakes/eventpage/…`.
 - **No quake (`replay-no-quake`).** `open('#replay/stadium-night', 'speed=10')`. When `play` reads `Replay`, `warning` contains `No alert`, there is no `compare`, `replay-status` reads `Replay finished: no quake declared.` and `replay-stats` reads `40 simulated phones · N confirmed · N picks withdrawn on-device (footsteps N, …)`.
 - **Controls (`replay-controls`).** Press `Pause` (the clock stops), the `10×` button in `Playback speed` (its `aria-pressed` turns true), then focus the `Replay position` slider and press `Home` and `ArrowRight`: the clock and the timeline follow.
 - **Milestones (`replay-milestones`).** Record `replay-status` text every 250 ms through a Napa run: no more than four distinct lines, ending in `Replay finished: declared at …, confirmed at …`.
