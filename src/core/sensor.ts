@@ -121,8 +121,8 @@ export class NodeDetector {
   }
 
   push(s: Sample): DetectorOutput | null {
-    if (this.lastT && s.t - this.lastT > 1000) {
-      // The samples stopped for a while, as in a hidden tab.
+    if (this.lastT && Math.abs(s.t - this.lastT) > 1000) {
+      // The samples stopped for a while, as in a hidden tab, or the clock was set.
       const out = this.interrupt(s.t);
       if (out) {
         this.lastT = s.t;

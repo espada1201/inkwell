@@ -178,6 +178,18 @@ describe('provisional picks', () => {
     const pick = out.find((o) => o.kind === 'pick')!;
     expect(out.filter((o) => o.kind !== 'pick')).toEqual([{ kind: 'reject', t: pick.t, at: 42_000, reason: 'interrupted' }]);
   });
+
+  it('takes its clock being set back as a break in the samples too', () => {
+    const det = new NodeDetector(50);
+    const out: DetectorOutput[] = [];
+    for (const s of synthesize({ start: 0, durationS: 90, seed: 7, quake: { tP: 30, tS: 34, pga: 0.6 } })) {
+      // Two seconds after the onset, the phone's clock is set back a minute.
+      const r = det.push(s.t > 32_000 ? { ...s, t: s.t - 60_000 } : s);
+      if (r) out.push(r);
+    }
+    const pick = out.find((o) => o.kind === 'pick')!;
+    expect(out.find((o) => o.kind !== 'pick')).toMatchObject({ kind: 'reject', t: pick.t, reason: 'interrupted' });
+  });
 });
 
 describe('telling P from S by which way the phone shakes', () => {
@@ -346,5 +358,17 @@ describe('this phone on the network', () => {
     feed({ durationS: 10 });
     expect(sent.filter((m) => m.type === 'retract')).toHaveLength(1);
     expect(node.log).toHaveLength(1);
+  });
+
+  it('dates what it sends by the wall clock, even when the event clock has fallen behind', async () => {
+    const { node, feed, sent, heartbeats } = phone();
+    await node.start();
+    feed({ durationS: 10 });
+    // Asleep for an hour: the wall clock moved on, the clock motion events are stamped by did not.
+    vi.setSystemTime(Date.now() + 3600_000);
+    feed({ durationS: 40, quake: { tP: 30, tS: 33, pga: 0.6 } });
+    const pick = sent.find((m) => m.type === 'pick')!;
+    expect(Math.abs(pick.data.t - (Date.now() - 10_000))).toBeLessThan(1000);
+    expect(heartbeats().at(-1)!.data.since).toBeGreaterThan(Date.now() - 40_000);
   });
 });

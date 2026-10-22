@@ -48,6 +48,8 @@ export class SensorNode extends Emitter {
   /** When the phone last finished warming up, so has listened without a break, and when the last sample came. */
   private since = 0;
   private lastSample = 0;
+  /** Wall clock minus the clock motion events are stamped by. */
+  private offset = 0;
   private readonly onMotion = (e: DeviceMotionEvent) => this.motion(e);
   private readonly onVisible = () => {
     if (this.state === 'idle') return;
@@ -148,7 +150,11 @@ export class SensorNode extends Emitter {
   private motion(e: DeviceMotionEvent) {
     const a = e.accelerationIncludingGravity;
     if (!a || a.x === null || a.y === null || a.z === null) return;
-    const t = performance.timeOrigin + e.timeStamp;
+    // Time samples by the wall clock, as the network does: the event clock drifts from it over
+    // days and stands still while the device sleeps. Re-anchor once they part by 20 ms.
+    const offset = Date.now() - performance.now();
+    if (Math.abs(offset - this.offset) > 20) this.offset = offset;
+    const t = this.offset + e.timeStamp;
     this.lastSample = t;
     if (!this.detector) {
       // Learn the sample rate from the reported interval before building filters.
