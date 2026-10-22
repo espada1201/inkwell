@@ -102,6 +102,19 @@ describe('provisional picks', () => {
       expect(picks.map((p) => p.t)).toEqual(finals.map((f) => f.t));
     }
   });
+
+  it('withdraws its pick when the samples stop before it could check the shaking', () => {
+    const det = new NodeDetector(50);
+    const out: DetectorOutput[] = [];
+    for (const s of synthesize({ start: 0, durationS: 90, seed: 7, quake: { tP: 30, tS: 34, pga: 0.6 } })) {
+      // The tab is hidden two seconds after the onset, for ten seconds.
+      if (s.t > 32_000 && s.t < 42_000) continue;
+      const r = det.push(s);
+      if (r) out.push(r);
+    }
+    const pick = out.find((o) => o.kind === 'pick')!;
+    expect(out.filter((o) => o.kind !== 'pick')).toEqual([{ kind: 'reject', t: pick.t, at: 42_000, reason: 'interrupted' }]);
+  });
 });
 
 describe('telling P from S by which way the phone shakes', () => {

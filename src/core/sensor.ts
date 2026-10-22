@@ -10,7 +10,8 @@ export interface Sample {
   z: number;
 }
 
-export type RejectReason = 'handling' | 'impulse' | 'footsteps';
+/** Why a phone withdrew its pick. Interrupted: the samples stopped before it could tell. */
+export type RejectReason = 'handling' | 'impulse' | 'footsteps' | 'interrupted';
 
 export type DetectorOutput =
   /** Provisional: shaking just started. Sent within half a second so the network can react fast. */
@@ -100,7 +101,15 @@ export class NodeDetector {
   }
 
   push(s: Sample): DetectorOutput | null {
-    if (this.lastT && s.t - this.lastT > 1000) this.reset();
+    if (this.lastT && s.t - this.lastT > 1000) {
+      // The samples stopped (a hidden tab): start afresh, and withdraw a pick already sent.
+      const lost = this.cand;
+      this.reset();
+      if (lost?.phase) {
+        this.lastT = s.t;
+        return { kind: 'reject', t: lost.t0, at: s.t, reason: 'interrupted' };
+      }
+    }
     const dtS = this.lastT ? (s.t - this.lastT) / 1000 : 1 / this.fs;
     this.lastT = s.t;
     // Threshold relaxes toward base with a 2-minute time constant.

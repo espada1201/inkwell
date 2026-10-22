@@ -1,11 +1,13 @@
 import type { SensorNode } from '../app/sensor';
+import type { RejectReason } from '../core/sensor';
 import { coord, h } from '../ui/dom';
 import { drawTrace } from '../ui/trace';
 
-const REASONS: Record<string, string> = {
+const REASONS: Record<RejectReason, string> = {
   handling: 'phone moved',
   impulse: 'bump or door slam',
   footsteps: 'footsteps',
+  interrupted: 'sensor paused before it could check',
 };
 
 const STATE_COPY: Record<SensorNode['state'], [string, string]> = {
