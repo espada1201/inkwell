@@ -72,14 +72,18 @@ const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Se
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
 // Past the header and the map, which take a keyboard many presses, to the screen's own heading.
-const skip = () => {
+const skip = (scroll = true) => {
   // The sensor's heading is its changing state, so its first control instead.
   const start = stage.querySelector<HTMLElement>(sensorEl.hidden ? '.panel h1' : '.sensor [data-key=run]');
   if (start?.tagName === 'H1') start.tabIndex = -1;
-  start?.focus();
+  start?.focus({ preventScroll: !scroll });
 };
+// A tap on a tab should not scroll a phone down to the screen's heading; Tab and Enter should.
+let pointer = false;
+addEventListener('pointerdown', () => (pointer = true), true);
+addEventListener('keydown', () => (pointer = false), true);
 document.getElementById('app')!.append(
-  h('header', { class: 'top' }, h('button', { class: 'btn skip', onclick: skip }, 'Skip to content'), h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, h('button', { class: 'felt-btn', onclick: felt.open }, 'I felt it'), relayStatus, usgsStatus), heli),
+  h('header', { class: 'top' }, h('button', { class: 'btn skip', onclick: () => skip() }, 'Skip to content'), h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, h('button', { class: 'felt-btn', onclick: felt.open }, 'I felt it'), relayStatus, usgsStatus), heli),
   stage,
   felt.el,
   bell.note,
@@ -158,7 +162,7 @@ function route(e?: Event) {
   requestAnimationFrame(() => map.resize());
   document.title = `Tremor · ${tab.label}`;
   // Changing screens leaves the keyboard where the new screen starts, not back at the top of the page.
-  if (e) skip();
+  if (e) skip(!pointer);
 }
 
 startHelicorder(heli, () => (current?.view === 'replay' ? replay.activity() : live.activity()));

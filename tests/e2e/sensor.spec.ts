@@ -43,8 +43,26 @@ test.describe('be a sensor', () => {
     await expect(steps.getByRole('button', { name: 'Use my approximate location' })).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(steps).toHaveCount(0);
-    await expect(page.getByLabel('Share with the Tremor network')).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Stop sensor' })).toBeFocused();
     await expect(page.getByTestId('publish-note')).toContainText('On.');
+    await expect(page.getByTestId('loc')).toHaveText('37.80°N 122.27°W');
+  });
+
+  test('a town typed on the Network screen is named here, with an offer to use where this phone really is', async ({ page, relay }) => {
+    await page.context().grantPermissions(['geolocation']);
+    await page.context().setGeolocation({ latitude: 37.8044, longitude: -122.2712 });
+    await page.addInitScript(() => {
+      localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.1, lon: -122.26 }));
+      localStorage.setItem('tremor.place', 'Vallejo, CA, US');
+      localStorage.setItem('tremor.join', '1');
+    });
+    await page.goto(`/?relays=${relay.url}#sensor`);
+    await expect(page.getByTestId('loc')).toHaveText('Vallejo, CA, US · 38.10°N 122.26°W');
+    const steps = page.getByTestId('help-steps');
+    await expect(steps.getByRole('heading')).toHaveText('Sharing from Vallejo, CA, US');
+    await expect(steps).toContainText('If this phone is somewhere else, use its own location instead.');
+    await steps.getByRole('button', { name: 'Use my approximate location' }).click();
+    await expect(steps).toHaveCount(0);
     await expect(page.getByTestId('loc')).toHaveText('37.80°N 122.27°W');
   });
 

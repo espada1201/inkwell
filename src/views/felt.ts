@@ -23,8 +23,18 @@ const WHEN = [0, 5, 15, 30];
 export function feltDialog(live: LiveNetwork, place: Place, me: { sk: Uint8Array; pubkey: string }) {
   const body = h('div', { class: 'stack' });
   const el = h('dialog', { class: 'felt', 'aria-labelledby': 'felt-title' }, h('h2', { id: 'felt-title' }, 'I felt it'), body, h('form', { method: 'dialog' }, h('button', { class: 'btn' }, 'Close')));
-  // A press on the dimmed page around the dialog closes it, as Escape does.
-  el.addEventListener('click', (e) => e.target === el && el.close());
+  // A press on the dimmed page around the dialog closes it, as Escape does. The dialog's own padding is
+  // the dialog too, and a drag that starts inside and ends outside is not a press outside.
+  const outside = (e: MouseEvent) => {
+    const r = el.getBoundingClientRect();
+    return e.target === el && (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom);
+  };
+  let pressedOutside = false;
+  el.addEventListener('pointerdown', (e) => (pressedOutside = outside(e)));
+  el.addEventListener('click', (e) => {
+    if (pressedOutside && outside(e)) el.close();
+    pressedOutside = false;
+  });
   let ago = 0;
   /** The report just sent, and when: one about earlier shaking still counts as just sent. */
   let last: { f: Felt; at: number } | null = null;
@@ -45,7 +55,8 @@ export function feltDialog(live: LiveNetwork, place: Place, me: { sk: Uint8Array
     const earlier = live.lastFelt(me.pubkey, now);
     if (!you) body.replaceChildren(placeForm(place, show));
     else if (recent ?? earlier) body.replaceChildren(...(recent ? sent(recent.f, recent.at) : sent(earlier!, earlier!.t)));
-    else
+    else {
+      const refused = h('p', { class: 'small', role: 'status' });
       body.replaceChildren(
         h('p', { id: 'felt-when' }, 'When was it?'),
         h(
@@ -76,9 +87,11 @@ export function feltDialog(live: LiveNetwork, place: Place, me: { sk: Uint8Array
                 class: 'level',
                 onclick: () => {
                   const t = Date.now() - ago * 60_000;
-                  live.reportFelt(me, you, i + 1, t);
-                  const f = live.lastFelt(me.pubkey, t);
-                  last = f ? { f, at: Date.now() } : null;
+                  const ok = live.reportFelt(me, you, i + 1, t);
+                  const f = live.lastFelt(me.pubkey, t)!;
+                  // Only one report every ten minutes of shaking: an earlier time can land on one already sent.
+                  if (!ok) return void (refused.textContent = `You already reported ${INTENSITY_WORDS[f.lvl]} shaking at ${zoned(f.t)}, within ten minutes of that time, so this was not sent. Pick another time, or close.`);
+                  last = { f, at: Date.now() };
                   show();
                 },
               },
@@ -87,8 +100,10 @@ export function feltDialog(live: LiveNetwork, place: Place, me: { sk: Uint8Array
             ),
           ),
         ),
+        refused,
         h('p', { class: 'small muted' }, `Your report carries your rough location, ${coord(you.lat, you.lon)}, and anyone watching the relays can see it.`),
       );
+    }
     // What had focus is gone; opening the dialog focuses its first control by itself.
     body.querySelector<HTMLElement>('button, a')?.focus();
   }

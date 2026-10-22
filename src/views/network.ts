@@ -310,7 +310,7 @@ export function networkView(ctx: NetworkCtx) {
                   'button',
                   { class: 'row', 'aria-pressed': selected?.kind === 'event' && selected.id === e.id ? 'true' : 'false', 'data-key': `event:${e.id}`, onclick: () => select('event', e.id) },
                   h('span', { class: 'badge ours' }, magBadge(e.mag)),
-                  h('span', { class: 'where' }, m ? `Matches USGS: ${m.quake.place}` : coord(e.lat, e.lon), h('br'), h('span', { class: 'small muted' }, `${e.triggers.length} phones agreed · compare ›`)),
+                  h('span', { class: 'where' }, m ? `Matches USGS: ${m.quake.place}` : coord(e.lat, e.lon), h('br'), h('span', { class: 'small muted' }, `${e.triggers.length} phones agreed · compare`, h('span', { 'aria-hidden': 'true' }, ' ›'))),
                   h('span', { class: 'when' }, ago(e.time)),
                 ),
               );

@@ -2,10 +2,20 @@ import type { Place } from '../app/near';
 import { parseLatLon, type LatLon } from '../core/geo';
 import { findTowns, parseTowns, townLabel, type Town } from '../core/places';
 import { h } from '../ui/dom';
+import { coord } from '../ui/format';
 
 let towns: Promise<Town[]> | null = null;
 /** The town list is fetched the first time someone types a name, not with the page. */
-const loadTowns = () => (towns ??= import('../data/places.tsv?raw').then((m) => parseTowns(m.default)));
+const loadTowns = () =>
+  (towns ??= import('../data/places.tsv?raw').then(
+    (m) => parseTowns(m.default),
+    (e) => {
+      // Offline, or a page older than the site: try again on the next press.
+      towns = null;
+      throw e;
+    },
+  ));
+const MAX_CHOICES = 6;
 
 /** Asks where you are, roughly: by the browser's location, a town's name or typed coordinates. `then` follows once it is set. */
 export function placeForm(place: Place, then: () => void) {
@@ -39,15 +49,25 @@ export function placeForm(place: Place, then: () => void) {
       return;
     }
     msg.textContent = 'Looking it up…';
-    const found = findTowns(await loadTowns(), text);
+    let found;
+    try {
+      found = findTowns(await loadTowns(), text);
+    } catch {
+      msg.textContent = 'The list of towns could not be loaded. Try again, or type coordinates.';
+      return;
+    }
+    // The form may have gone while the list loaded.
+    if (!form.isConnected) return;
     if (found.length === 1) return set(found[0], townLabel(found[0]));
     if (!found.length) {
       typed.setAttribute('aria-invalid', 'true');
-      msg.textContent = `No town called “${text.trim()}” in Tremor’s list, which has towns of over 15,000 people (5,000 in the US). Try a bigger town nearby, or coordinates.`;
+      msg.textContent = `No town called “${text.trim()}” in Tremor’s list, which has towns of over 15,000 people (5,000 in the US), spelled in Latin letters. Try a bigger town nearby, or coordinates.`;
       return;
     }
-    msg.textContent = `${found.length} towns match. Which one?`;
-    choices.replaceChildren(...found.map((t) => h('button', { class: 'btn', type: 'button', onclick: () => set(t, townLabel(t)) }, townLabel(t))));
+    const shown = found.slice(0, MAX_CHOICES);
+    msg.textContent = found.length > MAX_CHOICES ? `${found.length} towns match; here are the ${MAX_CHOICES} biggest. Add a state or country after a comma to narrow it down.` : `${found.length} towns match. Which one?`;
+    const twice = (t: Town) => shown.filter((u) => townLabel(u) === townLabel(t)).length > 1;
+    choices.replaceChildren(...shown.map((t) => h('button', { class: 'btn', type: 'button', onclick: () => set(t, townLabel(t)) }, twice(t) ? `${townLabel(t)} (${coord(t.lat, t.lon)})` : townLabel(t))));
     choices.querySelector('button')?.focus();
   };
   const form = h(

@@ -42,6 +42,9 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   let filled: LatLon | null | undefined;
   const left = h('div', { style: 'display:grid;gap:14px;align-content:start' });
   const right = h('div', { style: 'display:grid;gap:14px;align-content:start' });
+  // Made once, so a render while the browser is still locating does not wipe what it said.
+  const stepsMsg = h('p', { class: 'small', role: 'status' });
+  const locMsg = h('p', { class: 'small muted', role: 'status' });
   let dimmed = false;
   let raf = 0;
 
@@ -103,7 +106,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
     if (!navigator.geolocation) return void (msg.textContent = 'Geolocation is unavailable. Enter coordinates instead.');
     msg.textContent = 'Locating…';
     navigator.geolocation.getCurrentPosition(
-      (p) => (s.setLocation({ lat: p.coords.latitude, lon: p.coords.longitude }), then()),
+      (p) => ((msg.textContent = ''), s.setLocation({ lat: p.coords.latitude, lon: p.coords.longitude }), then()),
       () => (msg.textContent = 'Location refused. You can type approximate coordinates instead.'),
       { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
     );
@@ -111,27 +114,34 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
 
   /** Right under Start: what is still missing before this phone helps anyone, one press each. */
   function helpSteps() {
-    if (s.canPublish || s.state === 'unsupported' || s.state === 'denied') return null;
-    const msg = h('p', { class: 'small', role: 'status' });
-    // Each press removes its button: keep the keyboard on the next step, or on the switch that now says On.
-    const next = () => root.querySelector<HTMLElement>('[data-key=join-now], [data-key=locate-now], [data-key=join]')?.focus();
+    // A town typed on the Network screen, perhaps to check on someone elsewhere, is not where this phone is.
+    const town = s.placeName;
+    if ((s.canPublish && !town) || s.state === 'unsupported' || s.state === 'denied') return null;
+    // Each press removes its button: keep the keyboard on the next step, or on Start/Stop near the top,
+    // unless it has moved on by the time the browser answers.
+    const next = () => {
+      const at = document.activeElement;
+      if (at && at !== document.body && root.contains(at)) return;
+      ['join-now', 'locate-now', 'run'].map((k) => root.querySelector<HTMLElement>(`[data-key=${k}]`)).find(Boolean)?.focus();
+    };
+    const missing = !s.joined && !s.location ? 'share it and set its location' : !s.joined ? 'share it' : 'set its location';
     return h(
       'section',
       { class: 'card steps', 'data-testid': 'help-steps' },
-      h('h2', {}, 'Not helping anyone yet'),
-      h('p', { class: 'small' }, `Only you see what this phone feels until you ${!s.joined && !s.location ? 'share it and set its location' : !s.joined ? 'share it' : 'set its location'}.`),
+      h('h2', {}, s.canPublish ? `Sharing from ${town}` : 'Not helping anyone yet'),
+      s.canPublish ? null : h('p', { class: 'small' }, `Only you see what this phone feels until you ${missing}.`),
+      town ? h('p', { class: 'small' }, `${town} was typed on the Network screen. If this phone is somewhere else, use its own location instead.`) : null,
       h(
         'div',
         { class: 'transport' },
         s.joined ? null : h('button', { class: 'btn primary', 'data-key': 'join-now', onclick: () => (s.setJoined(true), next()) }, 'Share with the Tremor network'),
-        s.location ? null : h('button', { class: 'btn', 'data-key': 'locate-now', onclick: () => locate(msg, next) }, 'Use my approximate location'),
+        s.location && !town ? null : h('button', { class: 'btn', 'data-key': 'locate-now', onclick: () => locate(stepsMsg, next) }, 'Use my approximate location'),
       ),
-      msg,
+      stepsMsg,
     );
   }
 
   function locationCard() {
-    const msg = h('p', { class: 'small muted', role: 'status' });
     if (s.location !== filled) {
       filled = s.location;
       lat.value = s.location ? String(s.location.lat) : '';
@@ -141,13 +151,13 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
       'section',
       { class: 'card' },
       h('h2', {}, 'Location'),
-      h('p', { 'data-testid': 'loc' }, s.location ? coord(s.location.lat, s.location.lon) : 'Not set'),
+      h('p', { 'data-testid': 'loc' }, s.location ? `${s.placeName ? `${s.placeName} · ` : ''}${coord(s.location.lat, s.location.lon)}` : 'Not set'),
       h('p', { class: 'small muted' }, 'Snapped to a 1 km grid before it ever leaves this phone. Your street is never shared.'),
       h(
         'button',
         {
           class: 'btn',
-          onclick: () => locate(msg),
+          onclick: () => locate(locMsg),
         },
         'Use my approximate location',
       ),
@@ -159,17 +169,18 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
             e.preventDefault();
             const at = parseLatLon(`${lat.value}, ${lon.value}`);
             if (at) {
+              locMsg.textContent = '';
               s.setLocation(at);
               // Enter in a box submits without leaving it: show the new location now.
               keepFocus(root, render);
-            } else msg.textContent = 'Type a number in each box, with a point for decimals: latitude from −90 to 90, longitude from −180 to 180, like 37.77 and -122.42.';
+            } else locMsg.textContent = 'Type a number in each box, with a point for decimals: latitude from −90 to 90, longitude from −180 to 180, like 37.77 and -122.42.';
           },
         },
         lat,
         lon,
         h('button', { class: 'btn', type: 'submit' }, 'Set'),
       ),
-      msg,
+      locMsg,
     );
   }
 

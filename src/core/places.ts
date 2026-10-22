@@ -19,15 +19,22 @@ const STATES: Record<string, string> = {
 };
 const US = new Set(['us', 'usa', 'united states', 'america']);
 
-/** Lower case, without accents or punctuation, so "São Paulo" and "sao paulo" match. */
-const fold = (s: string) =>
+/** Country codes people type that the list spells otherwise. */
+const COUNTRY_ALIASES: Record<string, string> = { uk: 'GB', england: 'GB', scotland: 'GB', wales: 'GB', britain: 'GB' };
+/** Letters that do not come apart into a plain letter and an accent. */
+const PLAIN: Record<string, string> = { ł: 'l', ø: 'o', ı: 'i', đ: 'd', ð: 'd', þ: 'th', ß: 'ss', æ: 'ae', œ: 'oe' };
+
+/**
+ * Lower case and plain Latin letters, without accents, apostrophes or spaces, so "São Paulo" and "sao paulo",
+ * "Łódź" and "Lodz", "Xi’an" and "Xian" match.
+ */
+export const fold = (s: string) =>
   s
+    .toLowerCase()
+    .replace(/[łøıđðþßæœ]/g, (c) => PLAIN[c])
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9 ]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/[^a-z0-9]+/g, '');
 
 /** The bundled list: one town per line, biggest first, as `name, country, state, lat, lon` separated by tabs. */
 export function parseTowns(tsv: string): Town[] {
@@ -43,19 +50,29 @@ export function parseTowns(tsv: string): Town[] {
 export const townLabel = (t: Town) => [t.name, t.state, t.country].filter(Boolean).join(', ');
 
 /**
- * Towns called what was typed, biggest first. Words after a comma narrow it down by US state (code or name) or
- * country code: "Vallejo", "San Rafael, CA", "Springfield, Illinois", "Valencia, ES". With no town of exactly that
- * name, towns whose name starts with it.
+ * Every town called what was typed, biggest first. Words after a comma narrow it down by US state (code or name) or
+ * country code: "Vallejo", "San Rafael, CA", "Springfield, Illinois", "Valencia, ES", "London, UK". With no town of
+ * exactly that name, towns whose name starts with it; with words after a comma it cannot place, every town of the name.
  */
-export function findTowns(towns: Town[], typed: string, max = 6): Town[] {
-  const [name, ...rest] = typed.split(',').map(fold);
-  if (!name) return [];
-  const where = rest.filter(Boolean);
+export function findTowns(towns: Town[], typed: string): Town[] {
+  // A name can hold a comma itself ("Washington, D.C."), so the whole of it is tried first.
+  const whole = fold(typed);
+  if (!whole) return [];
+  const exact = towns.filter((t) => fold(t.name) === whole);
+  if (exact.length) return exact;
+  const [name, ...rest] = typed.split(',');
+  const key = fold(name);
+  if (!key) return [];
+  const where = rest.map((w) => w.trim().toLowerCase()).filter(Boolean);
   const fits = (t: Town) =>
     where.every((w) => {
-      const code = w.toUpperCase();
+      const code = (COUNTRY_ALIASES[w] ?? w).toUpperCase();
       return t.state === code || t.state === STATES[w] || t.country === code || (US.has(w) && t.country === 'US');
     });
-  const named = towns.filter((t) => fold(t.name) === name && fits(t));
-  return (named.length ? named : towns.filter((t) => fold(t.name).startsWith(name) && fits(t))).slice(0, max);
+  const byName = towns.filter((t) => fold(t.name) === key);
+  const named = byName.filter(fits);
+  if (named.length) return named;
+  const starting = towns.filter((t) => fold(t.name).startsWith(key) && fits(t));
+  // A country spelled out ("London, Canada") is not one it knows: offer every town of that name to pick from.
+  return starting.length ? starting : byName;
 }

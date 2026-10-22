@@ -15,6 +15,21 @@ describe('towns by name', () => {
   it('finds a town by its name, whatever the case and accents', () => {
     expect(findTowns(towns, 'vallejo')).toEqual([{ name: 'Vallejo', country: 'US', state: 'CA', lat: 38.1, lon: -122.26 }]);
     expect(labels('Sao Paulo')[0]).toBe('São Paulo, BR');
+    expect(labels('Lodz')).toEqual(['Łódź, PL']);
+    expect(labels('Xian')).toEqual(['Xi’an, CN']);
+    expect(labels("xi'an")).toEqual(['Xi’an, CN']);
+    expect(labels('zurich')).toEqual(['Zürich, CH']);
+  });
+
+  it('takes a name that holds a comma itself, and the countries people call by other names', () => {
+    expect(labels('Washington, D.C.')).toEqual(['Washington, D.C., DC, US']);
+    expect(labels('London, UK')).toEqual(['London, GB']);
+    expect(labels('London, Canada')).toEqual(expect.arrayContaining(['London, GB', 'London, CA']));
+    expect(labels('London, CA')).toEqual(['London, CA']);
+  });
+
+  it('returns every match, however many, for the form to cut down', () => {
+    expect(findTowns(towns, 'Springfield').length).toBeGreaterThan(6);
   });
 
   it('offers every town of that name, biggest first, and narrows by state or country', () => {

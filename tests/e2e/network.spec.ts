@@ -485,8 +485,42 @@ test('shaking felt a while ago is reported at the time it shook, and a press bes
   await dialog.getByRole('button', { name: 'Close' }).click();
   await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
   await expect(dialog.getByRole('status')).toContainText('You can report again from');
+  // Selecting text and letting go beside the dialog, or pressing its own padding, leaves it open.
+  const box = (await dialog.boundingBox())!;
+  await page.mouse.move(box.x + 4, box.y + 4);
+  await page.mouse.down();
+  await page.mouse.move(5, 400);
+  await page.mouse.up();
+  await page.mouse.click(box.x + 2, box.y + box.height - 2);
+  await expect(dialog).toBeVisible();
   await page.mouse.click(5, 400);
   await expect(dialog).toBeHidden();
+});
+
+test('a second report about the same shaking is refused, and says so, rather than thanking for the first', async ({ page, relay }) => {
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  const open = () => page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
+  const dialog = page.getByRole('dialog', { name: 'I felt it' });
+  await open();
+  await dialog.getByRole('button', { name: '30 min ago' }).click();
+  await dialog.getByRole('button', { name: /^light/ }).click();
+  await expect.poll(() => relay.events().filter((e) => e.kind === 4580).length).toBe(1);
+  // Back later, the report from half an hour ago is not "now", so the question is asked again.
+  await page.reload();
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  await open();
+  await dialog.getByRole('button', { name: '30 min ago' }).click();
+  await dialog.getByRole('button', { name: /^strong/ }).click();
+  await expect(dialog.getByRole('status')).toContainText('You already reported light shaking at');
+  await expect(dialog.getByRole('status')).toContainText('this was not sent');
+  await page.waitForTimeout(500);
+  expect(relay.events().filter((e) => e.kind === 4580)).toHaveLength(1);
+  await dialog.getByRole('button', { name: 'Just now' }).click();
+  await dialog.getByRole('button', { name: /^strong/ }).click();
+  await expect(dialog.getByRole('status')).toContainText('You reported strong shaking at');
+  await expect.poll(() => relay.events().filter((e) => e.kind === 4580).length).toBe(2);
 });
 
 test('a keyboard skips the header and the map, and lands on each screen it opens', async ({ page, relay }) => {
