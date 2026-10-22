@@ -131,6 +131,15 @@ test.describe('be a sensor', () => {
     await expect(page.getByRole('button', { name: 'Stop sensor' })).toBeFocused();
   });
 
+  test('Enter in a coordinate box sets the location and shows it at once', async ({ page }) => {
+    await page.goto('/#sensor');
+    await page.getByLabel('Latitude').fill('37.77493');
+    await page.getByLabel('Longitude').fill('-122.41942');
+    await page.getByLabel('Longitude').press('Enter');
+    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W');
+    await expect(page.getByLabel('Longitude')).toBeFocused();
+  });
+
   test('nothing is published until the user opts in', async ({ page, relay }) => {
     await page.goto(`/?relays=${relay.url}#sensor`);
     await page.getByTestId('start').click();

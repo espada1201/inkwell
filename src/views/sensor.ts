@@ -37,8 +37,8 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   const background = h('dd', { 'data-testid': 'background' });
   const feel = h('section', { class: 'card', 'data-testid': 'can-feel' });
   let shown = -Infinity;
-  const lat = h('input', { inputmode: 'decimal', placeholder: 'lat', 'aria-label': 'Latitude' });
-  const lon = h('input', { inputmode: 'decimal', placeholder: 'lon', 'aria-label': 'Longitude' });
+  const lat = h('input', { 'data-key': 'lat', inputmode: 'decimal', placeholder: 'lat', 'aria-label': 'Latitude' });
+  const lon = h('input', { 'data-key': 'lon', inputmode: 'decimal', placeholder: 'lon', 'aria-label': 'Longitude' });
   let filled: LatLon | null | undefined;
   const left = h('div', { style: 'display:grid;gap:14px;align-content:start' });
   const right = h('div', { style: 'display:grid;gap:14px;align-content:start' });
@@ -134,8 +134,11 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
           onsubmit: (e: Event) => {
             e.preventDefault();
             const at = parseLatLon(`${lat.value}, ${lon.value}`);
-            if (at) s.setLocation(at);
-            else msg.textContent = 'Type a number in each box, with a point for decimals: latitude from −90 to 90, longitude from −180 to 180, like 37.77 and -122.42.';
+            if (at) {
+              s.setLocation(at);
+              // Enter in a box submits without leaving it: show the new location now.
+              keepFocus(root, render);
+            } else msg.textContent = 'Type a number in each box, with a point for decimals: latitude from −90 to 90, longitude from −180 to 180, like 37.77 and -122.42.';
           },
         },
         lat,
