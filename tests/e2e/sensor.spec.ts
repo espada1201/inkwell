@@ -1,5 +1,8 @@
+import { generateSecretKey } from 'nostr-tools/pure';
 import { synthesize } from '../../src/core/synth';
+import { signHeartbeat } from '../../src/net/protocol';
 import { expect, test } from './fixtures';
+import { send } from './publish';
 
 /** Feed a recorded accelerometer series to the page as DeviceMotion events, in real time (50 Hz). Returns the wall clock time of its start. */
 async function feed(page: import('@playwright/test').Page, record: { x: number; y: number; z: number }[]) {
@@ -78,6 +81,31 @@ test.describe('be a sensor', () => {
     expect(JSON.parse(trigger.content).pga).toBeGreaterThan(0.3);
     // The phone lay flat and the quake's first wave shook it up and down: a P wave.
     expect(JSON.parse(pick.content).ph).toBe('P');
+  });
+
+  test('it says what this phone can feel: how far, how long, and who listens nearby', async ({ page, relay }) => {
+    await page.goto(`/?relays=${relay.url}#sensor`);
+    const card = page.getByTestId('can-feel');
+    await expect(card).toContainText('Start the sensor to see how far away it would notice a quake.');
+    await expect(card).toContainText('Listening time: none this session, none this week.');
+    await expect(card).toContainText('Set a location to see the phones and quakes near you.');
+    await page.getByLabel('Latitude').fill('37.77');
+    await page.getByLabel('Longitude').fill('-122.42');
+    await page.getByRole('button', { name: 'Set' }).click();
+    await expect(page.getByTestId('neighbours')).toHaveText('No other phones heard listening within 25 km.');
+    // Two phones across the bay, one that has stopped, and one in Sacramento.
+    const phone = (lat: number, lon: number, sps = 50) => signHeartbeat(generateSecretKey(), { lat, lon, noise: 0.01, sps });
+    await send(relay.url, [phone(37.8, -122.27), phone(37.7, -122.47), phone(37.75, -122.4, 0), phone(38.58, -121.49)]);
+    await expect(page.getByTestId('neighbours')).toHaveText('Heard from 2 other phones listening within 25 km.');
+
+    await page.getByTestId('start').click();
+    await feed(page, synthesize({ start: 0, durationS: 8, seed: 1 }));
+    await expect(page.getByTestId('sensor-state')).toHaveText('Listening', { timeout: 10_000 });
+    // A quiet phone notices shaking from 0.1 m/s², which the shaking model puts this far out.
+    await expect(page.getByTestId('reach')).toHaveText('Would notice an M4 within about 50 km and an M5 within about 90 km.');
+    await expect(card).toContainText('Listening time: under a minute this session, under a minute this week.');
+    // The feed's quakes all came before it listened.
+    await expect(card).toContainText('No USGS quake since it began listening was strong enough here to register.');
   });
 
   test('nothing is published until the user opts in', async ({ page, relay }) => {

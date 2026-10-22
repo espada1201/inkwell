@@ -121,6 +121,14 @@ export class NodeDetector {
     return Math.max(Math.sqrt(this.threshold) * this.background, this.floor);
   }
 
+  /**
+   * Peak acceleration of quake shaking this phone notices now, m/s² (rough): of 3000 synthetic
+   * quakes, all whose PGA reached 2.5 times the trigger level were noticed, 65% at 2–2.25 times.
+   */
+  get noticesPga(): number {
+    return 2.5 * this.triggerLevel;
+  }
+
   /** The samples stop here: start afresh, and withdraw a pick already sent for shaking still being checked. */
   interrupt(t: number): DetectorOutput | null {
     const lost = this.cand;

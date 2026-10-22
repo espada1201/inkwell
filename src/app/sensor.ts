@@ -1,9 +1,11 @@
-import { coarsen, type LatLon } from '../core/geo';
+import { coarsen, distanceKm, type LatLon } from '../core/geo';
+import { hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
 import { NodeDetector, type DetectorOutput } from '../core/sensor';
 import { upperMedian } from '../core/stats';
 import { loadIdentity, safeStorage } from '../net/identity';
 import { HEARTBEAT_EVERY_MS, signHeartbeat, signPick, signRetraction, signTrigger } from '../net/protocol';
 import type { Transport } from '../net/transport';
+import type { UsgsQuake } from '../net/usgs';
 import { Emitter } from './emitter';
 
 export type SensorState = 'idle' | 'unsupported' | 'denied' | 'no-data' | 'warming' | 'listening';
@@ -21,6 +23,31 @@ interface MotionEventCtor {
 const TRACE_S = 12;
 const LOC_KEY = 'tremor.location';
 const JOIN_KEY = 'tremor.join';
+const LISTENED_KEY = 'tremor.listened';
+
+/** What this phone made of a quake nearby: confirmed its shaking, missed it, or too weak here to notice. */
+export type Verdict = 'felt' | 'missed' | 'too weak';
+
+/** Monday 00:00, local time, of the week `t` falls in. */
+function weekStart(t: number): number {
+  const d = new Date(t);
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  return d.getTime();
+}
+
+/** How far from its epicentre, km, a quake 10 km deep still shakes the ground this hard (m/s²): `pgaFor` inverted. 0 if not even right above it. */
+export function reachKm(mag: number, pga: number): number {
+  let lo = 0;
+  let hi = 2000;
+  if (pgaFor(mag, hypocentralKm(lo)) < pga) return 0;
+  while (hi - lo > 0.001) {
+    const mid = (lo + hi) / 2;
+    if (pgaFor(mag, hypocentralKm(mid)) >= pga) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
 
 /**
  * Turns this device into a seismometer node: DeviceMotion → on-device detector → signed
@@ -45,8 +72,12 @@ export class SensorNode extends Emitter {
   private noDataTimer: ReturnType<typeof setTimeout> | undefined;
   private lock: { release(): Promise<void> } | null = null;
   private openPick: { t: number; id: string } | null = null;
-  /** When the phone last finished warming up, so has listened without a break, and when the last sample came. */
-  private since = 0;
+  /** When this phone listened, this session: from the end of each warm-up to the last sample before a break. */
+  private stretches: { from: number; to: number }[] = [];
+  /** Onsets of the shaking it confirmed. */
+  private confirmed: number[] = [];
+  /** Listening time kept in this browser for the week starting `week`, from sessions before this one. */
+  private before = { week: 0, ms: 0 };
   private lastSample = 0;
   /** Wall clock minus the clock motion events are stamped by. */
   private offset = 0;
@@ -57,6 +88,7 @@ export class SensorNode extends Emitter {
     if (document.visibilityState === 'hidden') {
       this.interrupt();
       this.heartbeat(false);
+      this.saveListened();
     } else this.requestWakeLock();
   };
 
@@ -72,6 +104,12 @@ export class SensorNode extends Emitter {
       this.location = null;
     }
     this.joined = store?.getItem(JOIN_KEY) === '1';
+    try {
+      const b = JSON.parse(store?.getItem(LISTENED_KEY) ?? 'null');
+      if (Number.isFinite(b?.week) && Number.isFinite(b?.ms) && b.ms >= 0) this.before = { week: b.week, ms: b.ms };
+    } catch {
+      /* start the count afresh */
+    }
   }
 
   /** Must be called from a user gesture: iOS only grants motion access inside one. */
@@ -97,12 +135,16 @@ export class SensorNode extends Emitter {
     }, 4000);
     this.requestWakeLock();
     this.readBattery();
-    this.hbTimer = setInterval(() => this.heartbeat(), HEARTBEAT_EVERY_MS);
+    this.hbTimer = setInterval(() => {
+      this.heartbeat();
+      this.saveListened();
+    }, HEARTBEAT_EVERY_MS);
   }
 
   stop() {
     this.interrupt();
     this.heartbeat(false);
+    this.saveListened();
     window.removeEventListener('devicemotion', this.onMotion);
     document.removeEventListener('visibilitychange', this.onVisible);
     clearInterval(this.hbTimer);
@@ -134,6 +176,42 @@ export class SensorNode extends Emitter {
 
   get canPublish() {
     return this.joined && !!this.location;
+  }
+
+  /** Time spent listening, ms: this session, and this week (from Monday, local time) in this browser. */
+  listened(now = Date.now()) {
+    const week = weekStart(now);
+    let session = 0;
+    let inWeek = this.before.week === week ? this.before.ms : 0;
+    for (const s of this.stretches) {
+      session += s.to - s.from;
+      inWeek += Math.max(0, s.to - Math.max(s.from, week));
+    }
+    return { session, week: inWeek };
+  }
+
+  /**
+   * The quakes whose shaking here the model puts above the detector's floor, from while this
+   * phone listened, and what it made of each. Rough: it judges by the background now.
+   */
+  nearbyQuakes(quakes: UsgsQuake[]): { quake: UsgsQuake; km: number; pga: number; verdict: Verdict }[] {
+    const d = this.detector;
+    const here = this.location;
+    if (!d || !here) return [];
+    return quakes.flatMap((quake) => {
+      if (quake.mag === null) return [];
+      const km = distanceKm(here, quake);
+      const r = hypocentralKm(km, quake.depthKm);
+      const pga = pgaFor(quake.mag, r);
+      // From a little before its P wave was due here until a little after its S wave.
+      const from = quake.time + (r / VP_KMS) * 1000 - 3000;
+      const to = quake.time + (r / VS_KMS) * 1000 + 5000;
+      const felt = this.confirmed.some((t) => t >= from && t <= to);
+      // Listening from before the shaking was due until its verdict would have come.
+      const heard = this.stretches.some((s) => s.from <= from && s.to >= to + 30_000);
+      if (pga < d.floor || !(felt || heard)) return [];
+      return [{ quake, km, pga, verdict: felt ? 'felt' : pga < d.noticesPga ? 'too weak' : 'missed' }];
+    });
   }
 
   /** The samples stop here: a pick still being checked never will be now. */
@@ -175,10 +253,11 @@ export class SensorNode extends Emitter {
       this.set(s);
       // Listening once the background is learned, after a break too: tell the network.
       if (s === 'listening') {
-        this.since = t;
+        this.stretches.push({ from: t, to: t });
         this.heartbeat();
       }
     }
+    if (s === 'listening') this.stretches.at(-1)!.to = t;
     if (out) this.handle(out);
   }
 
@@ -200,6 +279,7 @@ export class SensorNode extends Emitter {
       this.transport.publish(signRetraction(this.sk, pickId, out.reason));
       published = true;
     }
+    if (out.kind === 'trigger') this.confirmed.push(out.t);
     if (out.kind === 'trigger' && this.canPublish) {
       this.transport.publish(signTrigger(this.sk, { ...this.location!, t: out.t, phase: out.phase, pga: out.pga, dur: out.durS }, pickId));
       published = true;
@@ -208,14 +288,24 @@ export class SensorNode extends Emitter {
     this.emit();
   }
 
-  /** I'm here and listening since `since`; or, with `listening` false, I have stopped. */
+  /** I'm here and listening since the end of the warm-up; or, with `listening` false, I have stopped. */
   private heartbeat(listening = true) {
     const d = this.detector;
     if (!this.canPublish || !d) return;
     // Not listening yet (still learning the background), or no samples lately (a hidden tab
     // whose timer still fires): stay silent and go stale.
     if (listening && (d.warmingUp || Date.now() - this.lastSample > 5000)) return;
-    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: d.background, sps: listening ? this.fs : 0, since: this.since }));
+    this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: d.background, sps: listening ? this.fs : 0, since: this.stretches.at(-1)?.from }));
+  }
+
+  /** Keep this week's listening time in this browser. */
+  private saveListened(now = Date.now()) {
+    // shortcut: two tabs listening at once each keep their own count and the last to save wins; add per-tab counts if people run several.
+    try {
+      safeStorage()?.setItem(LISTENED_KEY, JSON.stringify({ week: weekStart(now), ms: this.listened(now).week }));
+    } catch {
+      /* storage full or blocked: the count lasts this session */
+    }
   }
 
   private async requestWakeLock() {

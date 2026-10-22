@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SensorNode } from '../../src/app/sensor';
+import { reachKm, SensorNode } from '../../src/app/sensor';
+import { offset } from '../../src/core/geo';
+import { hypocentralKm, pgaFor, VP_KMS } from '../../src/core/physics';
 import { NodeDetector, type DetectorOutput } from '../../src/core/sensor';
 import { synthesize, type SynthOptions } from '../../src/core/synth';
 import { parse, type Message } from '../../src/net/protocol';
@@ -370,5 +372,53 @@ describe('this phone on the network', () => {
     const pick = sent.find((m) => m.type === 'pick')!;
     expect(Math.abs(pick.data.t - (Date.now() - 10_000))).toBeLessThan(1000);
     expect(heartbeats().at(-1)!.data.since).toBeGreaterThan(Date.now() - 40_000);
+  });
+
+  it('counts the time it listened, this session and this week, in this browser only', async () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal('localStorage', { getItem: (k: string) => saved.get(k) ?? null, setItem: (k: string, v: string) => void saved.set(k, v) });
+    const { node, feed } = phone();
+    await node.start();
+    feed({ durationS: 65 });
+    node.stop();
+    // Ten samples to learn the rate, five seconds of warm-up, then a minute of listening.
+    const { session, week } = node.listened();
+    expect(session).toBeGreaterThan(59_000);
+    expect(session).toBeLessThan(60_000);
+    expect(week).toBe(session);
+    const next = phone().node;
+    expect(next.listened()).toEqual({ session: 0, week });
+    // A new week starts from nothing.
+    vi.setSystemTime(Date.now() + 7 * 86400_000);
+    expect(next.listened().week).toBe(0);
+  });
+
+  it('tells which quakes nearby it felt, missed, or found too weak, as the shaking model expects', async () => {
+    const { node, feed } = phone();
+    await node.start();
+    const t0 = Date.now();
+    feed({ durationS: 110, quake: { tP: 30, tS: 33, pga: 0.6 } });
+    /** A USGS quake 10 km down, whose P wave reaches this phone `arrivalS` into the record. */
+    const usgs = (id: string, mag: number, km: number, arrivalS: number) => ({
+      id, mag, place: id, depthKm: 10, url: '', ...offset(node.location!, km, 0),
+      time: t0 + arrivalS * 1000 - (hypocentralKm(km, 10) / VP_KMS) * 1000,
+    });
+    const quakes = [
+      usgs('the one it felt', 5, 20, 30),
+      usgs('as strong, but it heard nothing', 5, 20, 45),
+      usgs('too weak to notice here', 3, 40, 60),
+      usgs('too weak to reach its floor', 2, 40, 60),
+      usgs('before it listened', 5, 20, 2),
+    ];
+    expect(node.nearbyQuakes(quakes).map((q) => [q.quake.id, q.verdict])).toEqual([
+      ['the one it felt', 'felt'],
+      ['as strong, but it heard nothing', 'missed'],
+      ['too weak to notice here', 'too weak'],
+    ]);
+  });
+
+  it('inverts the shaking model into how far away a quake would still be noticed', () => {
+    for (const [mag, pga] of [[4, 0.1], [5, 0.1], [5, 0.5]]) expect(pgaFor(mag, hypocentralKm(reachKm(mag, pga)))).toBeCloseTo(pga, 4);
+    expect(reachKm(4, 5)).toBe(0);
   });
 });
