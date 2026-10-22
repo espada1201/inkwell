@@ -81,6 +81,10 @@ export class SensorNode extends Emitter {
         return this.set('denied');
       }
     }
+    // A second tap, perhaps while the first was still asking, changes nothing; after a start
+    // that found no motion data, start over.
+    if (this.state === 'warming' || this.state === 'listening') return;
+    if (this.hbTimer) this.stop();
     window.addEventListener('devicemotion', this.onMotion);
     document.addEventListener('visibilitychange', this.onVisible);
     this.set('warming');
@@ -100,6 +104,7 @@ export class SensorNode extends Emitter {
     window.removeEventListener('devicemotion', this.onMotion);
     document.removeEventListener('visibilitychange', this.onVisible);
     clearInterval(this.hbTimer);
+    this.hbTimer = undefined;
     clearTimeout(this.noDataTimer);
     this.lock?.release().catch(() => {});
     this.lock = null;
@@ -206,7 +211,11 @@ export class SensorNode extends Emitter {
       return this.emit();
     }
     try {
-      this.lock = await wl.request('screen');
+      const lock = await wl.request('screen');
+      // One lock at a time, and none once stopped: Stop may come while this one was asked for.
+      this.lock?.release().catch(() => {});
+      this.lock = this.state === 'idle' ? null : lock;
+      if (!this.lock) return void lock.release().catch(() => {});
       this.wakeLock = 'on';
     } catch {
       this.wakeLock = 'off';

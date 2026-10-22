@@ -248,6 +248,8 @@ describe('this phone on the network', () => {
     const heartbeats = () => sent.filter((m) => m.type === 'heartbeat');
     return { node, sent, on, doc, locks, feed, heartbeats };
   }
+  /** Let promises already resolved, such as a granted wake lock, run their callbacks. */
+  const settle = () => vi.advanceTimersByTimeAsync(0);
 
   it('announces itself once warmed up, with the background it learned, listening since then', async () => {
     const { node, feed, heartbeats } = phone();
@@ -278,5 +280,36 @@ describe('this phone on the network', () => {
     feed({ durationS: 4 });
     expect(heartbeats()).toHaveLength(2);
     expect(heartbeats()[1].data.since! - back).toBeGreaterThanOrEqual(5000);
+  });
+
+  it('holds one wake lock and one heartbeat timer however often Start is tapped, and Stop lets go', async () => {
+    const { node, feed, locks, heartbeats } = phone();
+    await Promise.all([node.start(), node.start()]);
+    await settle();
+    expect(locks.size).toBe(1);
+    // Two minutes of listening: a heartbeat once warmed up, then one a minute.
+    feed({ durationS: 126 });
+    expect(heartbeats()).toHaveLength(3);
+    node.stop();
+    await settle();
+    expect(locks.size).toBe(0);
+    // Stopped before the screen lock was even granted.
+    await node.start();
+    node.stop();
+    await settle();
+    expect(locks.size).toBe(0);
+  });
+
+  it('starts over when Start is tapped again after no motion data came', async () => {
+    const { node, feed, locks, heartbeats } = phone();
+    await node.start();
+    vi.advanceTimersByTime(5000);
+    expect(node.state).toBe('no-data');
+    await node.start();
+    await settle();
+    expect(node.state).toBe('warming');
+    expect(locks.size).toBe(1);
+    feed({ durationS: 126 });
+    expect(heartbeats()).toHaveLength(3);
   });
 });
