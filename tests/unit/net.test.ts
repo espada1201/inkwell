@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
-import { filters, parse, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
-import { RelayPool } from '../../src/net/transport';
+import { filters, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
+import { RelayPool, reach } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
@@ -54,13 +54,36 @@ describe('protocol', () => {
     expect(parse(signHeartbeat(sk, { lat: 1, lon: 2, noise: 0.01, sps: 60 }, now + 60))).not.toBeNull();
   });
 
+  it('refuses onsets dated more than about a minute ahead of now', () => {
+    const now = Date.now();
+    // Signed two minutes ahead (a tolerated clock error) with an onset two minutes after that.
+    expect(parse(signPick(sk, { lat: 1, lon: 2, t: now + 240_000 }, Math.floor((now + 120_000) / 1000)))).toBeNull();
+    expect(parse(signTrigger(sk, { lat: 1, lon: 2, t: now + 90_000, pga: 0.3, dur: 2 }))).toBeNull();
+    expect(parse(signPick(sk, { lat: 1, lon: 2, t: now + 30_000 }))).not.toBeNull();
+  });
+
   it('picks, retractions and pick-linked triggers round-trip', () => {
     const t = Date.now();
     const pick = signPick(sk, { lat: 10.123, lon: 20.456, t });
     expect(parse(pick)).toMatchObject({ type: 'pick', data: { lat: 10.12, lon: 20.46, t } });
-    expect(parse(signRetraction(sk, pick.id, 'footsteps'))).toMatchObject({ type: 'retract', pick: pick.id });
+    expect(parse(signRetraction(sk, pick.id, 'footsteps'))).toMatchObject({ type: 'retract', pick: pick.id, reason: 'footsteps' });
+    expect(parse(signRetraction(sk, pick.id, 'my cat'))).toMatchObject({ type: 'retract', pick: pick.id, reason: null });
     expect(parse(signTrigger(sk, { lat: 10, lon: 20, t, pga: 1, dur: 3 }, pick.id))).toMatchObject({ type: 'trigger', pick: pick.id });
     expect(parse(signRetraction(sk, 'not-an-id', 'x'))).toBeNull();
+  });
+
+  it('felt reports round-trip coarsened, felt up to an hour before they were signed, at one of five levels', () => {
+    const now = Date.now();
+    const s = Math.floor(now / 1000);
+    expect(parse(signFelt(sk, { lat: 37.774929, lon: -122.419416, t: now - 600_000, lvl: 3 }))).toMatchObject({ type: 'felt', data: { lat: 37.77, lon: -122.42, t: now - 600_000, lvl: 3 } });
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: s * 1000 - 3_599_000, lvl: 1 }, s))).not.toBeNull();
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: s * 1000 - 3_601_000, lvl: 1 }, s))).toBeNull();
+    // Felt after it was signed, beyond a clock error; or more than a minute ahead of now.
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now, lvl: 2 }, s - 30))).not.toBeNull();
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now, lvl: 2 }, s - 90))).toBeNull();
+    expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now + 120_000, lvl: 2 }, s + 120))).toBeNull();
+    for (const lvl of [0, 6, 2.5]) expect(parse(signFelt(sk, { lat: 1, lon: 2, t: now, lvl }))).toBeNull();
+    expect(filters(now)[0].kinds).toContain(4580);
   });
 
   it('picks and triggers say which wave the phone felt; older events count as P', () => {
@@ -144,6 +167,19 @@ describe('relay pool against a local fake relay', () => {
     p.publish(signHeartbeat(sk, { lat: 1, lon: 1, noise: 0.01, sps: 50 }, now - 60));
     p.publish(signHeartbeat(sk, { lat: 1, lon: 1, noise: 0.02, sps: 50 }, now));
     await until(() => relay.events().length === 1 && JSON.parse(relay.events()[0].content).noise === 0.02);
+  });
+
+  it('a relay that cannot be reached counts as down, not connecting, while it retries', async () => {
+    const p = new RelayPool(['ws://127.0.0.1:1']);
+    cleanup.push(() => p.close());
+    expect(reach(p.statuses())).toBe('connecting');
+    await until(() => reach(p.statuses()) === 'down');
+    // Through the next retry, a second later, it stays down rather than flickering back.
+    const seen = new Set<string>();
+    for (const end = Date.now() + 1500; Date.now() < end; await new Promise((r) => setTimeout(r, 10))) seen.add(reach(p.statuses()));
+    expect([...seen]).toEqual(['down']);
+    expect(p.statuses()[0].failures).toBeGreaterThan(1);
+    expect(reach([])).toBe('down');
   });
 
   it('reconnects and resubscribes after the relay restarts', async () => {

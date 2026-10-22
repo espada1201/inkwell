@@ -3,12 +3,14 @@ import { LiveNetwork } from './app/live';
 import { Replay } from './app/replay';
 import { SensorNode } from './app/sensor';
 import { safeStorage } from './net/identity';
-import { DEFAULT_RELAYS, RelayPool } from './net/transport';
+import { DEFAULT_RELAYS, RelayPool, reach } from './net/transport';
 import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
 import { QuakeMap, SHAKE_COLORS, type Swatch } from './ui/map';
 import { aboutView } from './views/about';
-import { NETWORK_LEGEND, networkView } from './views/network';
+import { chime } from './views/chime';
+import { feltDialog } from './views/felt';
+import { NETWORK_LEGEND, REACH_DOT, networkView } from './views/network';
 import { PLAN_LEGEND, planView } from './views/plan';
 import { REPLAY_LEGEND, replayView } from './views/replay';
 import { sensorView } from './views/sensor';
@@ -52,6 +54,9 @@ const replay = new Replay();
 const tabs = h('nav', { class: 'tabs', 'aria-label': 'Sections' });
 const relayStatus = h('span', { 'data-testid': 'relay-status' });
 const usgsStatus = h('span', { class: 'usgs-status' });
+// "I felt it", and the chime once opted into, work from every screen, sensor or not.
+const felt = feltDialog(live, sensor);
+const bell = chime(live, sensor);
 const heli = h('canvas', { class: 'helicorder', 'aria-hidden': 'true', title: 'Activity: picks and triggers as they arrive, or the shaking in a replay' });
 // MapLibre labels its own canvas as the "Map" region.
 const mapEl = h('div', { class: 'map' });
@@ -63,8 +68,10 @@ const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Se
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
 document.getElementById('app')!.append(
-  h('header', { class: 'top' }, h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, relayStatus, usgsStatus), heli),
+  h('header', { class: 'top' }, h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, h('button', { class: 'felt-btn', onclick: felt.open }, 'I felt it'), relayStatus, usgsStatus), heli),
   stage,
+  felt.el,
+  bell.note,
 );
 
 const WORLD = { center: { lat: 30, lon: -100 }, zoom: 2.2 };
@@ -79,7 +86,7 @@ map.ready.then(() => {
 function status() {
   const st = transport.statuses();
   const open = st.filter((s) => s.state === 'open').length;
-  relayStatus.replaceChildren(h('i', { class: `dot ${open ? 'ok' : st.some((s) => s.state === 'connecting') ? 'warn' : 'bad'}` }), `${open}/${st.length} relays`);
+  relayStatus.replaceChildren(h('i', { class: `dot ${REACH_DOT[reach(st)]}` }), `${open}/${st.length} relays`);
   usgsStatus.replaceChildren(h('i', { class: `dot ${live.usgsState === 'ok' ? 'ok' : live.usgsState === 'loading' ? 'warn' : 'bad'}` }), 'USGS');
 }
 live.on(status);
@@ -103,7 +110,7 @@ const TABS = {
     mount: () => {
       // The world first, so the view's own fly to the newest detection comes after and wins.
       map.fly(WORLD.center, WORLD.zoom);
-      return networkView({ live, map, relays, saveRelays });
+      return networkView({ live, map, relays, saveRelays, place: sensor, openFelt: felt.open, chime: bell });
     },
   },
   replay: { label: 'Replay', legend: REPLAY_LEGEND, shakeKey: true, mount: (arg) => replayView(replay, map, arg, Number(params.get('speed')) || 1, live, sensor.location) },

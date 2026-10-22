@@ -2,6 +2,7 @@ import { finalizeEvent, validateEvent, verifyEvent, type Event } from 'nostr-too
 import type { Filter } from 'nostr-tools/filter';
 import { coarsen } from '../core/geo';
 import type { Phase } from '../core/physics';
+import type { RejectReason } from '../core/sensor';
 
 /**
  * Tremor's wire format: ordinary signed Nostr events, so any public relay can carry them.
@@ -12,15 +13,24 @@ import type { Phase } from '../core/physics';
  *  - heartbeat (kind 34579, parameterised-replaceable): "I'm alive, here, this noisy, and
  *    listening since". Relays keep only the latest per node, so late viewers see the whole
  *    network at once. One with sps 0 says the phone has stopped listening.
+ *  - felt report (kind 4580): a person, sensor or not, "felt shaking here at t, this strong".
  */
 const KIND_PICK = 4578;
 const KIND_TRIGGER = 4579;
 const KIND_HEARTBEAT = 34579;
 const KIND_DELETION = 5;
+const KIND_FELT = 4580;
 const TAG = 'tremor';
 export const HEARTBEAT_EVERY_MS = 60_000;
 /** Events dated further ahead than this are refused: they would never expire. */
 const MAX_FUTURE_MS = 5 * 60_000;
+/** Onsets dated further ahead of now than this are refused: a clock that far off would misplace any quake. */
+const MAX_ONSET_AHEAD_MS = 60_000;
+/** A felt report says when it was felt: up to an hour before it was signed, or a minute after (clock error). */
+const FELT_BEFORE_MS = 3600_000;
+const FELT_AFTER_MS = 60_000;
+/** Why a phone withdrew a pick, as its retraction says it; any other text gives no reason. */
+const REASONS = ['handling', 'impulse', 'footsteps', 'interrupted'] as const satisfies readonly RejectReason[];
 
 export interface Heartbeat {
   lat: number;
@@ -49,6 +59,15 @@ export interface TriggerReport extends PickReport {
   dur: number;
 }
 
+export interface FeltReport {
+  lat: number;
+  lon: number;
+  /** When it was felt, ms since epoch. */
+  t: number;
+  /** 1 weak … 5 very strong, as `INTENSITY_WORDS` names them. */
+  lvl: number;
+}
+
 interface Base {
   id: string;
   node: string;
@@ -59,7 +78,8 @@ export type Message =
   | (Base & { type: 'heartbeat'; data: Heartbeat })
   | (Base & { type: 'pick'; data: PickReport })
   | (Base & { type: 'trigger'; data: TriggerReport; pick: string | null })
-  | (Base & { type: 'retract'; pick: string });
+  | (Base & { type: 'retract'; pick: string; reason: RejectReason | null })
+  | (Base & { type: 'felt'; data: FeltReport });
 
 const nowS = () => Math.floor(Date.now() / 1000);
 
@@ -73,6 +93,10 @@ export function signHeartbeat(sk: Uint8Array, hb: Heartbeat, at = nowS()): Event
     },
     sk,
   );
+}
+
+export function signFelt(sk: Uint8Array, f: FeltReport, at = nowS()): Event {
+  return finalizeEvent({ kind: KIND_FELT, created_at: at, tags: [['t', TAG]], content: JSON.stringify({ v: 1, ...coarsen(f), t: Math.round(f.t), lvl: f.lvl }) }, sk);
 }
 
 export function signPick(sk: Uint8Array, p: PickReport, at = Math.floor(p.t / 1000)): Event {
@@ -104,7 +128,7 @@ export function signTrigger(sk: Uint8Array, tr: TriggerReport, pickId?: string, 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 const inRange = (v: unknown, lo: number, hi: number): v is number => finite(v) && v >= lo && v <= hi;
 const hex64 = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
-const KINDS = [KIND_PICK, KIND_TRIGGER, KIND_HEARTBEAT, KIND_DELETION];
+const KINDS = [KIND_PICK, KIND_TRIGGER, KIND_HEARTBEAT, KIND_DELETION, KIND_FELT];
 
 /** Verify signature and shape. Anything malformed, forged or implausible returns null. */
 export function parse(ev: Event): Message | null {
@@ -116,7 +140,7 @@ export function parse(ev: Event): Message | null {
   const base = { id: ev.id, node: ev.pubkey, at: ev.created_at * 1000 };
   const ref = ev.tags.find((t) => t[0] === 'e')?.[1];
 
-  if (ev.kind === KIND_DELETION) return hex64(ref) ? { ...base, type: 'retract', pick: ref } : null;
+  if (ev.kind === KIND_DELETION) return hex64(ref) ? { ...base, type: 'retract', pick: ref, reason: REASONS.find((r) => r === ev.content) ?? null } : null;
 
   let c: Record<string, unknown>;
   try {
@@ -132,7 +156,12 @@ export function parse(ev: Event): Message | null {
     const since = inRange(c.since, 0, base.at + MAX_FUTURE_MS) ? c.since : undefined;
     return { ...base, type: 'heartbeat', data: { ...loc, noise: c.noise, sps: c.sps, since } };
   }
-  if (!finite(c.t) || Math.abs(c.t - base.at) > 120_000) return null;
+  if (!finite(c.t) || c.t > Date.now() + MAX_ONSET_AHEAD_MS) return null;
+  if (ev.kind === KIND_FELT) {
+    if (c.t < base.at - FELT_BEFORE_MS || c.t > base.at + FELT_AFTER_MS || !inRange(c.lvl, 1, 5) || !Number.isInteger(c.lvl)) return null;
+    return { ...base, type: 'felt', data: { ...loc, t: c.t, lvl: c.lvl } };
+  }
+  if (Math.abs(c.t - base.at) > 120_000) return null;
   const phase = c.ph ?? 'P';
   if (phase !== 'P' && phase !== 'S') return null;
   if (ev.kind === KIND_PICK) return { ...base, type: 'pick', data: { ...loc, t: c.t, phase } };
@@ -144,7 +173,7 @@ export function parse(ev: Event): Message | null {
 export function filters(sinceMs: number): Filter[] {
   const since = Math.floor(sinceMs / 1000);
   return [
-    { kinds: [KIND_PICK, KIND_TRIGGER, KIND_DELETION], '#t': [TAG], since },
+    { kinds: [KIND_PICK, KIND_TRIGGER, KIND_DELETION, KIND_FELT], '#t': [TAG], since },
     { kinds: [KIND_HEARTBEAT], '#t': [TAG], since: since - 600 },
   ];
 }

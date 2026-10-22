@@ -308,3 +308,33 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 .recent small { color: var(--muted); }
 .recent .btn { grid-column: 1 / -1; justify-self: start; min-height: 36px; padding: 6px 12px; font-size: 13px; }
 .recent .btn[aria-pressed='true'] { background: var(--ink); color: var(--paper); }
+
+/* ── network (live screen) ───────────────────────────── */
+.stack { display: grid; gap: 12px; }
+/* Grey text on a selected row's tint falls short of 4.5:1. */
+.row[aria-pressed='true'] .when, .row[aria-pressed='true'] .muted { color: var(--ink-2); }
+.relays-note { color: var(--red); margin: 6px 0; }
+/* Kept in the page while empty, so screen readers hear it when it fills. */
+.relays-note:empty { margin: 0; }
+.lines li { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; padding: 9px 4px; font-size: 14px; }
+.lines .when, .near-list .when { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
+.near { border: 1px solid var(--ink); background: var(--card); padding: 12px; display: grid; gap: 10px; }
+.near-list li { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 4px; }
+.place-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: end; }
+.place-form label { display: grid; gap: 4px; flex: 1 1 180px; font-size: 13px; }
+.place-form input { font: 13px var(--mono); padding: 8px; min-height: 40px; border: 1px solid var(--ink); background: var(--paper); border-radius: 2px; }
+.link { background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+.usgs-order { margin-top: 8px; }
+.felt-btn { border: 1.5px solid var(--red); color: var(--red); background: var(--card); padding: 3px 10px; font: 500 13px var(--sans); border-radius: 2px; cursor: pointer; }
+.felt-btn:hover { background: var(--red-soft); }
+dialog.felt { border: 1px solid var(--ink); background: var(--paper); color: var(--ink); padding: 18px; width: min(440px, calc(100vw - 32px)); }
+dialog.felt[open] { display: grid; gap: 14px; }
+dialog.felt::backdrop { background: rgb(29 28 26 / 0.45); }
+.levels { display: grid; gap: 6px; }
+.level { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; text-align: left; padding: 10px 12px; min-height: 44px; border: 1px solid var(--ink); background: var(--card); border-radius: 2px; cursor: pointer; }
+.level:hover { background: var(--paper-2); }
+.level span { font-size: 13px; color: var(--ink-2); }
+.usgs-gap { margin-top: 8px; }
+.chime-note { position: fixed; z-index: 20; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(440px, calc(100vw - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1.5px solid var(--red); background: var(--card); color: var(--ink); box-shadow: 0 6px 20px rgb(29 28 26 / 0.25); }
+.chime-note[hidden] { display: none; }
+.chime-note p { margin: 0; font-weight: 500; }
