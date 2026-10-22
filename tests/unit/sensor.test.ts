@@ -478,7 +478,10 @@ describe('this phone on the network', () => {
   });
 
   it('inverts the shaking model into how far away a quake would still be noticed', () => {
-    for (const [mag, pga] of [[4, 0.1], [5, 0.1], [5, 0.5]]) expect(pgaFor(mag, hypocentralKm(reachKm(mag, pga)))).toBeCloseTo(pga, 4);
+    // A quiet phone notices 0.1 m/s²: "an M4 within about 50 km and an M5 within about 90 km".
+    expect(reachKm(4, 0.1)).toBeCloseTo(51.33, 2);
+    expect(reachKm(5, 0.1)).toBeCloseTo(88.16, 2);
+    for (const [mag, pga] of [[4, 0.1], [5, 0.1], [5, 0.5]]) expect(pgaFor(mag, hypocentralKm(reachKm(mag, pga)))).toBeCloseTo(pga, 10);
     expect(reachKm(4, 5)).toBe(0);
   });
 

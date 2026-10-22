@@ -1,5 +1,5 @@
 import { coarsen, distanceKm, type LatLon } from '../core/geo';
-import { hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
+import { DEFAULT_DEPTH_KM, distanceFor, hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
 import { NodeDetector, type DetectorOutput } from '../core/sensor';
 import { upperMedian } from '../core/stats';
 import { loadIdentity, safeStorage } from '../net/identity';
@@ -38,15 +38,8 @@ function weekStart(t: number): number {
 
 /** How far from its epicentre, km, a quake 10 km deep still shakes the ground this hard (m/s²): `pgaFor` inverted. 0 if not even right above it. */
 export function reachKm(mag: number, pga: number): number {
-  let lo = 0;
-  let hi = 2000;
-  if (pgaFor(mag, hypocentralKm(lo)) < pga) return 0;
-  while (hi - lo > 0.001) {
-    const mid = (lo + hi) / 2;
-    if (pgaFor(mag, hypocentralKm(mid)) >= pga) lo = mid;
-    else hi = mid;
-  }
-  return lo;
+  const r = distanceFor(mag, pga);
+  return r > DEFAULT_DEPTH_KM ? Math.sqrt(r ** 2 - DEFAULT_DEPTH_KM ** 2) : 0;
 }
 
 /**

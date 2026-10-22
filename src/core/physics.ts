@@ -36,6 +36,11 @@ export function magnitudeFrom(pga: number, rKm: number): number {
   return (Math.log10(pga / G) + ATTENUATION * Math.log10(rKm + 10) + 0.5) / MAG_SCALE;
 }
 
+/** Invert pgaFor for distance: the hypocentral distance, km, at which magnitude M shakes the ground this hard. */
+export function distanceFor(mag: number, pga: number): number {
+  return 10 ** ((MAG_SCALE * mag - 0.5 - Math.log10(pga / G)) / ATTENUATION) - 10;
+}
+
 /**
  * How much less likely a source becomes with distance, per unit of ln(R + 10 km). Shaking the
  * same phones as hard from farther away takes a bigger quake (ATTENUATION / MAG_SCALE magnitude
