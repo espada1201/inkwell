@@ -33,6 +33,11 @@ describe('phone model calibrated on the real detector', () => {
 });
 
 describe('network planner', () => {
+  it('tries every network size on the same quakes, so the sizes compare networks and not luck', () => {
+    const quakes = (phones: number) => runPlan({ city, radiusKm: 20, phones, mag: 6, distanceKm: [60, 150], quakes: 6, quietMinutes: 0 }, m6).trials.map((t) => t.epicentre);
+    expect(quakes(250)).toEqual(quakes(500));
+  });
+
   it('a city of 100 phones catches a nearby M6 within seconds and locates it', () => {
     const s = plan({ confirm: true });
     expect(s.detected).toBe(1);

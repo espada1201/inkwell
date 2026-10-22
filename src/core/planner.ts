@@ -148,11 +148,11 @@ function firstDeclaration(arrivals: Arrival[], nodes: Listener[], from = -Infini
   return null;
 }
 
-function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => number) {
+function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => number, where: () => number) {
   const depth = input.depthKm ?? DEFAULT_DEPTH_KM;
   const [near, far] = input.distanceKm;
-  const ang = r() * 2 * Math.PI;
-  const d = Math.sqrt(near * near + (far * far - near * near) * r());
+  const ang = where() * 2 * Math.PI;
+  const d = Math.sqrt(near * near + (far * far - near * near) * where());
   const epi = offset(input.city, d * Math.cos(ang), d * Math.sin(ang));
   const { phones, nodes } = phoneNodes(input, r);
   const arrivals: Arrival[] = [];
@@ -218,13 +218,16 @@ function quietMinute(input: PlanInput, r: () => number) {
 /** The planner as a sequence of steps (one simulated quake or quiet minute each), yielding progress 0..1. */
 export function* simulatePlan(input: PlanInput, model: PhoneModel): Generator<number, PlanResult> {
   const r = rng(input.seed ?? 1);
+  // Where the quakes strike has its own stream, so every network size faces the same quakes: at
+  // 60 to 150 km an alert comes about 20 s sooner below 130 km, and 24 draws differ by chance.
+  const where = rng((input.seed ?? 1) + 0x9e3779b9);
   const people = residents(input.city, input.radiusKm);
   const n = input.quakes ?? 24;
   const quietMinutes = input.quietMinutes ?? 60;
   const trials: Trial[] = [];
   let phones: LatLon[] = [];
   for (let k = 0; k < n; k++) {
-    const q = quake(input, model, people, r);
+    const q = quake(input, model, people, r, where);
     trials.push(q.trial);
     phones = q.phones;
     yield (k + 1) / (n + quietMinutes);
