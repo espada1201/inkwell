@@ -1,4 +1,7 @@
-import { distanceKm } from '../../src/core/geo';
+import { generateSecretKey } from 'nostr-tools/pure';
+import { distanceKm, offset } from '../../src/core/geo';
+import { VP_KMS, hypocentralKm } from '../../src/core/physics';
+import { signHeartbeat, signPick, signRetraction } from '../../src/net/protocol';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
 import { expect, test, usgsFeed, type FakeRelay } from './fixtures';
@@ -6,6 +9,18 @@ import { scenarioEvents, send } from './publish';
 
 const napa = scenarioEvents('napa-2014');
 const truth = napa.sim.scenario.truth!;
+
+/** Four listening phones around one spot that each picked its P wave 15 s ago, and can withdraw that pick. */
+function pickers() {
+  const src = { lat: 37.9, lon: -122.3 };
+  const t0 = Date.now() - 15_000;
+  return Array.from({ length: 4 }, (_, i) => {
+    const sk = generateSecretKey();
+    const at = offset(src, Math.cos(i) * (10 + 4 * i), Math.sin(i) * (10 + 4 * i));
+    const pick = signPick(sk, { ...at, t: t0 + (hypocentralKm(distanceKm(src, at)) / VP_KMS) * 1000 });
+    return { heartbeat: signHeartbeat(sk, { ...at, noise: 0.01, sps: 50, since: t0 - 600_000 }), pick, withdraw: (why: string) => signRetraction(sk, pick.id, why) };
+  });
+}
 
 /** Contrast ratio of an element's text against the background of the row button it sits in. */
 function contrastOnRow(el: Element) {
@@ -43,6 +58,10 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   await expect(page.getByTestId('stat-events')).toHaveText('1');
   await expect(page.getByTestId('provisional')).toHaveCount(0);
   await expect(page.getByTestId('event-list')).toContainText('Matches USGS');
+  // The provisional detection stays listed with how it ended, and the announcer says so too.
+  await expect(page.getByTestId('outcome')).toHaveCount(1);
+  await expect(page.getByTestId('outcome')).toContainText(/^Confirmed: M\d\.\d, matches USGS/);
+  await expect(page.getByRole('alert')).toContainText(/Confirmed: M\d\.\d, matches USGS/);
 
   const row = page.getByTestId('event-list').getByRole('button').first();
   await row.click();
@@ -52,6 +71,20 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   const est = { lat: Number(await loc.getAttribute('data-lat')), lon: Number(await loc.getAttribute('data-lon')) };
   expect(distanceKm(est, truth)).toBeLessThan(15);
   await expect(page.getByTestId('verdict')).toContainText('Off by');
+});
+
+test('a provisional detection its phones withdraw stays listed as not confirmed, with their reasons', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  const phones = pickers();
+  await send(relay.url, phones.map((p) => p.heartbeat));
+  await send(relay.url, phones.map((p) => p.pick));
+  await expect(page.getByTestId('provisional')).toBeVisible();
+  await send(relay.url, phones.map((p, i) => p.withdraw(i < 3 ? 'footsteps' : 'impulse')));
+  await expect(page.getByTestId('provisional')).toHaveCount(0);
+  await expect(page.getByTestId('outcome')).toContainText(/^Not confirmed: 4 of 4 phones withdrew \(footsteps, bump or door slam\) at \d{1,2}:\d\d/);
+  await expect(page.getByRole('alert')).toContainText('Not confirmed: ');
+  await expect(page.getByTestId('no-events')).toContainText('No network detections in the past 2 hours');
 });
 
 test('a hostile relay cannot inject forged or malformed events', async ({ page }) => {

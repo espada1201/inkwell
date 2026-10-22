@@ -66,7 +66,8 @@ describe('protocol', () => {
     const t = Date.now();
     const pick = signPick(sk, { lat: 10.123, lon: 20.456, t });
     expect(parse(pick)).toMatchObject({ type: 'pick', data: { lat: 10.12, lon: 20.46, t } });
-    expect(parse(signRetraction(sk, pick.id, 'footsteps'))).toMatchObject({ type: 'retract', pick: pick.id });
+    expect(parse(signRetraction(sk, pick.id, 'footsteps'))).toMatchObject({ type: 'retract', pick: pick.id, reason: 'footsteps' });
+    expect(parse(signRetraction(sk, pick.id, 'my cat'))).toMatchObject({ type: 'retract', pick: pick.id, reason: null });
     expect(parse(signTrigger(sk, { lat: 10, lon: 20, t, pga: 1, dur: 3 }, pick.id))).toMatchObject({ type: 'trigger', pick: pick.id });
     expect(parse(signRetraction(sk, 'not-an-id', 'x'))).toBeNull();
   });

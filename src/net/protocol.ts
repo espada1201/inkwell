@@ -2,6 +2,7 @@ import { finalizeEvent, validateEvent, verifyEvent, type Event } from 'nostr-too
 import type { Filter } from 'nostr-tools/filter';
 import { coarsen } from '../core/geo';
 import type { Phase } from '../core/physics';
+import type { RejectReason } from '../core/sensor';
 
 /**
  * Tremor's wire format: ordinary signed Nostr events, so any public relay can carry them.
@@ -23,6 +24,8 @@ export const HEARTBEAT_EVERY_MS = 60_000;
 const MAX_FUTURE_MS = 5 * 60_000;
 /** Onsets dated further ahead of now than this are refused: a clock that far off would misplace any quake. */
 const MAX_ONSET_AHEAD_MS = 60_000;
+/** Why a phone withdrew a pick, as its retraction says it; any other text gives no reason. */
+const REASONS = ['handling', 'impulse', 'footsteps', 'interrupted'] as const satisfies readonly RejectReason[];
 
 export interface Heartbeat {
   lat: number;
@@ -61,7 +64,7 @@ export type Message =
   | (Base & { type: 'heartbeat'; data: Heartbeat })
   | (Base & { type: 'pick'; data: PickReport })
   | (Base & { type: 'trigger'; data: TriggerReport; pick: string | null })
-  | (Base & { type: 'retract'; pick: string });
+  | (Base & { type: 'retract'; pick: string; reason: RejectReason | null });
 
 const nowS = () => Math.floor(Date.now() / 1000);
 
@@ -118,7 +121,7 @@ export function parse(ev: Event): Message | null {
   const base = { id: ev.id, node: ev.pubkey, at: ev.created_at * 1000 };
   const ref = ev.tags.find((t) => t[0] === 'e')?.[1];
 
-  if (ev.kind === KIND_DELETION) return hex64(ref) ? { ...base, type: 'retract', pick: ref } : null;
+  if (ev.kind === KIND_DELETION) return hex64(ref) ? { ...base, type: 'retract', pick: ref, reason: REASONS.find((r) => r === ev.content) ?? null } : null;
 
   let c: Record<string, unknown>;
   try {

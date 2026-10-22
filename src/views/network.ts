@@ -1,5 +1,6 @@
-import { NODE_STALE_MS, WINDOW_MS, type LiveNetwork } from '../app/live';
+import { NODE_STALE_MS, SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
 import { shakeGrid } from '../core/impact';
+import type { RejectReason } from '../core/sensor';
 import { reach } from '../net/transport';
 import { matchUsgs, type UsgsQuake } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
@@ -30,15 +31,29 @@ export interface NetworkCtx {
 type Selection = { kind: 'event' | 'usgs'; id: string };
 /** How far back the panel looks. */
 const HOURS = WINDOW_MS / 3600_000;
+/** Why phones withdrew their picks, in the sensor log's words. */
+const WITHDREW: Record<RejectReason, string> = { footsteps: 'footsteps', impulse: 'bump or door slam', handling: 'phone moved', interrupted: 'sensor paused' };
+const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+
+/** How a provisional detection ended, in the words of both the panel and the screen-reader announcer. */
+function outcomeText(d: Provisional, usgs: UsgsQuake[]) {
+  if (d.confirmed) return `Confirmed: ${mag(d.confirmed.mag)}${matchUsgs(d.confirmed, usgs) ? ', matches USGS' : ''}`;
+  const w = d.withdrew;
+  const why = w.length ? `${w.length} of ${d.picks.length} phones withdrew (${[...new Set(w.map((x) => (x.reason ? WITHDREW[x.reason] : 'no reason given')))].join(', ')}) at ${clock(Math.max(...w.map((x) => x.at)))}` : '';
+  if (d.outcome === 'withdrawn') return `Not confirmed: ${why}`;
+  if (d.outcome === 'unconfirmed') return `Still unconfirmed after ${SETTLE_MS / 60_000} min${why && `; ${why}`}`;
+  return 'Waiting for the phones to confirm';
+}
 
 export function networkView(ctx: NetworkCtx) {
   const { live, map } = ctx;
   let selected: Selection | null = null;
   let flewToData = false;
   const root = h('div', { class: 'panel-inner' });
-  // Screen readers hear of a new provisional detection once; the rest of the panel is not a live region.
+  // Screen readers hear once of each provisional detection and of how it ended; the rest of the panel is not a live region.
   const announcer = h('p', { class: 'sr-only', role: 'alert' });
-  let announced = 0;
+  // What the announcer last said of each detection: those that had ended before this screen opened are old news.
+  const told = new Map(live.provisional.filter((d) => d.outcome !== 'open').map((d) => [d, d.outcome]));
 
   /**
    * A part of the panel, swapped in only when what it shows has changed: the parts that did not
@@ -109,10 +124,13 @@ export function networkView(ctx: NetworkCtx) {
   }
 
   function announce() {
-    const n = live.early.length;
-    if (n > announced) announcer.textContent = `${n === 1 ? `Provisional earthquake detection near ${coord(live.early[0].lat, live.early[0].lon)}` : `${n} provisional earthquake detections`}. Waiting for the phones to confirm.`;
-    else if (!n) announcer.textContent = '';
-    announced = n;
+    const news = live.provisional
+      .filter((d) => told.get(d) !== d.outcome)
+      .map((d) => {
+        told.set(d, d.outcome);
+        return d.outcome === 'open' ? `Provisional earthquake detection near ${coord(d.event.lat, d.event.lon)}. Waiting for the phones to confirm.` : `${outcomeText(d, live.usgs)}.`;
+      });
+    if (news.length) announcer.textContent = news.join(' ');
   }
 
   function statsRow() {
@@ -127,8 +145,10 @@ export function networkView(ctx: NetworkCtx) {
     );
   }
 
+  /** Declared detections as cards; once no longer declared, each stays for two hours as a line saying how it ended. */
   function provisionalCards() {
-    if (!live.early.length) return null;
+    const ended = live.provisional.filter((d) => !live.early.includes(d.event)).reverse();
+    if (!live.early.length && !ended.length) return null;
     return h(
       'div',
       { class: 'stack' },
@@ -140,6 +160,14 @@ export function networkView(ctx: NetworkCtx) {
           h('p', {}, `${e.triggers.length} phones felt shaking start in a pattern that fits one source near ${coord(e.lat, e.lon)}, and the phones nearby that stayed quiet do not outvote them. Waiting for the phones to confirm.`),
         ),
       ),
+      ended.length
+        ? h(
+            'section',
+            {},
+            h('h2', {}, 'Provisional detections', h('small', {}, `last ${HOURS} hours`)),
+            h('ul', { class: 'list outcomes' }, ...ended.map((d) => h('li', { 'data-testid': 'outcome' }, h('span', {}, outcomeText(d, live.usgs)), h('span', { class: 'when' }, ago(d.event.time))))),
+          )
+        : null,
     );
   }
 

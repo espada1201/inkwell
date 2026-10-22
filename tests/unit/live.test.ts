@@ -56,6 +56,43 @@ describe('live network model', () => {
     expect(distanceKm(live.events[0], src)).toBeLessThan(5);
   });
 
+  it('a provisional detection whose phones withdrew is closed as not confirmed, with their reasons', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const four = phones.slice(0, 4);
+    for (const p of four) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const picks = four.map((p) => signPick(p.sk, p));
+    picks.forEach((ev) => live.ingest(ev));
+    live.recompute();
+    expect(live.provisional.map((d) => d.outcome)).toEqual(['open']);
+    four.forEach((p, i) => live.ingest(signRetraction(p.sk, picks[i].id, i < 3 ? 'footsteps' : 'impulse')));
+    live.recompute();
+    const [d] = live.provisional;
+    expect(d.outcome).toBe('withdrawn');
+    expect(d.picks).toHaveLength(4);
+    expect(d.withdrew.map((w) => w.reason).sort()).toEqual(['footsteps', 'footsteps', 'footsteps', 'impulse']);
+  });
+
+  it('a provisional detection is closed as confirmed by the event its phones confirm, or as unconfirmed after two minutes', () => {
+    const confirmed = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const unconfirmed = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const now = Date.now();
+    for (const live of [confirmed, unconfirmed]) for (const p of phones) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const picks = phones.map((p) => signPick(p.sk, p));
+    for (const live of [confirmed, unconfirmed]) {
+      picks.forEach((ev) => live.ingest(ev));
+      live.recompute(now);
+    }
+    phones.forEach((p, i) => confirmed.ingest(signTrigger(p.sk, { ...p, dur: 5 }, picks[i].id)));
+    confirmed.recompute(now);
+    expect(confirmed.provisional.map((d) => d.outcome)).toEqual(['confirmed']);
+    expect(confirmed.provisional[0].confirmed).toBe(confirmed.events[0]);
+    // Its picks age out after a minute, but the phones may still confirm: it waits two.
+    unconfirmed.recompute(now + 70_000);
+    expect(unconfirmed.provisional.map((d) => d.outcome)).toEqual(['open']);
+    unconfirmed.recompute(now + 121_000);
+    expect(unconfirmed.provisional.map((d) => d.outcome)).toEqual(['unconfirmed']);
+  });
+
   it('retractions remove picks, but only from their own author', () => {
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     const [a, b] = phones;

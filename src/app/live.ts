@@ -1,6 +1,7 @@
 import type { Event } from 'nostr-tools/pure';
 import type { DetectedEvent, Trigger } from '../core/associate';
-import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
+import { MIN_PICKS, confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
+import type { RejectReason } from '../core/sensor';
 import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat, type Message } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
@@ -29,6 +30,31 @@ export const MAX_NODES = 10_000;
 /** A phone shows as checking its pick for a minute unless it withdraws it, and as shaken for two after a trigger. */
 const PICKING_MS = 60_000;
 const SHAKEN_MS = 120_000;
+/** A provisional detection that neither its phones nor a confirmed one settle this long after it was declared stays unconfirmed. */
+export const SETTLE_MS = 2 * 60_000;
+const MAX_PROVISIONAL = 500;
+
+/** A phone withdrew its pick: why it says, and when. */
+export interface Withdrawal {
+  reason: RejectReason | null;
+  at: number;
+}
+
+/** A provisional detection, kept for two hours with how it ended. */
+export interface Provisional {
+  /** Its solution when last declared. */
+  event: EarlyEvent;
+  /** When this browser first declared it. */
+  declared: number;
+  /** Every pick that was ever one of its members. */
+  picks: Trigger[];
+  /** Open while it may still be confirmed. */
+  outcome: 'open' | 'confirmed' | 'withdrawn' | 'unconfirmed';
+  /** The confirmed event that explains it. */
+  confirmed: DetectedEvent | null;
+  /** Its phones that withdrew their picks. */
+  withdrew: Withdrawal[];
+}
 
 /**
  * The live citizen network as seen from this browser: every heartbeat, pick and trigger on
@@ -43,16 +69,19 @@ export class LiveNetwork extends Emitter {
   events: DetectedEvent[] = [];
   /** Provisional events from raw picks that no confirmed event explains yet. */
   early: EarlyEvent[] = [];
+  /** Every provisional detection of the last two hours, oldest first, with its outcome. */
+  provisional: Provisional[] = [];
   usgs: UsgsQuake[] = [];
   usgsState: 'loading' | 'ok' | 'error' = 'loading';
   usgsWindow: UsgsWindow;
   /** Picks and triggers from phones not yet heard from, held until their heartbeat comes. */
   private pending: Message[] = [];
   /**
-   * Retractions by `pick:phone`, with when they were signed. One can arrive before its pick, and
-   * only the pick's own author may retract it, so every retracting phone is kept until it shows.
+   * Retractions by `pick:phone`. One can arrive before its pick, and only the pick's own author
+   * may retract it, so every retracting phone is kept until the pick shows.
    */
-  private withdrawals = new Map<string, number>();
+  // shortcut: a flood of retractions from free keys can push real ones out of this cap; count only phones with a heartbeat if that is seen.
+  private withdrawals = new Map<string, Withdrawal>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
   private recomputeQueued = false;
@@ -113,6 +142,7 @@ export class LiveNetwork extends Emitter {
     if (m.type === 'heartbeat') {
       const prev = this.nodes.get(m.node);
       if (prev && prev.lastSeen > m.at) return;
+      // shortcut: a linear scan for the quietest phone once full; keep phones ordered by lastSeen if floods of new keys make it slow.
       if (!prev && this.nodes.size >= MAX_NODES) this.nodes.delete([...this.nodes.values()].reduce((a, b) => (b.lastSeen < a.lastSeen ? b : a)).id);
       // A phone resumes listening when first heard, after saying it stopped, or after going stale.
       const resumed = !prev || prev.sps === 0 || m.at - prev.lastSeen > NODE_STALE_MS;
@@ -124,7 +154,7 @@ export class LiveNetwork extends Emitter {
       // NIP-09: only the author may retract their own pick.
       const p = this.picks.get(m.pick);
       if (p && p.node !== m.node) return;
-      this.withdrawals.set(`${m.pick}:${m.node}`, m.at);
+      this.withdrawals.set(`${m.pick}:${m.node}`, { reason: m.reason, at: m.at });
       if (this.withdrawals.size > MAX_WITHDRAWALS) this.withdrawals.delete(this.withdrawals.keys().next().value!);
       this.picks.delete(m.pick);
       this.queueRecompute();
@@ -187,6 +217,7 @@ export class LiveNetwork extends Emitter {
       now,
     );
     this.early = unconfirmed(early.events, this.events);
+    this.settle(now);
     // A candidate holds for now, but phones the wave is still reaching could overturn it.
     if (early.waiting)
       this.recheck = setTimeout(() => {
@@ -195,13 +226,39 @@ export class LiveNetwork extends Emitter {
       }, 500);
   }
 
+  /** Follow each provisional detection until it is confirmed, its phones withdraw, or it has waited too long. */
+  private settle(now: number) {
+    // Two detections are one quake by the rule that says when a confirmed one explains a provisional one.
+    const same = (a: EarlyEvent, b: DetectedEvent) => !unconfirmed([a], [b]).length;
+    for (const e of this.early) {
+      const d = this.provisional.find((x) => x.outcome === 'open' && same(e, x.event));
+      if (!d) this.provisional.push({ event: e, declared: now, picks: [...e.triggers], outcome: 'open', confirmed: null, withdrew: [] });
+      else {
+        d.event = e;
+        d.picks.push(...e.triggers.filter((t) => !d.picks.some((p) => p.id === t.id)));
+      }
+    }
+    for (const d of this.provisional) {
+      if (d.outcome === 'confirmed') continue;
+      d.confirmed = this.events.find((c) => same(d.event, c)) ?? null;
+      d.withdrew = d.picks.flatMap((p) => this.withdrawals.get(`${p.id}:${p.node}`) ?? []);
+      if (d.confirmed) d.outcome = 'confirmed';
+      else if (d.outcome === 'open' && !this.early.includes(d.event)) {
+        // No longer declared: too few of its phones are left to confirm it, or it has waited long enough.
+        if (d.picks.length - d.withdrew.length < MIN_PICKS) d.outcome = 'withdrawn';
+        else if (now - d.declared >= SETTLE_MS) d.outcome = 'unconfirmed';
+      }
+    }
+    this.provisional = this.provisional.filter((d) => now - d.declared < WINDOW_MS).slice(-MAX_PROVISIONAL);
+  }
+
   private prune() {
     const now = Date.now();
     this.triggers = this.triggers.filter((t) => now - t.t < WINDOW_MS);
     this.heard = this.heard.filter((h) => now - h.t < WINDOW_MS);
     for (const [k, p] of this.picks) if (now - p.t > 5 * 60_000) this.picks.delete(k);
     for (const [k, n] of this.nodes) if (now - n.lastSeen > WINDOW_MS) this.nodes.delete(k);
-    for (const [k, at] of this.withdrawals) if (now - at > WINDOW_MS) this.withdrawals.delete(k);
+    for (const [k, w] of this.withdrawals) if (now - w.at > WINDOW_MS) this.withdrawals.delete(k);
     this.queueRecompute();
   }
 
