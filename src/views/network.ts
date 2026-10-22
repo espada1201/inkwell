@@ -1,4 +1,4 @@
-import type { LiveNetwork } from '../app/live';
+import { NODE_STALE_MS, WINDOW_MS, type LiveNetwork } from '../app/live';
 import { shakeGrid } from '../core/impact';
 import { reach } from '../net/transport';
 import { matchUsgs, type UsgsQuake } from '../net/usgs';
@@ -28,6 +28,8 @@ export interface NetworkCtx {
 }
 
 type Selection = { kind: 'event' | 'usgs'; id: string };
+/** How far back the panel looks. */
+const HOURS = WINDOW_MS / 3600_000;
 
 export function networkView(ctx: NetworkCtx) {
   const { live, map } = ctx;
@@ -117,7 +119,7 @@ export function networkView(ctx: NetworkCtx) {
     const st = live.transport.statuses();
     return h(
       'div',
-      { class: 'stats', title: 'Phones heard from in the last 10 minutes; triggers and quakes from the last 2 hours' },
+      { class: 'stats', title: `Phones listening now (heard from in the last ${NODE_STALE_MS / 60_000} minutes); triggers and quakes from the last ${HOURS} hours` },
       h('div', {}, h('b', { 'data-testid': 'stat-nodes' }, [...live.nodes.values()].filter((n) => live.isOnline(n)).length), h('span', {}, 'phones')),
       h('div', {}, h('b', {}, live.triggers.length), h('span', {}, 'triggers')),
       h('div', {}, h('b', { 'data-testid': 'stat-events' }, live.events.length), h('span', {}, 'quakes')),
@@ -169,7 +171,7 @@ export function networkView(ctx: NetworkCtx) {
     return h(
       'section',
       {},
-      h('h2', {}, 'Detected by Tremor', h('small', {}, 'last 2 hours')),
+      h('h2', {}, 'Detected by Tremor', h('small', {}, `last ${HOURS} hours`)),
       relays === 'down'
         ? h('p', { class: 'empty', role: 'status' }, 'Not connected to any relay, so nothing can be heard. Tremor keeps retrying; check your connection or the relay list below.')
         : null,
@@ -199,7 +201,7 @@ export function networkView(ctx: NetworkCtx) {
             : live.early.length
               ? empty('No confirmed detections yet.')
               : empty(
-                  'No network detections in the past two hours. That is normal: phones only notice strong shaking close by. ',
+                  `No network detections in the past ${HOURS} hours. That is normal: phones only notice strong shaking close by. `,
                   h('a', { href: '#replay' }, 'Watch a replay'),
                   ' or ',
                   h('a', { href: '#sensor' }, 'turn this phone into a sensor'),
@@ -250,24 +252,24 @@ export function networkView(ctx: NetworkCtx) {
 
   /** Built once: what is typed into it, and whether it is open, survive every update. */
   function relaysBox() {
-    const ta = h('textarea', { 'aria-label': 'Relay URLs, one per line', spellcheck: 'false' });
+    const note = h('p', { class: 'small relays-note', role: 'status', id: 'relays-note' });
+    const ta = h('textarea', { 'aria-label': 'Relay URLs, one per line', 'aria-describedby': 'relays-note', spellcheck: 'false' });
     ta.value = ctx.relays.join('\n');
+    // Saving reloads the page, so a list with a wrong line is not saved at all: the user sees why first.
+    const save = () => {
+      const lines = ta.value.split(/\s+/).filter(Boolean);
+      const wrong = lines.filter((s) => !/^wss?:\/\/\S/.test(s));
+      if (lines.length && !wrong.length) return ctx.saveRelays(lines);
+      ta.setAttribute('aria-invalid', 'true');
+      note.textContent = wrong.length ? `Relay addresses start with wss://. Fix or remove these lines, then save again: ${wrong.join(', ')}.` : 'Add at least one relay address. Relay addresses start with wss://.';
+    };
     const el = h('details', { class: 'relays' }, h('summary', {}, 'Relays'));
     const list = part(el);
     el.append(
       ta,
+      note,
       h('p', { class: 'small muted' }, 'Most public Nostr relays work. Tremor events are tagged #tremor: kind 4578 picks, kind 5 retractions, kind 4579 confirmed triggers and kind 34579 heartbeats.'),
-      h(
-        'button',
-        {
-          class: 'btn',
-          onclick: () => {
-            const urls = ta.value.split(/\s+/).map((s) => s.trim()).filter((s) => /^wss?:\/\//.test(s));
-            if (urls.length) ctx.saveRelays(urls);
-          },
-        },
-        'Save and reconnect',
-      ),
+      h('button', { class: 'btn', onclick: save }, 'Save and reconnect'),
     );
     root.append(el);
     return () =>

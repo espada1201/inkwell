@@ -7,6 +7,17 @@ import { scenarioEvents, send } from './publish';
 const napa = scenarioEvents('napa-2014');
 const truth = napa.sim.scenario.truth!;
 
+/** Contrast ratio of an element's text against the background of the row button it sits in. */
+function contrastOnRow(el: Element) {
+  const rgb = (c: string) => c.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+  const lum = (c: string) => {
+    const [r, g, b] = rgb(c).map((v) => (v / 255 <= 0.03928 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const [a, b] = [lum(getComputedStyle(el).color), lum(getComputedStyle(el.closest('.row')!).backgroundColor)].sort((x, y) => y - x);
+  return (a + 0.05) / (b + 0.05);
+}
+
 // The official feed "already knows" about this quake, so the app can cross-check itself.
 test.use({ usgs: usgsFeed([{ id: 'nc-replayed', mag: truth.mag, place: '6 km NW of American Canyon, CA', time: napa.sim.origin, lat: truth.lat, lon: truth.lon, depth: truth.depthKm }]) });
 
@@ -18,6 +29,8 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
 
   await send(relay.url, napa.heartbeats);
   await expect(page.getByTestId('stat-nodes')).toHaveText(String(napa.heartbeats.length));
+  // A phone silent for three minutes is offline, and the explanation says so.
+  await expect(page.locator('.stats')).toHaveAttribute('title', /^Phones listening now \(heard from in the last 3 minutes\)/);
 
   // Raw picks alone: a provisional detection, seconds after the P wave in real life.
   await send(relay.url, napa.picks);
@@ -31,7 +44,10 @@ test('phones on a relay become a detected, USGS-verified earthquake', async ({ p
   await expect(page.getByTestId('provisional')).toHaveCount(0);
   await expect(page.getByTestId('event-list')).toContainText('Matches USGS');
 
-  await page.getByTestId('event-list').getByRole('button').first().click();
+  const row = page.getByTestId('event-list').getByRole('button').first();
+  await row.click();
+  // The selected row's grey text stays readable on its tinted background (WCAG AA, 4.5:1).
+  for (const grey of [row.locator('.when'), row.locator('.muted')]) expect(await grey.evaluate(contrastOnRow)).toBeGreaterThanOrEqual(4.5);
   const loc = page.getByTestId('est-loc');
   const est = { lat: Number(await loc.getAttribute('data-lat')), lon: Number(await loc.getAttribute('data-lon')) };
   expect(distanceKm(est, truth)).toBeLessThan(15);
@@ -92,6 +108,21 @@ test('with every relay refusing, the panel says nothing can be heard rather than
   // It stays put while the relays are retried (after 1, 2, 4… s).
   await page.waitForTimeout(2500);
   await expect(down).toBeVisible();
+});
+
+test('the relay editor says why it saved nothing, and which lines were wrong', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await page.locator('details.relays summary').click();
+  const box = page.getByLabel('Relay URLs, one per line');
+  await box.fill('relay.damus.io\nwss://nos.lol\nnostr.wine');
+  await page.getByRole('button', { name: 'Save and reconnect' }).click();
+  const note = page.getByRole('status').filter({ hasText: 'Relay addresses start with wss://' });
+  await expect(note).toContainText('relay.damus.io, nostr.wine');
+  await expect(note).not.toContainText('nos.lol');
+  await expect(box).toHaveAttribute('aria-invalid', 'true');
+  // Nothing was saved and the page did not reload under the user.
+  expect(await page.evaluate(() => localStorage.getItem('tremor.relays'))).toBeNull();
+  await expect(box).toHaveValue('relay.damus.io\nwss://nos.lol\nnostr.wine');
 });
 
 test('USGS outage shows a calm error state', async ({ page, relay }) => {

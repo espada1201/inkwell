@@ -298,3 +298,8 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 
 /* ── network (live screen) ───────────────────────────── */
 .stack { display: grid; gap: 12px; }
+/* Grey text on a selected row's tint falls short of 4.5:1. */
+.row[aria-pressed='true'] .when, .row[aria-pressed='true'] .muted { color: var(--ink-2); }
+.relays-note { color: var(--red); margin: 6px 0; }
+/* Kept in the page while empty, so screen readers hear it when it fills. */
+.relays-note:empty { margin: 0; }
