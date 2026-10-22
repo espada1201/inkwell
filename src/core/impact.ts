@@ -1,5 +1,5 @@
 import { distanceKm, offset, type LatLon } from './geo';
-import { VS_KMS, hypocentralKm, intensityLevel, waveRadiusKm } from './physics';
+import { LIGHT, VS_KMS, hypocentralKm, intensityLevel, waveRadiusKm } from './physics';
 import { upperMedian } from './stats';
 
 /**
@@ -10,7 +10,7 @@ import { upperMedian } from './stats';
  *    so you see how hard the ground shook where people are, not just where the fault broke.
  */
 
-const FELT_LEVEL = 2;
+const FELT_LEVEL = LIGHT;
 
 /** Surface distance at which the S wave arrives `tS` seconds after origin. */
 export const sRadiusKm = (tS: number, depthKm: number) => waveRadiusKm(VS_KMS, tS, depthKm);

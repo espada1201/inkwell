@@ -1,7 +1,7 @@
 import { coarsen, distanceKm, type LatLon } from './geo';
 import { VP_KMS, VS_KMS, hypocentralKm, pgaFor } from './physics';
 import { gauss, rng } from './rng';
-import { NodeDetector, type DetectorOutput } from './sensor';
+import { NodeDetector, VERDICT_S, type DetectorOutput } from './sensor';
 import { CLOCK_SIGMA_MS, FS, RELAY_LATENCY_MS, codaS, phoneNoise, pointInDisk, siteScatter } from './simnet';
 import { synthesize } from './synth';
 
@@ -121,7 +121,6 @@ export const ORIGIN_OFFSET_S = 25;
 export const sinceOrigin = (scenarioMs: number) => scenarioMs / 1000 - ORIGIN_OFFSET_S;
 
 const MIN_DURATION_S = 80;
-const CHECK_S = 30;
 
 /** Build a phone network around the city and synthesise every phone's accelerometer record. */
 export function simulate(s: Scenario, start: number): Simulation {
@@ -142,7 +141,7 @@ export function simulate(s: Scenario, start: number): Simulation {
     return { loc, distKm, tP, tS, pga, disturbance, dT, clockMs, noise, steps };
   });
   const lastS = Math.max(0, ...phones.map((p) => p.tS ?? 0));
-  const durationS = Math.max(MIN_DURATION_S, Math.ceil(lastS + CHECK_S + RELAY_LATENCY_MS / 1000));
+  const durationS = Math.max(MIN_DURATION_S, Math.ceil(lastS + VERDICT_S + RELAY_LATENCY_MS / 1000));
   const nodes = phones.map(({ loc, distKm, tP, tS, pga, disturbance, dT, clockMs, noise, steps }, i): SimNode => {
     const samples = synthesize({
       fs: FS,

@@ -1,7 +1,7 @@
 import type { Trigger } from './associate';
 import { MIN_PICKS, confirmedEvents, earlyDetect, type Listener, type Onset } from './early';
 import { coarsen, distanceKm, offset, type LatLon } from './geo';
-import { DEFAULT_DEPTH_KM, VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor } from './physics';
+import { DEFAULT_DEPTH_KM, MODERATE, VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor } from './physics';
 import { respond, type PhoneModel } from './phonemodel';
 import { gauss, rng } from './rng';
 import { upperMedian } from './stats';
@@ -12,7 +12,7 @@ const FRAME_MS = 250;
 export const DISTURBED_PER_MINUTE = 0.05;
 /** Above this many confirmed triggers, locate from an even sample of them (the app uses all). */
 const MAX_CONFIRM = 300;
-const SHAKEN_LEVEL = 3;
+const SHAKEN_LEVEL = MODERATE;
 
 export interface PlanInput {
   city: LatLon;

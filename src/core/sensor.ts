@@ -29,6 +29,8 @@ const THRESHOLD_ON = 5;
 const NOISE_FLOOR = 0.04;
 const WARMUP_S = 5;
 const PHASE_S = 0.4;
+/** A phone judges what it picked by this many seconds after the onset. */
+export const VERDICT_S = 30;
 
 const DEG = 180 / Math.PI;
 
@@ -182,9 +184,9 @@ export class NodeDetector {
     c.envs.push(env);
     if (env > Math.max(0.15 * c.peakEnv, 1.5 * this.background)) c.lastLoud = s.t;
     // Keep listening at least 15 s so a late, stronger S wave still counts toward the peak, and
-    // judge by 30 s: now, if the next sample would come later than that.
+    // judge by the verdict deadline: now, if the next sample would come later than that.
     const open = s.t - c.t0;
-    if (open + dtS * 1000 <= 30000 && (open < 15000 || s.t - c.lastLoud < 3000)) return null;
+    if (open + dtS * 1000 <= VERDICT_S * 1000 && (open < 15000 || s.t - c.lastLoud < 3000)) return null;
     return this.judge(s.t);
   }
 

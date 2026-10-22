@@ -1,7 +1,7 @@
 import { associate, toArrivals, type DetectedEvent, type Trigger } from './associate';
 import { cellOf, distanceKm, type LatLon } from './geo';
 import { locate } from './locate';
-import { VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor } from './physics';
+import { LIGHT, VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor } from './physics';
 
 /** A phone that is listening, wherever it is. */
 export interface Listener extends LatLon {
@@ -48,7 +48,7 @@ const PICK_WINDOW_MS = 60_000;
 const FELT_BEFORE_MS = 10_000;
 const FELT_AFTER_MS = 180_000;
 /** Phones notice light shaking reliably (intensity 2, about 0.14 m/s²) and miss much of what is weaker. */
-const NOTICED_LEVEL = 2;
+const NOTICED_LEVEL = LIGHT;
 
 /**
  * The quiet phones' say on a candidate event (the "not-yet-arrived" idea used by real

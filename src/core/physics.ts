@@ -52,6 +52,10 @@ export const DISTANCE_PRIOR = ATTENUATION / MAG_SCALE;
 /** Felt intensity (rough Modified Mercalli mapping from PGA): thresholds in g. */
 const MMI_G = [0.0017, 0.014, 0.039, 0.092, 0.18, 0.34];
 
+export const WEAK = 1;
+export const LIGHT = 2;
+export const MODERATE = 3;
+
 /** 0 = not felt, 1 weak, 2 light, 3 moderate, 4 strong, 5 very strong, 6 severe. */
 export function intensityLevel(pga: number): number {
   const g = pga / G;
@@ -66,5 +70,5 @@ const FELT_MAG = 2.5;
 /** How hard a quake shook a place this far from its epicentre, as `intensityLevel` counts: weak at most below about M2.5. */
 export function shakingLevel(mag: number, epicentralKm: number, depthKm?: number): number {
   const level = intensityLevel(pgaFor(mag, hypocentralKm(epicentralKm, depthKm)));
-  return mag < FELT_MAG ? Math.min(level, 1) : level;
+  return mag < FELT_MAG ? Math.min(level, WEAK) : level;
 }

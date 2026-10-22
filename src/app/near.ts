@@ -1,5 +1,5 @@
 import { distanceKm, type LatLon } from '../core/geo';
-import { shakingLevel } from '../core/physics';
+import { LIGHT, shakingLevel } from '../core/physics';
 import type { LiveNetwork } from './live';
 import type { SensorNode } from './sensor';
 
@@ -10,7 +10,7 @@ const NEAR_KM = 100;
 export const NEAR_MS = 10 * 60_000;
 const NEAR_USGS_KM = 300;
 /** Light shaking, which people indoors notice. Below it a row is listed, with nothing to do about it. */
-export const NOTICED_LEVEL = 2;
+export const NOTICED_LEVEL = LIGHT;
 
 /** Something reported near you, and how hard it shook you: roughly, for quakes (a level, as `intensityLevel` counts); as people told it, for felt reports. */
 export type Near = { km: number; time: number; level: number | null } & (

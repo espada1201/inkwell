@@ -1,6 +1,6 @@
 import { coarsen, distanceKm, type LatLon } from '../core/geo';
 import { DEFAULT_DEPTH_KM, distanceFor, hypocentralKm, pgaFor, VP_KMS, VS_KMS } from '../core/physics';
-import { NodeDetector, type DetectorOutput } from '../core/sensor';
+import { NodeDetector, VERDICT_S, type DetectorOutput } from '../core/sensor';
 import { upperMedian } from '../core/stats';
 import { loadIdentity, safeStorage } from '../net/identity';
 import { HEARTBEAT_EVERY_MS, signHeartbeat, signOutput, signRetraction } from '../net/protocol';
@@ -191,7 +191,7 @@ export class SensorNode extends Emitter {
       const from = quake.time + (r / VP_KMS) * 1000 - 3000;
       const to = quake.time + (r / VS_KMS) * 1000 + 5000;
       const felt = this.confirmed.some((t) => t >= from && t <= to);
-      const heard = this.stretches.some((s) => s.from <= from && s.to >= to + 30_000);
+      const heard = this.stretches.some((s) => s.from <= from && s.to >= to + VERDICT_S * 1000);
       if (pga < d.floor || !(felt || heard)) return [];
       return [{ quake, km, pga, verdict: felt ? 'felt' : pga < d.noticesPga ? 'too weak' : 'missed' }];
     });
