@@ -1,6 +1,6 @@
 import { distanceKm } from '../../src/core/geo';
 import { SCENARIOS } from '../../src/core/scenarios';
-import { expect, test } from './fixtures';
+import { expect, test, usgsFeed } from './fixtures';
 
 test('Napa replay: phones declare early, locate near USGS, and show warning time', async ({ page }) => {
   await page.goto('/?speed=10#replay/napa-2014');
@@ -34,7 +34,7 @@ test('concert night: no earthquake is declared', async ({ page }) => {
   await expect(page.getByTestId('replay-status')).toHaveText('Replay finished: no quake declared.');
   // Withdrawn picks are counted by the reason each phone gave, never as false alarms.
   const stats = await page.getByTestId('replay-stats').innerText();
-  expect(stats).toMatch(/^40 phones · \d+ confirmed · \d+ picks withdrawn on-device \((footsteps|bump or door slam|phone moved) \d+(, (footsteps|bump or door slam|phone moved) \d+)*\)$/);
+  expect(stats).toMatch(/^40 simulated phones · \d+ confirmed · \d+ picks withdrawn on-device \((footsteps|bump or door slam|phone moved) \d+(, (footsteps|bump or door slam|phone moved) \d+)*\)$/);
   // Disturbances that passed their phones' own checks are explained, when there are any.
   const confirmed = Number(stats.match(/(\d+) confirmed/)![1]);
   const card = page.getByTestId('warning');
@@ -83,4 +83,53 @@ test('switching scenarios and scrubbing works with the keyboard', async ({ page 
   await expect(page.getByTestId('clock')).toHaveText(/T\+55\.0 s/);
   await expect(scrub).toHaveAttribute('aria-valuetext', '55 seconds after the quake began');
   await expect(page.getByTestId('compare')).toBeVisible();
+});
+
+// Half an hour ago the feed listed a strong quake near Berkeley.
+const berkeley = { id: 'nc-berkeley', mag: 5.1, place: '4 km SE of Berkeley, CA', time: Date.now() - 30 * 60_000, lat: 37.85, lon: -122.22, depth: 8 };
+const berkeleyLink = `usgs/nc-berkeley/${berkeley.time}/37.85/-122.22/8/5.1`;
+
+test.describe('recent quakes from the USGS feed', () => {
+  test.use({ usgs: usgsFeed([berkeley]) });
+
+  test('a recent quake replays with simulated phones, and its link works once it has left the feed', async ({ page }) => {
+    await page.goto('/?speed=10#replay/napa-2014');
+    const rows = page.getByTestId('recent').locator('li');
+    // The feed's M2.1 is too weak for phones to feel, so it is not offered.
+    await expect(rows).toHaveCount(3);
+    await expect(rows.nth(1)).toContainText('M5.1');
+    await rows.nth(1).getByRole('button', { name: 'Replay with simulated phones: M5.1, 4 km SE of Berkeley, CA' }).click();
+    expect(new URL(page.url()).hash).toBe(`#replay/${berkeleyLink}`);
+    await expect(rows.nth(1).getByRole('button')).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.locator('[data-scenario="napa-2014"]')).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByText(/^M5\.1, 4 km SE of Berkeley, CA, .* UTC, from the USGS feed\. The quake is real; the phones are simulated, around the epicentre\./)).toBeVisible();
+    await expect(page.getByText('Each line is a phone, farther phones lower; the slanted bands are the P and S waves arriving.')).toBeVisible();
+    await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
+    await expect(page.getByTestId('replay-stats')).toHaveText(/^40 simulated phones · /);
+
+    // Later the quake has left the feed; the link still replays it, around the viewer's own spot nearby.
+    await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed() }));
+    await page.evaluate(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 37.8, lon: -122.27 })));
+    await page.goto('about:blank');
+    await page.goto(`/?speed=10#replay/${berkeleyLink}`);
+    await expect(page.getByText(/^M5\.1, 37\.85°N 122\.22°W, .* UTC, from the USGS feed\. The quake is real; the phones are simulated, around your saved location\./)).toBeVisible();
+    await expect(page.getByTestId('recent').locator('li')).toHaveCount(2);
+    await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
+    await expect(page.getByTestId('replay-stats')).toHaveText(/^40 simulated phones · /);
+  });
+});
+
+test('a replay link cut short plays the first quake and says why', async ({ page }) => {
+  await page.goto(`/?speed=10#replay/${berkeleyLink.split('/').slice(0, 4).join('/')}`);
+  await expect(page.locator('[data-scenario="napa-2014"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('That replay link is incomplete or out of range, so South Napa M6.0 plays instead.')).toBeVisible();
+});
+
+test('the recent list says when the feed is unreachable, or has nothing phones could feel', async ({ page }) => {
+  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ status: 200, body: 'garbage' }));
+  await page.goto('/?speed=10#replay/napa-2014');
+  await expect(page.getByTestId('recent')).toHaveText('The USGS feed could not be reached, so there are no recent quakes to offer. The quakes above always replay.');
+  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: { type: 'FeatureCollection', features: [] } }));
+  await page.reload();
+  await expect(page.getByTestId('recent')).toHaveText('No quake of M4 or more in the USGS feed for the past day: phones would barely feel smaller ones.');
 });

@@ -72,6 +72,32 @@ export const SCENARIOS: Scenario[] = [
   },
 ];
 
+/** What a replay needs to know of a quake, so a link to it still works once it has left the USGS feed. */
+export interface QuakeRef extends LatLon {
+  /** USGS event id. */
+  id: string;
+  /** Origin time, ms since epoch. */
+  time: number;
+  depthKm: number;
+  mag: number;
+}
+
+/** Weaker quakes are not offered for replay: phones barely feel them. */
+export const MIN_REPLAY_MAG = 4;
+
+/** The path after #replay/ that names a quake. */
+export const quakeLink = (q: QuakeRef) => ['usgs', q.id, q.time, q.lat, q.lon, q.depthKm, q.mag].join('/');
+
+/** The quake a path from `quakeLink` names; null if it is not one, or a number is missing or out of range. */
+export function parseQuakeLink(path: string): QuakeRef | null {
+  const [kind, id = '', ...fields] = path.split('/');
+  const [time, lat, lon, depthKm, mag] = fields.map((f) => (f === '' ? NaN : Number(f)));
+  const ok =
+    kind === 'usgs' && /^[\w-]+$/.test(id) && fields.length === 5 && [time, lat, lon, depthKm, mag].every(Number.isFinite) &&
+    Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && depthKm >= -10 && depthKm <= 800 && mag >= MIN_REPLAY_MAG && mag <= 10;
+  return ok ? { id, time, lat, lon, depthKm, mag } : null;
+}
+
 export interface SimNode extends LatLon {
   id: string;
   distKm: number | null;
