@@ -274,8 +274,9 @@ export class LiveNetwork extends Emitter {
       }
     }
     for (const d of this.provisional) {
+      // A confirmed one follows its quake as later triggers refine it, and keeps the last it had once that is gone.
+      d.confirmed = explainedBy(d.event, d.picks, this.events) ?? (d.outcome === 'confirmed' ? d.confirmed : null);
       if (d.outcome === 'confirmed') continue;
-      d.confirmed = explainedBy(d.event, d.picks, this.events) ?? null;
       // Once it has ended, the reasons it ended with are its record: the withdrawals behind them can be pushed out or pruned first.
       if (d.outcome === 'open') d.withdrew = d.picks.flatMap((p) => this.withdrawals.get(`${p.id}:${p.node}`) ?? []);
       if (d.confirmed) d.outcome = 'confirmed';

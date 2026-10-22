@@ -336,6 +336,8 @@ describe('a quake felt only from one side, by a town 100 km away', () => {
     expect(live.events).toHaveLength(1);
     expect(twice).toBe(0);
     expect(live.provisional.map((d) => d.outcome)).toEqual(['confirmed']);
+    // Its record ("Confirmed: M…") follows the quake as the later triggers placed and sized it, not as the first few did.
+    expect(live.provisional[0].confirmed).toBe(live.events[0]);
   });
 
   it('shows it once, and its provisional detection ends confirmed, as its picks age out and the last few place it 200 km off', () => {
