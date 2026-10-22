@@ -1,4 +1,4 @@
-import { distanceKm, type LatLon } from './geo';
+import { KM_PER_DEG, distanceKm, type LatLon } from './geo';
 import { locate, uncertainty, type Arrival, type Solution, type Uncertainty } from './locate';
 import { VP_KMS, VS_KMS, hypocentralKm, speedOf, type Phase } from './physics';
 
@@ -30,6 +30,8 @@ export interface AssociateOptions {
 /** Slack allowed beyond the travel time between two phones' triggers, s: phone clocks drift. */
 const TOLERANCE_S = 1.5;
 const MAX_DISTANCE_KM = 400;
+/** Two points this many degrees apart or less, in latitude and in longitude, are within MAX_DISTANCE_KM. */
+const NEAR_DEG = MAX_DISTANCE_KM / (Math.SQRT2 * KM_PER_DEG);
 const MAX_SPAN_S = 90;
 
 /**
@@ -56,6 +58,14 @@ function locateCached(members: Trigger[], minNodes: number): Solution | null {
   return sol;
 }
 
+const byOnsetThenId = (a: Trigger, b: Trigger) => a.t - b.t || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
+const popcount32 = (bits: number) => {
+  bits -= (bits >>> 1) & 0x55555555;
+  bits = (bits & 0x33333333) + ((bits >>> 2) & 0x33333333);
+  return Math.imul((bits + (bits >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
+};
+
 /**
  * Space–time association. Two triggers of the same wave can belong to one earthquake only if
  * their time difference is no larger than that wave's travel time between the nodes (plus slack).
@@ -69,14 +79,12 @@ function locateCached(members: Trigger[], minNodes: number): Solution | null {
  *     relocate, so an unlucky seed (e.g. a stray footstep) cannot bias membership.
  *  5. Later triggers the event explains as either wave are absorbed so they do not spawn ghosts.
  */
-const byOnset = (a: Trigger, b: Trigger) => a.t - b.t || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
-
 export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
   const minNodes = opts.minNodes ?? 4;
   const maxSpan = MAX_SPAN_S * 1000;
   const maxRms = opts.maxRmsS ?? 1.5;
 
-  const sorted = [...triggers].sort(byOnset);
+  const sorted = [...triggers].sort(byOnsetThenId);
   const used = new Set<string>();
   const deadSeeds = new Set<string>();
   const events: DetectedEvent[] = [];
@@ -94,7 +102,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
       const B = sorted[b];
       if (phase !== (B.phase ?? 'P')) continue;
       const dt = (B.t - A.t) / 1000;
-      const near = dt <= TOLERANCE_S && Math.abs(B.lat - A.lat) <= 1 && Math.abs(B.lon - A.lon) <= 1;
+      const near = dt <= TOLERANCE_S && Math.abs(B.lat - A.lat) <= NEAR_DEG && Math.abs(B.lon - A.lon) <= NEAR_DEG;
       const d = near ? 0 : distanceKm(A, B);
       if (near || (d <= MAX_DISTANCE_KM && dt <= d / speedOf(phase) + TOLERANCE_S)) {
         compat[a * words + (b >>> 5)] |= 1 << (b & 31);
@@ -111,15 +119,12 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     const i = index.get(t)!;
     free[i >>> 5] &= ~(1 << (i & 31));
   };
-  const bound = (i: number) => {
+  const maxClusterSize = (i: number) => {
     let count = 1;
     const first = (i + 1) >>> 5;
     for (let w = first; w < words; w++) {
-      let bits = compat[i * words + w] & free[w];
-      if (w === first) bits &= -1 << ((i + 1) & 31);
-      bits -= (bits >>> 1) & 0x55555555;
-      bits = (bits & 0x33333333) + ((bits >>> 2) & 0x33333333);
-      count += Math.imul((bits + (bits >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
+      const bits = compat[i * words + w] & free[w];
+      count += popcount32(w === first ? bits & (-1 << ((i + 1) & 31)) : bits);
     }
     return count;
   };
@@ -151,7 +156,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
   const largest = (skip: (t: Trigger) => boolean) => {
     let out: Trigger[] = [];
     sorted.forEach((t, i) => {
-      if (used.has(t.id) || deadSeeds.has(t.id) || skip(t) || bound(i) <= out.length) return;
+      if (used.has(t.id) || deadSeeds.has(t.id) || skip(t) || maxClusterSize(i) <= out.length) return;
       const c = grow(i);
       if (c.length > out.length) out = c;
     });
@@ -177,7 +182,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     const to = Math.max(...ts) + gap;
     const partner = largest((t) => (t.phase ?? 'P') === phase || t.t < from || t.t > to);
     if (partner.length >= 2) {
-      const joint = solve([...base, ...partner].sort(byOnset));
+      const joint = solve([...base, ...partner].sort(byOnsetThenId));
       if (good(joint) && joint.members.length >= 0.8 * (base.length + partner.length)) fit = joint;
     }
     if (!good(fit)) {
@@ -189,7 +194,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     const explained = (t: Trigger) => Math.abs((t.t - f0.time) / 1000 - hypocentralKm(distanceKm(f0.sol, t)) / speedOf(t.phase)) <= 2;
     const regather = new Map<string, Trigger>();
     for (const t of sorted) if (!used.has(t.id) && !regather.has(t.node) && explained(t)) regather.set(t.node, t);
-    if (regather.size >= minNodes) fit = solve([...regather.values()].sort(byOnset)) ?? fit;
+    if (regather.size >= minNodes) fit = solve([...regather.values()].sort(byOnsetThenId)) ?? fit;
     if (!good(fit) || fit.members.length < minNodes) {
       deadSeeds.add(seed[0].id);
       continue;
