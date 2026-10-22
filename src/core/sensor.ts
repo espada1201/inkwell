@@ -42,9 +42,10 @@ const DEG = 180 / Math.PI;
  *     "pick" goes out so the network can act fast, labelled with the wave that opened it:
  *     P waves shake the ground mostly up and down, S waves mostly side to side, and gravity
  *     tells the phone which way is down however it lies.
- *  4. The candidate is judged once shaking has died down: phone rotated → handling; under a
- *     second of strong motion → impulse (door slam, bump); four or more bursts, mostly under a
- *     second each → footsteps. Survivors trigger, with the onset time of the first arrival.
+ *  4. The candidate is judged once shaking has died down, against the background from before
+ *     the onset: phone rotated → handling; four or more bursts, mostly under a second each →
+ *     footsteps; under a second of strong motion, or under 0.7 s a burst → impulse (door slam,
+ *     bump, a few knocks). Survivors trigger, with the onset time of the first arrival.
  * Each false alarm raises the threshold, which relaxes back over a couple of minutes.
  */
 export class NodeDetector {
@@ -62,8 +63,10 @@ export class NodeDetector {
   private readonly kLta: number;
   private readonly warmup: number;
   private readonly phaseMs: number;
-  private readonly grav: OnePole[];
-  private readonly bp: Bandpass[];
+  private grav: OnePole[] = [];
+  private bp: Bandpass[] = [];
+  /** This run's first sample. */
+  private origin: number[] | null = null;
   private readonly env: OnePole;
   private lastT = 0;
   private holdUntil = 0;
@@ -92,13 +95,17 @@ export class NodeDetector {
     this.floor = o.floor ?? 0.04;
     this.warmup = (o.warmupS ?? 5) * fs;
     this.phaseMs = (o.phaseS ?? 0.4) * 1000;
-    this.grav = [0, 1, 2].map(() => new OnePole(2, fs));
-    this.bp = [0, 1, 2].map(() => new Bandpass(1, 10, fs));
     this.env = new OnePole(0.08, fs);
+    this.reset();
   }
 
   get warmingUp(): boolean {
     return this.n < this.warmup;
+  }
+
+  /** RMS of the bandpassed shaking over the last LTA seconds of quiet, m/s² (frozen while a candidate is checked). */
+  get background(): number {
+    return Math.sqrt(this.lta);
   }
 
   push(s: Sample): DetectorOutput | null {
@@ -122,7 +129,10 @@ export class NodeDetector {
       this.gHist.push(this.gNow);
       if (this.gHist.length > 8) this.gHist.shift();
     }
-    const f = raw.map((v, i) => this.bp[i].step(v));
+    // Filter the change since this run's first sample: the filters start from rest, so gravity
+    // switching on is no burst of shaking for the background to learn.
+    const o = (this.origin ??= raw);
+    const f = raw.map((v, i) => this.bp[i].step(v - o[i]));
     const e = f[0] * f[0] + f[1] * f[1] + f[2] * f[2];
     const a = Math.sqrt(e);
     this.level = a;
@@ -158,7 +168,7 @@ export class NodeDetector {
     c.peakEnv = Math.max(c.peakEnv, env);
     c.maxTilt = Math.max(c.maxTilt, angle(c.g0, this.gNow));
     c.envs.push(env);
-    if (env > 0.15 * c.peakEnv) c.lastLoud = s.t;
+    if (env > Math.max(0.15 * c.peakEnv, 1.5 * this.background)) c.lastLoud = s.t;
     // Keep listening at least 15 s so a late, stronger S wave still counts toward the peak.
     const open = s.t - c.t0;
     if (open < 30000 && (open < 15000 || s.t - c.lastLoud < 3000)) return null;
@@ -168,14 +178,21 @@ export class NodeDetector {
   private judge(t: number): DetectorOutput {
     const c = this.cand!;
     this.cand = null;
-    // Seconds of strong envelope, and the separate bursts it came in (hysteresis 0.5 / 0.2 of peak).
+    // Seconds of strong envelope, and the separate bursts it came in. Strong is a share of the
+    // peak and clearly above the background from before the onset (the LTA stays frozen while a
+    // candidate is open): a knock that only just crossed the trigger peaks at a few times the
+    // background, so shares of its peak alone fall inside the noise and it seems to go on and on.
+    const bg = this.background;
+    const loud = Math.max(0.25 * c.peakEnv, 1.5 * bg);
+    const on = Math.max(0.5 * c.peakEnv, 2.5 * bg);
+    const off = Math.max(0.2 * c.peakEnv, bg);
     let active = 0;
     const bursts: number[] = [];
     let start = -1;
     c.envs.forEach((v, i) => {
-      if (v > 0.25 * c.peakEnv) active++;
-      if (start < 0 && v > 0.5 * c.peakEnv) start = i;
-      else if (start >= 0 && v < 0.2 * c.peakEnv) {
+      if (v > loud) active++;
+      if (start < 0 && v > on) start = i;
+      else if (start >= 0 && v < off) {
         bursts.push(i - start);
         start = -1;
       }
@@ -187,8 +204,8 @@ export class NodeDetector {
 
     let reason: RejectReason | null = null;
     if (c.maxTilt > 5) reason = 'handling';
-    else if (activeS < 1) reason = 'impulse';
     else if (bursts.length >= 4 && typicalBurstS < 1) reason = 'footsteps';
+    else if (activeS < Math.max(1, 0.7 * bursts.length)) reason = 'impulse';
 
     if (reason) {
       this.threshold = Math.min(this.threshold * 1.25, this.base * 3);
@@ -196,6 +213,8 @@ export class NodeDetector {
       return { kind: 'reject', t: c.t0, at: t, reason };
     }
     this.holdUntil = t + 10000;
+    // shortcut: footsteps still being checked when a quake arrives are confirmed with the
+    // footsteps' onset time; split the candidate at a fresh onset if replays show early outliers.
     return { kind: 'trigger', t: c.t0, at: t, phase: c.phase ?? 'P', pga: c.peak, durS: activeS };
   }
 
@@ -206,11 +225,15 @@ export class NodeDetector {
     c.eh += e - v * v;
   }
 
+  /** Start afresh: gravity, filters and averages all learn again from the next sample. */
   private reset() {
     this.n = 0;
     this.sta = this.lta = 0;
     this.cand = null;
     this.gHist = [];
+    this.grav = [0, 1, 2].map(() => new OnePole(2, this.fs));
+    this.bp = [0, 1, 2].map(() => new Bandpass(1, 10, this.fs));
+    this.origin = null;
   }
 }
 

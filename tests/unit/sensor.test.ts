@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { NodeDetector, type DetectorOutput } from '../../src/core/sensor';
 import { synthesize, type SynthOptions } from '../../src/core/synth';
 
-function run(o: Omit<SynthOptions, 'start' | 'durationS' | 'seed'> & { seed?: number; durationS?: number }) {
+function run(o: Omit<SynthOptions, 'start' | 'durationS' | 'seed'> & { seed?: number; durationS?: number; start?: number }) {
   const det = new NodeDetector(50);
   const out: DetectorOutput[] = [];
   for (const s of synthesize({ start: 0, durationS: 90, seed: 7, ...o })) {
@@ -61,6 +61,56 @@ describe('per-phone trigger', () => {
 
   it('ignores weak shaking under the noise floor', () => {
     expect(run({ quake: { tP: 30, tS: 34, pga: 0.03 } }).triggers).toHaveLength(0);
+  });
+
+  it('knows the background noise as soon as it has warmed up', () => {
+    for (const noise of [0.008, 0.012, 0.018])
+      for (const seed of [1, 2, 3]) {
+        const det = new NodeDetector(50);
+        let warm = 0;
+        for (const s of synthesize({ start: 0, durationS: 120, seed, noise })) {
+          det.push(s);
+          if (!warm && !det.warmingUp) warm = det.background;
+        }
+        expect(warm / det.background).toBeGreaterThan(0.85);
+        expect(warm / det.background).toBeLessThan(1.15);
+      }
+  });
+
+  it('learns the background afresh after a break, wherever the phone lies', () => {
+    // Turned on its side while listening, hidden for ten seconds, then laid flat again.
+    for (const seed of [1, 2, 3]) {
+      const det = new NodeDetector(50);
+      let warm = 0;
+      for (const s of synthesize({ start: 0, durationS: 150, seed, noise: 0.012 })) {
+        if (s.t > 30_000 && s.t < 40_000) continue;
+        det.push(s.t > 15_000 && s.t < 30_000 ? { t: s.t, x: s.x, y: s.z, z: s.y } : s);
+        if (s.t > 40_000 && !warm && !det.warmingUp) warm = det.background;
+      }
+      expect(warm / det.background).toBeGreaterThan(0.85);
+      expect(warm / det.background).toBeLessThan(1.15);
+    }
+  });
+});
+
+describe('disturbances that only just cross the trigger', () => {
+  // Their peak is a few times the background, so shares of the peak alone fall inside the noise.
+  it('never confirms knocks or footstep trains of 0.3–0.8 m/s²', () => {
+    for (const count of [1, 3, 10])
+      for (const amp of [0.3, 0.4, 0.5, 0.6, 0.7, 0.8])
+        for (const noise of [0.008, 0.01, 0.012, 0.014, 0.016, 0.018])
+          for (const seed of [1, 2, 3, 4])
+            expect(run({ seed, noise, durationS: 60, footsteps: { t: 20, count, amp } }).triggers, `${count} × ${amp} m/s², noise ${noise}, seed ${seed}`).toEqual([]);
+  });
+
+  it('still confirms light quake shaking, short or long', () => {
+    // The odd one comes in short bursts and is taken for footsteps, as it was before this rule.
+    let confirmed = 0;
+    for (const decayS of [2, 3, 4, 5])
+      for (const sp of [1, 5, 9])
+        for (const seed of [1, 2, 3, 4, 5, 6, 7, 8])
+          confirmed += +(run({ seed, noise: 0.01 + 0.002 * ((seed - 1) % 4), quake: { tP: 30, tS: 30 + sp, pga: 0.15, decayS } }).triggers.length === 1);
+    expect(confirmed).toBeGreaterThanOrEqual(95);
   });
 });
 
