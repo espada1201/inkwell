@@ -1,24 +1,30 @@
 import type { Event } from 'nostr-tools/pure';
 import type { DetectedEvent, Trigger } from '../core/associate';
 import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
-import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat } from '../net/protocol';
+import { HEARTBEAT_EVERY_MS, filters, parse, type Heartbeat, type Message } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
 import { Emitter } from './emitter';
 
 export interface LiveNode extends Heartbeat {
   id: string;
+  /** When this browser first heard it listening without a break: stands in for a missing `since`. */
+  firstSeen: number;
   lastSeen: number;
   lastTrigger: number | null;
 }
 
-const WINDOW_MS = 2 * 3600_000;
+/** Picks, triggers and quakes older than this are forgotten. */
+export const WINDOW_MS = 2 * 3600_000;
 /** A phone that has missed three heartbeats is offline. */
-const NODE_STALE_MS = 3 * HEARTBEAT_EVERY_MS;
+export const NODE_STALE_MS = 3 * HEARTBEAT_EVERY_MS;
 const MAX_PER_NODE_HOUR = 30;
 /** Keys are free, so the per-phone limit alone does not bound memory: keep the newest. */
 const MAX_TRIGGERS = 5000;
 const MAX_PICKS = 5000;
+const MAX_WITHDRAWALS = 5000;
+/** Phones kept at most: past it, the one silent longest goes. */
+export const MAX_NODES = 10_000;
 
 /**
  * The live citizen network as seen from this browser: every heartbeat, pick and trigger on
@@ -36,13 +42,20 @@ export class LiveNetwork extends Emitter {
   usgs: UsgsQuake[] = [];
   usgsState: 'loading' | 'ok' | 'error' = 'loading';
   usgsWindow: UsgsWindow;
-  private pending: { node: string; ev: Event }[] = [];
-  /** Retracted pick → the phone that retracted it. Only a pick's own author may. */
-  private retracted = new Map<string, string>();
+  /** Picks and triggers from phones not yet heard from, held until their heartbeat comes. */
+  private pending: Message[] = [];
+  /**
+   * Retractions by `pick:phone`, with when they were signed. One can arrive before its pick, and
+   * only the pick's own author may retract it, so every retracting phone is kept until it shows.
+   */
+  private withdrawals = new Map<string, number>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
   private recomputeQueued = false;
   private recheck: ReturnType<typeof setTimeout> | undefined;
+  /** USGS requests made, and the latest one whose answer is shown. */
+  private usgsAsked = 0;
+  private usgsShown = 0;
 
   constructor(
     readonly transport: Transport,
@@ -63,41 +76,57 @@ export class LiveNetwork extends Emitter {
 
   setUsgsWindow(w: UsgsWindow) {
     this.usgsWindow = w;
+    this.usgs = [];
     this.usgsState = 'loading';
     this.emit();
     this.refreshUsgs();
   }
 
   async refreshUsgs() {
+    const w = this.usgsWindow;
+    const asked = ++this.usgsAsked;
+    let quakes: UsgsQuake[] | null = null;
     try {
-      this.usgs = await fetchUsgs(this.usgsWindow, this.fetchImpl);
-      this.usgsState = 'ok';
+      quakes = await fetchUsgs(w, this.fetchImpl);
     } catch {
-      this.usgsState = 'error';
+      /* shown as unavailable */
     }
+    // Answers can come back out of order: one for the other window, or older than the one shown, is stale.
+    if (w !== this.usgsWindow || asked < this.usgsShown) return;
+    this.usgsShown = asked;
+    if (quakes) this.usgs = quakes;
+    this.usgsState = quakes ? 'ok' : 'error';
     this.emit();
   }
 
   ingest(ev: Event) {
     const m = parse(ev);
-    if (!m) return;
+    if (m) this.receive(m);
+  }
+
+  /** One message whose signature and shape `parse` has checked. */
+  receive(m: Message) {
     if (m.type === 'heartbeat') {
       const prev = this.nodes.get(m.node);
       if (prev && prev.lastSeen > m.at) return;
-      this.nodes.set(m.node, { ...m.data, id: m.node, lastSeen: m.at, lastTrigger: prev?.lastTrigger ?? null });
+      if (!prev && this.nodes.size >= MAX_NODES) this.nodes.delete([...this.nodes.values()].reduce((a, b) => (b.lastSeen < a.lastSeen ? b : a)).id);
+      // A phone resumes listening when first heard, after saying it stopped, or after going stale.
+      const resumed = !prev || prev.sps === 0 || m.at - prev.lastSeen > NODE_STALE_MS;
+      this.nodes.set(m.node, { ...m.data, id: m.node, firstSeen: resumed ? m.at : prev.firstSeen, lastSeen: m.at, lastTrigger: prev?.lastTrigger ?? null });
       const held = this.pending.filter((p) => p.node === m.node);
       this.pending = this.pending.filter((p) => p.node !== m.node);
-      held.forEach((p) => this.ingest(p.ev));
+      held.forEach((p) => this.receive(p));
     } else if (m.type === 'retract') {
       // NIP-09: only the author may retract their own pick.
       const p = this.picks.get(m.pick);
       if (p && p.node !== m.node) return;
-      this.retracted.set(m.pick, m.node);
+      this.withdrawals.set(`${m.pick}:${m.node}`, m.at);
+      if (this.withdrawals.size > MAX_WITHDRAWALS) this.withdrawals.delete(this.withdrawals.keys().next().value!);
       this.picks.delete(m.pick);
       this.queueRecompute();
     } else {
       if (!this.nodes.has(m.node)) {
-        this.pending = [...this.pending, { node: m.node, ev }].slice(-500);
+        this.pending = [...this.pending, m].slice(-500);
         return;
       }
       if (m.data.t < Date.now() - WINDOW_MS) return;
@@ -107,7 +136,7 @@ export class LiveNetwork extends Emitter {
         if (this.picks.has(t.id) || this.burst(m.node, [...this.picks.values()])) return;
         this.hear(t);
         // A retraction can arrive before its pick.
-        if (this.retracted.get(t.id) === t.node) return;
+        if (this.withdrawals.has(`${t.id}:${t.node}`)) return;
         this.picks.set(t.id, t);
         if (this.picks.size > MAX_PICKS) this.picks.delete(this.picks.keys().next().value!);
       } else {
@@ -168,7 +197,7 @@ export class LiveNetwork extends Emitter {
     this.heard = this.heard.filter((h) => now - h.t < WINDOW_MS);
     for (const [k, p] of this.picks) if (now - p.t > 5 * 60_000) this.picks.delete(k);
     for (const [k, n] of this.nodes) if (now - n.lastSeen > WINDOW_MS) this.nodes.delete(k);
-    if (this.retracted.size > 5000) this.retracted.clear();
+    for (const [k, at] of this.withdrawals) if (now - at > WINDOW_MS) this.withdrawals.delete(k);
     this.queueRecompute();
   }
 
@@ -183,7 +212,7 @@ export class LiveNetwork extends Emitter {
    * it, or shortly before without saying it had stopped.
    */
   isOnline(n: LiveNode, t = Date.now()) {
-    if ((n.since ?? n.lastSeen) > t) return false;
+    if ((n.since ?? n.firstSeen) > t) return false;
     return n.lastSeen >= t || (n.sps > 0 && t - n.lastSeen < NODE_STALE_MS);
   }
 }

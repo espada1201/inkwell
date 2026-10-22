@@ -54,6 +54,14 @@ describe('protocol', () => {
     expect(parse(signHeartbeat(sk, { lat: 1, lon: 2, noise: 0.01, sps: 60 }, now + 60))).not.toBeNull();
   });
 
+  it('refuses onsets dated more than about a minute ahead of now', () => {
+    const now = Date.now();
+    // Signed two minutes ahead (a tolerated clock error) with an onset two minutes after that.
+    expect(parse(signPick(sk, { lat: 1, lon: 2, t: now + 240_000 }, Math.floor((now + 120_000) / 1000)))).toBeNull();
+    expect(parse(signTrigger(sk, { lat: 1, lon: 2, t: now + 90_000, pga: 0.3, dur: 2 }))).toBeNull();
+    expect(parse(signPick(sk, { lat: 1, lon: 2, t: now + 30_000 }))).not.toBeNull();
+  });
+
   it('picks, retractions and pick-linked triggers round-trip', () => {
     const t = Date.now();
     const pick = signPick(sk, { lat: 10.123, lon: 20.456, t });

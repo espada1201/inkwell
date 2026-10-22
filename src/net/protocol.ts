@@ -21,6 +21,8 @@ const TAG = 'tremor';
 export const HEARTBEAT_EVERY_MS = 60_000;
 /** Events dated further ahead than this are refused: they would never expire. */
 const MAX_FUTURE_MS = 5 * 60_000;
+/** Onsets dated further ahead of now than this are refused: a clock that far off would misplace any quake. */
+const MAX_ONSET_AHEAD_MS = 60_000;
 
 export interface Heartbeat {
   lat: number;
@@ -132,7 +134,7 @@ export function parse(ev: Event): Message | null {
     const since = inRange(c.since, 0, base.at + MAX_FUTURE_MS) ? c.since : undefined;
     return { ...base, type: 'heartbeat', data: { ...loc, noise: c.noise, sps: c.sps, since } };
   }
-  if (!finite(c.t) || Math.abs(c.t - base.at) > 120_000) return null;
+  if (!finite(c.t) || Math.abs(c.t - base.at) > 120_000 || c.t > Date.now() + MAX_ONSET_AHEAD_MS) return null;
   const phase = c.ph ?? 'P';
   if (phase !== 'P' && phase !== 'S') return null;
   if (ev.kind === KIND_PICK) return { ...base, type: 'pick', data: { ...loc, t: c.t, phase } };

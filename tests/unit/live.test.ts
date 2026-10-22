@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { generateSecretKey, type Event } from 'nostr-tools/pure';
+import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
-import { LiveNetwork } from '../../src/app/live';
+import { LiveNetwork, MAX_NODES } from '../../src/app/live';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
-import { signHeartbeat, signPick, signRetraction, signTrigger } from '../../src/net/protocol';
+import { signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import type { Transport } from '../../src/net/transport';
 
 class NullTransport implements Transport {
@@ -78,6 +78,60 @@ describe('live network model', () => {
       live.ingest(pick);
       expect(live.picks.has(pick.id)).toBe(author === b);
     }
+  });
+
+  it('a pick its author withdrew before it arrived stays withdrawn when a stranger retracts it too', () => {
+    const [a, b] = phones;
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    for (const p of [a, b]) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const pick = signPick(a.sk, a);
+    live.ingest(signRetraction(a.sk, pick.id, 'footsteps'));
+    live.ingest(signRetraction(b.sk, pick.id, 'handling'));
+    live.ingest(pick);
+    expect(live.picks.has(pick.id)).toBe(false);
+  });
+
+  it('a phone that never says since when counts as listening from when it was first heard', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const p = phones[0];
+    const now = Math.floor(Date.now() / 1000);
+    for (let k = 10; k >= 0; k--) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50 }, now - k * 60));
+    const n = live.nodes.get(getPublicKey(p.sk))!;
+    expect(live.isOnline(n, Date.now() - 5 * 60_000)).toBe(true);
+    expect(live.isOnline(n, Date.now() - 11 * 60_000)).toBe(false);
+    // After saying it stopped, it listens again only from when it is next heard.
+    live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 0 }, now + 1));
+    live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50 }, now + 2));
+    expect(live.isOnline(live.nodes.get(getPublicKey(p.sk))!, Date.now())).toBe(false);
+  });
+
+  it('keeps a bounded number of phones, dropping the one silent longest', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const at = Date.now() - 60_000;
+    // Keys cost nothing, so this is what a flood of fresh ones looks like once verified.
+    const beat = (i: number, t: number): Message => ({ id: `hb${i}`, node: `node${i}`, at: t, type: 'heartbeat', data: { lat: 1, lon: 2, noise: 0.01, sps: 50 } });
+    for (let i = 0; i < MAX_NODES; i++) live.receive(beat(i, at + (i === 7 ? -30_000 : i)));
+    live.receive(beat(MAX_NODES, at + MAX_NODES));
+    expect(live.nodes.size).toBe(MAX_NODES);
+    expect(live.nodes.has('node7')).toBe(false);
+    expect(live.nodes.has(`node${MAX_NODES}`)).toBe(true);
+  });
+
+  it('a slow answer for the USGS window no longer shown cannot overwrite the current one', async () => {
+    const feed = (id: string) => ({ features: [{ id, properties: { mag: 3, place: id, time: Date.now(), url: '' }, geometry: { coordinates: [1, 2, 3] } }] });
+    let answerHour: () => void = () => {};
+    const slowHour = (async (url: string) => {
+      if (url.includes('all_hour')) await new Promise<void>((r) => (answerHour = r));
+      return Response.json(feed(url.includes('all_hour') ? 'hour' : 'day'));
+    }) as typeof fetch;
+    const live = new LiveNetwork(new NullTransport(), 'hour', slowHour);
+    const hour = live.refreshUsgs();
+    live.setUsgsWindow('day');
+    await expect.poll(() => live.usgs.map((q) => q.id)).toEqual(['day']);
+    answerHour();
+    await hour;
+    expect(live.usgsWindow).toBe('day');
+    expect(live.usgs.map((q) => q.id)).toEqual(['day']);
   });
 
   it('a few triggers that line up by chance are no quake when the phones around them heard nothing', () => {
