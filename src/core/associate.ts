@@ -95,6 +95,29 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     }
   }
 
+  // Unused triggers as a bitset too, so the most a seed could gather is a popcount away.
+  const free = new Uint32Array(words);
+  for (let i = 0; i < n; i++) free[i >>> 5] |= 1 << (i & 31);
+  const index = new Map(sorted.map((t, i) => [t, i]));
+  const use = (t: Trigger) => {
+    used.add(t.id);
+    const i = index.get(t)!;
+    free[i >>> 5] &= ~(1 << (i & 31));
+  };
+  /** The largest cluster seed i could grow: itself and the unused triggers after it that fit it. */
+  const bound = (i: number) => {
+    let count = 1;
+    const first = (i + 1) >>> 5;
+    for (let w = first; w < words; w++) {
+      let bits = compat[i * words + w] & free[w];
+      if (w === first) bits &= -1 << ((i + 1) & 31);
+      bits -= (bits >>> 1) & 0x55555555;
+      bits = (bits & 0x33333333) + ((bits >>> 2) & 0x33333333);
+      count += Math.imul((bits + (bits >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
+    }
+    return count;
+  };
+
   const grow = (i: number) => {
     const cluster = [sorted[i]];
     const nodes = new Set([sorted[i].node]);
@@ -122,7 +145,8 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
   const largest = (skip: (t: Trigger) => boolean) => {
     let out: Trigger[] = [];
     sorted.forEach((t, i) => {
-      if (used.has(t.id) || deadSeeds.has(t.id) || skip(t)) return;
+      // A seed that could not beat the largest so far is not worth growing: the result is the same.
+      if (used.has(t.id) || deadSeeds.has(t.id) || skip(t) || bound(i) <= out.length) return;
       const c = grow(i);
       if (c.length > out.length) out = c;
     });
@@ -166,12 +190,12 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
       continue;
     }
     const f = fit;
-    f.members.forEach((m) => used.add(m.id));
+    f.members.forEach(use);
     for (const t of sorted) {
       if (used.has(t.id) || t.t < f.time) continue;
       const tt = (t.t - f.time) / 1000;
       const hyp = hypocentralKm(distanceKm(f.sol, t));
-      if (Math.abs(tt - hyp / VP_KMS) < 3 || Math.abs(tt - hyp / VS_KMS) < 3) used.add(t.id);
+      if (Math.abs(tt - hyp / VP_KMS) < 3 || Math.abs(tt - hyp / VS_KMS) < 3) use(t);
     }
     events.push({ ...f.sol, id: `ev-${f.members[0].id.slice(0, 12)}`, time: f.time, triggers: f.members });
   }
