@@ -1,7 +1,7 @@
 import { generateSecretKey } from 'nostr-tools/pure';
 import { distanceKm, offset } from '../../src/core/geo';
-import { VP_KMS, hypocentralKm } from '../../src/core/physics';
-import { signFelt, signHeartbeat, signPick, signRetraction } from '../../src/net/protocol';
+import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
+import { signFelt, signHeartbeat, signPick, signRetraction, signTrigger } from '../../src/net/protocol';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
 import { expect, test, usgsFeed, type FakeRelay } from './fixtures';
@@ -10,15 +10,24 @@ import { scenarioEvents, send } from './publish';
 const napa = scenarioEvents('napa-2014');
 const truth = napa.sim.scenario.truth!;
 
-/** Four listening phones around one spot that each picked its P wave 15 s ago, and can withdraw that pick. */
-function pickers() {
-  const src = { lat: 37.9, lon: -122.3 };
+/**
+ * Four listening phones around one spot that each felt a quake's P wave 15 s ago: each can pick
+ * it and withdraw that pick, or confirm it with a trigger as shaken by a quake of magnitude `mag`.
+ */
+function pickers(src = { lat: 37.9, lon: -122.3 }) {
   const t0 = Date.now() - 15_000;
   return Array.from({ length: 4 }, (_, i) => {
     const sk = generateSecretKey();
     const at = offset(src, Math.cos(i) * (10 + 4 * i), Math.sin(i) * (10 + 4 * i));
-    const pick = signPick(sk, { ...at, t: t0 + (hypocentralKm(distanceKm(src, at)) / VP_KMS) * 1000 });
-    return { heartbeat: signHeartbeat(sk, { ...at, noise: 0.01, sps: 50, since: t0 - 600_000 }), pick, withdraw: (why: string) => signRetraction(sk, pick.id, why) };
+    const hyp = hypocentralKm(distanceKm(src, at));
+    const t = t0 + (hyp / VP_KMS) * 1000;
+    const pick = signPick(sk, { ...at, t });
+    return {
+      heartbeat: signHeartbeat(sk, { ...at, noise: 0.01, sps: 50, since: t0 - 600_000 }),
+      pick,
+      withdraw: (why: string) => signRetraction(sk, pick.id, why),
+      trigger: (mag: number) => signTrigger(sk, { ...at, t, pga: pgaFor(mag, hyp), dur: 8 }),
+    };
   });
 }
 
@@ -251,6 +260,85 @@ test('felt reports show once three people in three places agree, and one key spa
   await expect(felt).toHaveCount(1);
   await expect(felt).toContainText('3 people in 3 places felt shaking, typically moderate');
   await expect(page.getByTestId('near-item').filter({ hasText: 'felt shaking' })).toContainText([/^felt3 people in 3 places felt shaking\d+ km from you · typically moderate/]);
+});
+
+test('the opt-in chime sounds once per shaking near you, and never for picks that were withdrawn', async ({ page, relay }) => {
+  // Without the replayed Napa quake: here, halfway between two groups of phones 90 km apart.
+  await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed() }));
+  const here = { lat: 38.3, lon: -122.3 };
+  await page.addInitScript((at) => {
+    localStorage.setItem('tremor.location', JSON.stringify(at));
+    // Each tone, buzz and notification is counted instead of made.
+    const w = window as unknown as { chimes: { tones: number; buzzes: number; notes: string[] } };
+    w.chimes = { tones: 0, buzzes: 0, notes: [] };
+    const node = () => ({ connect: (n: unknown) => n, start: () => w.chimes.tones++, stop() {}, frequency: {}, gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} } });
+    window.AudioContext = class {
+      currentTime = 0;
+      destination = {};
+      createOscillator = node;
+      createGain = node;
+      resume = async () => {};
+    } as unknown as typeof AudioContext;
+    window.Notification = Object.assign(
+      function (_: string, o: NotificationOptions) {
+        w.chimes.notes.push(o.body!);
+      },
+      { permission: 'granted' },
+    ) as unknown as typeof Notification;
+    navigator.vibrate = () => {
+      w.chimes.buzzes++;
+      return true;
+    };
+  }, here);
+  const tones = async () => (await page.evaluate(() => (window as unknown as { chimes: { tones: number } }).chimes)).tones;
+  /** Three people a few kilometres apart who felt shaking at time t. */
+  const felt = (t: number, lvl: number, from = here) => [0, 4, 8].map((km) => signFelt(generateSecretKey(), { ...offset(from, km, 0), t, lvl }));
+  const rows = page.getByTestId('felt');
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  // Shaking reported before the tap is not news to whoever tapped.
+  await send(relay.url, felt(Date.now() - 28 * 60_000, 3));
+  await expect(rows).toHaveCount(1);
+  const near = page.getByTestId('near');
+  await expect(near).toContainText('Only while Tremor is open: a closed tab cannot alert you.');
+  await near.getByLabel('Chime when shaking is confirmed near me').check();
+
+  // Phones 45 km south pick, then withdraw: provisional, then not confirmed, and silent throughout.
+  const south = pickers({ lat: 37.9, lon: -122.3 });
+  await send(relay.url, south.map((p) => p.heartbeat));
+  await send(relay.url, south.map((p) => p.pick));
+  await expect(page.getByTestId('provisional')).toBeVisible();
+  expect(await tones()).toBe(0);
+  await send(relay.url, south.map((p) => p.withdraw('footsteps')));
+  await expect(page.getByTestId('outcome')).toContainText('Not confirmed');
+  expect(await tones()).toBe(0);
+
+  // Phones 45 km north confirm a quake that shook here: one chime, heard, felt, shown and notified.
+  const north = pickers({ lat: 38.7, lon: -122.3 });
+  await send(relay.url, [...north.map((p) => p.heartbeat), ...north.map((p) => p.trigger(5))]);
+  await expect(page.getByTestId('stat-events')).toHaveText('1');
+  const note = page.getByRole('alert').filter({ hasText: 'Shaking reported near you. Not an official warning.' });
+  await expect(note).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { chimes: object }).chimes)).toEqual({ tones: 1, buzzes: 1, notes: ['Shaking reported near you. Not an official warning.'] });
+  await note.getByRole('button', { name: 'Dismiss' }).click();
+  await expect(note).toBeHidden();
+
+  // People here felt it too: the same shaking, so no second chime.
+  await send(relay.url, felt(Date.now(), 3));
+  await expect(rows).toHaveCount(2);
+  expect(await tones()).toBe(1);
+  // Weak shaking felt here 14 minutes ago does not chime; moderate shaking felt then 45 km north does.
+  await send(relay.url, felt(Date.now() - 14 * 60_000, 1));
+  await expect(rows).toHaveCount(3);
+  expect(await tones()).toBe(1);
+  await send(relay.url, felt(Date.now() - 14 * 60_000, 3, offset(here, 0, 45)));
+  await expect(rows).toHaveCount(4);
+  await expect(note).toBeVisible();
+  expect(await tones()).toBe(2);
+  // Shaking felt 40 minutes ago is old news.
+  await send(relay.url, felt(Date.now() - 40 * 60_000, 3));
+  await expect(rows).toHaveCount(5);
+  expect(await tones()).toBe(2);
 });
 
 test('the relay editor says why it saved nothing, and which lines were wrong', async ({ page, relay }) => {

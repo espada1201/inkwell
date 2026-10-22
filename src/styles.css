@@ -322,3 +322,6 @@ dialog.felt::backdrop { background: rgb(29 28 26 / 0.45); }
 .level:hover { background: var(--paper-2); }
 .level span { font-size: 13px; color: var(--ink-2); }
 .usgs-gap { margin-top: 8px; }
+.chime-note { position: fixed; z-index: 20; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(440px, calc(100vw - 32px)); display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1.5px solid var(--red); background: var(--card); color: var(--ink); box-shadow: 0 6px 20px rgb(29 28 26 / 0.25); }
+.chime-note[hidden] { display: none; }
+.chime-note p { margin: 0; font-weight: 500; }

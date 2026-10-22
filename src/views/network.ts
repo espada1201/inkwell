@@ -34,6 +34,8 @@ export interface NetworkCtx {
   place: Place;
   /** Opens the "I felt it" question. */
   openFelt: () => void;
+  /** The opt-in chime for shaking confirmed near you. */
+  chime: { readonly on: boolean; set(on: boolean): void };
 }
 
 /** This browser's rough location, which the sensor screen sets too. */
@@ -47,12 +49,29 @@ const WITHDREW: Record<RejectReason, string> = { footsteps: 'footsteps', impulse
 export const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 /** Tremor detections this close to you in the last ten minutes are near you, as are felt reports this close and USGS quakes this close in their feed. */
 const NEAR_KM = 100;
-const NEAR_MS = 10 * 60_000;
+export const NEAR_MS = 10 * 60_000;
 const NEAR_USGS_KM = 300;
 
 const feltText = (c: FeltCluster) => `${c.people} people in ${c.places} places felt shaking`;
 /** Why a quake can be missing from the USGS list. */
 const USGS_GAP = 'Outside the US, USGS may not list quakes below about M4.5.';
+
+/**
+ * What has been reported near you, nearest first, with how hard it shook you: roughly, for
+ * quakes; as people told it, for felt reports.
+ */
+export function nearYou(live: LiveNetwork, you: LatLon, now = Date.now()) {
+  const quake = (kind: 'provisional' | 'confirmed' | 'usgs', title: string, e: LatLon & { time: number; mag: number | null }, depthKm?: number) => {
+    const km = distanceKm(you, e);
+    return { kind, title, km, time: e.time, badge: magBadge(e.mag), level: e.mag === null ? null : intensityLevel(pgaFor(e.mag, hypocentralKm(km, depthKm))) };
+  };
+  const ours = [
+    ...live.early.map((e) => quake('provisional', 'Provisional Tremor detection', e)),
+    ...live.events.filter((e) => now - e.time < NEAR_MS).map((e) => quake('confirmed', 'Tremor detection', e)),
+    ...live.feltClusters.map((c) => ({ kind: 'felt' as const, title: feltText(c), km: distanceKm(you, c), time: c.time, badge: 'felt', level: c.lvl })),
+  ];
+  return [...ours.filter((x) => x.km <= NEAR_KM), ...live.usgs.map((q) => quake('usgs', `USGS: ${q.place}`, q, q.depthKm)).filter((x) => x.km <= NEAR_USGS_KM)].sort((a, b) => a.km - b.km);
+}
 
 /** Asks where you are, roughly: by the browser's location or typed coordinates. `then` follows once it is set. */
 export function placeForm(place: Place, then: () => void) {
@@ -199,21 +218,6 @@ export function networkView(ctx: NetworkCtx) {
     if (news.length) announcer.textContent = news.join(' ');
   }
 
-  /** What has been reported near you, nearest first, with how hard each shook you: roughly for quakes, as told for felt reports. */
-  function nearYou(you: LatLon) {
-    const now = Date.now();
-    const quake = (title: string, e: LatLon & { time: number; mag: number | null }, ours: boolean, depthKm?: number) => {
-      const km = distanceKm(you, e);
-      return { title, km, time: e.time, badge: magBadge(e.mag), ours, level: e.mag === null ? null : intensityLevel(pgaFor(e.mag, hypocentralKm(km, depthKm))), told: false };
-    };
-    const ours = [
-      ...live.early.map((e) => quake('Provisional Tremor detection', e, true)),
-      ...live.events.filter((e) => now - e.time < NEAR_MS).map((e) => quake('Tremor detection', e, true)),
-      ...live.feltClusters.map((c) => ({ title: feltText(c), km: distanceKm(you, c), time: c.time, badge: 'felt', ours: false, level: c.lvl, told: true })),
-    ];
-    return [...ours.filter((x) => x.km <= NEAR_KM), ...live.usgs.map((q) => quake(`USGS: ${q.place}`, q, false, q.depthKm)).filter((x) => x.km <= NEAR_USGS_KM)].sort((a, b) => a.km - b.km);
-  }
-
   /** The most common question: was that a quake, near me? */
   function nearCard() {
     const you = place.location;
@@ -226,7 +230,7 @@ export function networkView(ctx: NetworkCtx) {
           root.querySelector<HTMLElement>('[data-key=move]')?.focus();
         }),
       );
-    const near = nearYou(you);
+    const near = nearYou(live, you);
     const felt = near.some((x) => x.level !== null && x.level > 0);
     const move = () => {
       moving = true;
@@ -243,8 +247,8 @@ export function networkView(ctx: NetworkCtx) {
               h(
                 'li',
                 { 'data-testid': 'near-item' },
-                h('span', { class: `badge${x.ours ? ' ours' : ''}` }, x.badge),
-                h('span', {}, x.title, h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km from you${x.level === null ? '' : ` · ${x.told ? 'typically' : 'rough local shaking:'} ${INTENSITY_WORDS[x.level]}`}`)),
+                h('span', { class: `badge${x.kind === 'provisional' || x.kind === 'confirmed' ? ' ours' : ''}` }, x.badge),
+                h('span', {}, x.title, h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km from you${x.level === null ? '' : ` · ${x.kind === 'felt' ? 'typically' : 'rough local shaking:'} ${INTENSITY_WORDS[x.level]}`}`)),
                 h('span', { class: 'when' }, ago(x.time)),
               ),
             ),
@@ -258,6 +262,13 @@ export function networkView(ctx: NetworkCtx) {
             live.usgsState === 'error' ? ' The USGS feed cannot be reached right now, so this is from Tremor alone.' : null,
           ),
       h('p', {}, h('button', { class: 'btn', onclick: ctx.openFelt }, 'I felt it')),
+      h(
+        'label',
+        { class: 'switch' },
+        h('input', { type: 'checkbox', 'data-key': 'chime', checked: ctx.chime.on, 'aria-describedby': 'chime-help', onchange: (e: Event) => ctx.chime.set((e.target as HTMLInputElement).checked) }),
+        h('span', {}, 'Chime when shaking is confirmed near me'),
+      ),
+      h('p', { class: 'small muted', id: 'chime-help' }, 'Only while Tremor is open: a closed tab cannot alert you. For light or stronger shaking, never for provisional detections.'),
       felt ? h('p', { class: 'small' }, 'If the ground shakes again: Drop, Cover and Hold On.', h('br'), 'Expect aftershocks, sometimes for days.') : null,
       felt ? h('p', { class: 'small' }, 'Help next time: ', h('a', { href: '#sensor' }, 'leave an old phone on charge with Tremor open'), '.') : null,
     );
