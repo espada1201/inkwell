@@ -83,7 +83,6 @@ describe('the live network converges', () => {
   it('on the same picks whichever order retractions, by their author or a forger, arrive in', () => {
     const now = Date.now();
     const [a, b] = [phone(0, now - 20_000), phone(1, now - 20_000)];
-    const x = generateSecretKey();
     const hb = (p: typeof a) => msg(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50, since: now - 600_000 }));
     const pa = msg(signPick(a.sk, a));
     const pb = msg(signPick(b.sk, b));
@@ -95,7 +94,7 @@ describe('the live network converges', () => {
         ['retractA', msg(signRetraction(a.sk, pa.id, 'footsteps'))],
         ['hbB', hb(b)],
         ['pickB', pb],
-        ['forgedRetractB', msg(signRetraction(x, pb.id, 'footsteps'))],
+        ['A retracts pickB', msg(signRetraction(a.sk, pb.id, 'footsteps'))],
       ],
       now,
     );
@@ -137,7 +136,7 @@ describe('the live network converges', () => {
         ['pickE', pk[4]],
         ['retractE', msg(signRetraction(ps[4].sk, pk[4].id, 'footsteps'))],
         ['pickE again', pk[4]],
-        ['forgedRetractD', msg(signRetraction(generateSecretKey(), pk[3].id, 'footsteps'))],
+        ['A retracts pickD', msg(signRetraction(ps[0].sk, pk[3].id, 'footsteps'))],
       ],
       now,
     );
