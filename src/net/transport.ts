@@ -31,6 +31,9 @@ export interface Transport {
 
 export const DEFAULT_RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net', 'wss://offchain.pub'];
 
+/** A relay address Tremor opens: secure, or plain only to a relay on this computer, as in development. A secure page cannot open a plain socket to another host. */
+export const isRelayUrl = (s: unknown): s is string => typeof s === 'string' && /^(wss:\/\/[^\s/]+|ws:\/\/(localhost|127\.0\.0\.1)(:\d+)?)(\/\S*)?$/.test(s);
+
 interface Sub {
   id: string;
   make: () => Filter[];

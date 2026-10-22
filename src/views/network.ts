@@ -3,7 +3,7 @@ import { NOTICED_LEVEL, nearYou, type Near, type Place } from '../app/near';
 import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid } from '../core/impact';
-import { reach } from '../net/transport';
+import { isRelayUrl, reach } from '../net/transport';
 import { matchUsgs, type UsgsQuake } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
 import { INTENSITY_WORDS, WITHDRAWN, ago, clock, coord, mag, magBadge } from '../ui/format';
@@ -419,7 +419,7 @@ export function networkView(ctx: NetworkCtx) {
     // Saving reloads the page, so a list with a wrong line is not saved at all: the user sees why first.
     const save = () => {
       const lines = ta.value.split(/\s+/).filter(Boolean);
-      const wrong = lines.filter((s) => !/^wss?:\/\/\S/.test(s));
+      const wrong = lines.filter((s) => !isRelayUrl(s));
       if (lines.length && !wrong.length) return ctx.saveRelays(lines);
       ta.setAttribute('aria-invalid', 'true');
       note.textContent = wrong.length ? `Relay addresses start with wss://. Fix or remove these lines, then save again: ${wrong.join(', ')}.` : 'Add at least one relay address. Relay addresses start with wss://.';

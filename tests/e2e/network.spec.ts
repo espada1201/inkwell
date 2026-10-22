@@ -388,15 +388,21 @@ test('the relay editor says why it saved nothing, and which lines were wrong', a
   await page.goto(`/?relays=${relay.url}#network`);
   await page.locator('details.relays summary').click();
   const box = page.getByLabel('Relay URLs, one per line');
-  await box.fill('relay.damus.io\nwss://nos.lol\nnostr.wine');
+  await box.fill('relay.damus.io\nwss://nos.lol\nnostr.wine\nws://relay.example.com');
   await page.getByRole('button', { name: 'Save and reconnect' }).click();
   const note = page.getByRole('status').filter({ hasText: 'Relay addresses start with wss://' });
-  await expect(note).toContainText('relay.damus.io, nostr.wine');
+  await expect(note).toContainText('relay.damus.io, nostr.wine, ws://relay.example.com');
   await expect(note).not.toContainText('nos.lol');
   await expect(box).toHaveAttribute('aria-invalid', 'true');
   // Nothing was saved and the page did not reload under the user.
   expect(await page.evaluate(() => localStorage.getItem('tremor.relays'))).toBeNull();
-  await expect(box).toHaveValue('relay.damus.io\nwss://nos.lol\nnostr.wine');
+  await expect(box).toHaveValue('relay.damus.io\nwss://nos.lol\nnostr.wine\nws://relay.example.com');
+});
+
+test('a relay link with no usable address falls back to the usual relays', async ({ page }) => {
+  await page.goto('/?relays=relay.damus.io,ws://relay.example.com#network');
+  await page.locator('details.relays summary').click();
+  await expect(page.getByLabel('Relay URLs, one per line')).toHaveValue('wss://relay.damus.io\nwss://nos.lol\nwss://relay.primal.net\nwss://offchain.pub');
 });
 
 test('the copy claims no more coverage than there is, and says where official alerts come from', async ({ page, relay }) => {

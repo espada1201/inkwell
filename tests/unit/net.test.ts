@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { filters, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
-import { RelayPool, reach } from '../../src/net/transport';
+import { RelayPool, isRelayUrl, reach } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
@@ -101,6 +101,14 @@ describe('protocol', () => {
     const s = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
     expect(loadIdentity(s).pubkey).toBe(loadIdentity(s).pubkey);
     expect(loadIdentity(null).pubkey).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('relay addresses', () => {
+  it('takes secure ones, and plain ones only to a relay on this computer', () => {
+    for (const u of ['wss://relay.damus.io', 'wss://nos.lol/', 'ws://localhost:7000', 'ws://127.0.0.1:4321/']) expect(isRelayUrl(u), u).toBe(true);
+    // A secure page cannot open a plain socket to another host, and would retry it forever.
+    for (const u of ['relay.damus.io', 'ws://relay.example.com', 'ws://localhost.example.com', 'https://nos.lol', 'wss://', 'wss://a b', 42]) expect(isRelayUrl(u), String(u)).toBe(false);
   });
 });
 

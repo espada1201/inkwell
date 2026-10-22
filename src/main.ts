@@ -3,7 +3,7 @@ import { LiveNetwork } from './app/live';
 import { Replay } from './app/replay';
 import { SensorNode } from './app/sensor';
 import { loadIdentity, safeStorage } from './net/identity';
-import { DEFAULT_RELAYS, RelayPool, reach } from './net/transport';
+import { DEFAULT_RELAYS, RelayPool, isRelayUrl, reach } from './net/transport';
 import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
 import { QuakeMap, SHAKE_COLORS, type Swatch } from './ui/map';
@@ -19,11 +19,12 @@ const params = new URLSearchParams(location.search);
 const RELAYS_KEY = 'tremor.relays';
 
 function relayList(): string[] {
-  const fromUrl = params.get('relays');
-  if (fromUrl) return fromUrl.split(',').filter(Boolean);
+  const fromUrl = params.get('relays')?.split(',').filter(isRelayUrl);
+  if (fromUrl?.length) return fromUrl;
   try {
-    const saved = JSON.parse(safeStorage()?.getItem(RELAYS_KEY) ?? 'null');
-    if (Array.isArray(saved) && saved.length) return saved;
+    const saved: unknown = JSON.parse(safeStorage()?.getItem(RELAYS_KEY) ?? 'null');
+    const usable = Array.isArray(saved) ? saved.filter(isRelayUrl) : [];
+    if (usable.length) return usable;
   } catch {
     /* ignore */
   }
