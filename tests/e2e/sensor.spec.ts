@@ -37,6 +37,13 @@ test.describe('be a sensor', () => {
     await expect(page.getByTestId('sensor-state')).toHaveText('Ready');
     await expect(page.getByTestId('publish-note')).toContainText('Nothing leaves this phone');
 
+    // A decimal comma is refused, not read as 37 and -122: that would put the phone 60 km off.
+    await page.getByLabel('Latitude').fill('37,77493');
+    await page.getByLabel('Longitude').fill('-122,41942');
+    await page.getByRole('button', { name: 'Set' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'with a point for decimals' })).toBeVisible();
+    await expect(page.getByTestId('loc')).toHaveText('Not set');
+
     await page.getByLabel('Latitude').fill('37.77493');
     await page.getByLabel('Longitude').fill('-122.41942');
     await page.getByRole('button', { name: 'Set' }).click();

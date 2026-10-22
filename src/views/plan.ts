@@ -1,6 +1,6 @@
 import type { LiveNetwork } from '../app/live';
 import type { PlanMessage, PlanRequest } from '../app/planner.worker';
-import { coarsen, distanceKm, offset, type LatLon } from '../core/geo';
+import { coarsen, distanceKm, offset, parseLatLon, type LatLon } from '../core/geo';
 import { DISTURBED_PER_MINUTE, RELIABLY, enoughPhones, type PlanResult, type Summary } from '../core/planner';
 import { sweepChart } from '../ui/chart';
 import { h, keepFocus } from '../ui/dom';
@@ -38,10 +38,8 @@ const QUAKES = 24;
 
 /** A spot typed or linked as "lat, lon", snapped to the grid phones publish on; null unless both are in range. */
 function parseSpot(text: string): LatLon | null {
-  const m = text.match(/^\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*$/);
-  if (!m) return null;
-  const [lat, lon] = [Number(m[1]), Number(m[2])];
-  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? coarsen({ lat, lon }) : null;
+  const at = parseLatLon(text);
+  return at && coarsen(at);
 }
 
 export const PLAN_LEGEND: Swatch[] = [

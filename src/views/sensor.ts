@@ -1,6 +1,6 @@
 import type { LiveNetwork } from '../app/live';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
-import { distanceKm, type LatLon } from '../core/geo';
+import { distanceKm, parseLatLon, type LatLon } from '../core/geo';
 import { h, keepFocus } from '../ui/dom';
 import { WITHDRAWN, coord, intensityWord, mag } from '../ui/format';
 import { drawTrace } from '../ui/trace';
@@ -141,10 +141,10 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
           class: 'inputs',
           onsubmit: (e: Event) => {
             e.preventDefault();
-            const a = parseFloat(lat.value);
-            const b = parseFloat(lon.value);
-            if (Math.abs(a) <= 90 && Math.abs(b) <= 180) s.setLocation({ lat: a, lon: b });
-            else msg.textContent = 'Latitude must be within ±90 and longitude within ±180.';
+            // Read as one pair, so each box takes one plain number: 37,77 is refused, not read as 37.
+            const at = parseLatLon(`${lat.value}, ${lon.value}`);
+            if (at) s.setLocation(at);
+            else msg.textContent = 'Type a number in each box, with a point for decimals: latitude from −90 to 90, longitude from −180 to 180, like 37.77 and -122.42.';
           },
         },
         lat,

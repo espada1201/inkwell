@@ -1,5 +1,5 @@
 import type { Place } from '../app/near';
-import type { LatLon } from '../core/geo';
+import { parseLatLon, type LatLon } from '../core/geo';
 import { h } from '../ui/dom';
 
 /** Asks where you are, roughly: by the browser's location or typed coordinates. `then` follows once it is set. */
@@ -22,8 +22,8 @@ export function placeForm(place: Place, then: () => void) {
   };
   const submit = (e: Event) => {
     e.preventDefault();
-    const n = typed.value.split(/[\s,]+/).filter(Boolean).map(Number);
-    if (n.length === 2 && Math.abs(n[0]) <= 90 && Math.abs(n[1]) <= 180) return set({ lat: n[0], lon: n[1] });
+    const at = parseLatLon(typed.value);
+    if (at) return set(at);
     typed.setAttribute('aria-invalid', 'true');
     msg.textContent = 'Type a latitude and a longitude, for example 37.80, -122.27.';
   };

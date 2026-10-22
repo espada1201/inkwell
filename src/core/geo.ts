@@ -29,3 +29,14 @@ export function coarsen(p: LatLon): LatLon {
 
 /** The grid cell a point is published in. Phones that share one may share a building. */
 export const cellOf = (p: LatLon) => `${Math.round(p.lat / COARSE_DEG)},${Math.round(p.lon / COARSE_DEG)}`;
+
+/**
+ * Typed coordinates, "37.80, -122.27" or "37.80 -122.27", or null for anything that would need a
+ * guess: a decimal comma, compass letters, one number or three, or out of range.
+ */
+export function parseLatLon(text: string): LatLon | null {
+  const m = text.match(/^\s*([-+]?\d*\.?\d+)\s*[,\s]\s*([-+]?\d*\.?\d+)\s*$/);
+  if (!m) return null;
+  const [lat, lon] = [Number(m[1]), Number(m[2])];
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? { lat, lon } : null;
+}
