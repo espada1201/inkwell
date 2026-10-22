@@ -37,9 +37,9 @@ describe('a link to a replayed quake', () => {
     expect(parseQuakeLink(quakeLink(q))).toEqual(q);
   });
 
-  it('is refused when cut short, mangled, off the globe or too weak to replay', () => {
+  it('is refused when cut short, mangled, off the globe, out of time or too weak to replay', () => {
     const link = quakeLink(q);
-    const bad = [link.split('/').slice(0, -1).join('/'), link.replace('usgs', 'napa'), link.replace('37.8512', '97.8512'), link.replace('/4.6', '/x'), quakeLink({ ...q, mag: MIN_REPLAY_MAG - 0.5 }), 'usgs//1/2/3/4/5'];
+    const bad = [link.split('/').slice(0, -1).join('/'), link.replace('usgs', 'napa'), link.replace('37.8512', '97.8512'), link.replace('/4.6', '/x'), quakeLink({ ...q, mag: MIN_REPLAY_MAG - 0.5 }), 'usgs//1/2/3/4/5', quakeLink({ ...q, time: 1e20 })];
     for (const path of bad) expect(parseQuakeLink(path), path).toBeNull();
   });
 });

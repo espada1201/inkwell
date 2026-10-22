@@ -94,7 +94,7 @@ export function parseQuakeLink(path: string): QuakeRef | null {
   const [time, lat, lon, depthKm, mag] = fields.map((f) => (f === '' ? NaN : Number(f)));
   const ok =
     kind === 'usgs' && /^[\w-]+$/.test(id) && fields.length === 5 && [time, lat, lon, depthKm, mag].every(Number.isFinite) &&
-    Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && depthKm >= -10 && depthKm <= 800 && mag >= MIN_REPLAY_MAG && mag <= 10;
+    !isNaN(new Date(time).getTime()) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180 && depthKm >= -10 && depthKm <= 800 && mag >= MIN_REPLAY_MAG && mag <= 10;
   return ok ? { id, time, lat, lon, depthKm, mag } : null;
 }
 
