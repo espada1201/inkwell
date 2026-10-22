@@ -75,7 +75,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
       id: quakeLink(q),
       title: mag(q.mag),
       place: where,
-      blurb: `${mag(q.mag)}, ${where}, ${utc(q.time)}, from the USGS feed. The quake is real; the phones are simulated, around ${home ? 'your saved location' : 'the epicentre'}. This page's address replays it again, even after it leaves the feed.`,
+      blurb: `${mag(q.mag)}, ${where}, ${utc(q.time)}, from the USGS feed. The quake is real; the phones are simulated, around ${home ? 'your saved location' : 'the epicentre'}. This page's address replays it, even after it leaves the feed.`,
       truth: { lat: q.lat, lon: q.lon, depthKm: q.depthKm, mag: q.mag, usgsId: q.id, date: new Date(q.time).toISOString() },
       city: home ?? { lat: q.lat, lon: q.lon },
       radiusKm: 30,
@@ -88,7 +88,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   /** The scenario's story, and how to read its record section. */
   function describe(s: Scenario) {
     blurb.textContent = s.blurb;
-    caption.textContent = s.truth ? 'Each line is a phone, farther phones lower; the slanted bands are the P and S waves arriving.' : 'Each line is a phone; with no quake, only local disturbances show.';
+    caption.textContent = s.truth ? 'Each line is a phone, and farther phones are lower; the slanted bands are the P and S waves arriving.' : 'Each line is a phone; with no quake, only local disturbances show.';
   }
 
   function choose(s: Scenario) {
