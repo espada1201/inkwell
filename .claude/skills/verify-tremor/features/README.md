@@ -31,5 +31,5 @@ Each file opens with what the screen does for a user, then four sections in this
 - [Network](./network.md): shaking near you, live phones, provisional and confirmed detections, felt reports, the opt-in chime, the USGS cross-check, relays.
 - [Replay](./replay.md): historical quakes and recent USGS quakes played into simulated phones.
 - [Plan](./plan.md): how many phones a city, or the reader's own area, needs.
-- [Be a sensor](./sensor.md): turning this device into a seismometer that publishes picks and triggers.
+- [Be a sensor](./sensor.md): turning this device into a seismometer that publishes picks and triggers, and what it can feel.
 - [About](./about.md): what Tremor claims, which must match what the other screens do.
