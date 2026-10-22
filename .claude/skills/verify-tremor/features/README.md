@@ -28,7 +28,7 @@ Each file opens with what the screen does for a user, then four sections in this
 
 ## Features
 
-- [Network](./network.md): live phones, provisional and confirmed detections, the USGS cross-check, relays.
+- [Network](./network.md): shaking near you, live phones, provisional and confirmed detections, felt reports, the opt-in chime, the USGS cross-check, relays.
 - [Replay](./replay.md): historical quakes and recent USGS quakes played into simulated phones.
 - [Plan](./plan.md): how many phones a city, or the reader's own area, needs.
 - [Be a sensor](./sensor.md): turning this device into a seismometer that publishes picks and triggers.

@@ -58,7 +58,7 @@ All of it lands in `$EVIDENCE`: the journey's screenshots and ARIA snapshots, `n
 - The user's path: tabs, buttons, keyboard, typed text and links, not internal setters or `window` hooks.
 - The action and the state after it: a shot or note before, and one after.
 - Side effects checked too: what reached the relay, what the address bar says, what a reload keeps (`tremor.location`, `tremor.join`, `tremor.relays`, `tremor.sk` in localStorage).
-- Mocks only at Tremor's own boundaries: relays (private relay), USGS (routed feed), map tiles (aborted), the motion sensor (DeviceMotion events, see `features/sensor.md`). Name the ones a proof used.
+- Mocks only at Tremor's own boundaries: relays (private relay), USGS (routed feed), map tiles (aborted), the motion sensor (DeviceMotion events, see `features/sensor.md`), the browser's geolocation, and the speaker, vibration and notifications (counted, see `features/network.md`). Name the ones a proof used.
 - Every entry point a feature file lists is driven, or reported as not verified with the reason. Never a PASS through a different path.
 
 ## Cleanup
