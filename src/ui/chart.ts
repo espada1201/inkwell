@@ -32,15 +32,18 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
   const hi = Math.max(counts[counts.length - 1], current);
   const x = (n: number) => M.l + ((Math.log(n) - Math.log(lo)) / (Math.log(hi) - Math.log(lo))) * (W - M.l - M.r);
   const y = (v: number) => M.t + (1 - v) * (H - M.t - M.b);
-  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'img', 'aria-label': 'Quakes detected and shaken area warned in time, by number of phones' });
+  const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, class: 'chart', role: 'group', 'aria-label': 'Quakes detected and shaken area warned in time, by number of phones' });
+  // Drawn for the eye; screen readers get one band per phone count, below, and the Numbers table.
+  const art = el('g', { 'aria-hidden': 'true' });
+  svg.append(art);
   for (const v of [0, 0.5, 1]) {
-    svg.append(el('line', { x1: M.l, x2: W - M.r, y1: y(v), y2: y(v), class: 'grid' }));
-    svg.append(el('text', { x: M.l - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, `${v * 100}%`));
+    art.append(el('line', { x1: M.l, x2: W - M.r, y1: y(v), y2: y(v), class: 'grid' }));
+    art.append(el('text', { x: M.l - 6, y: y(v) + 4, 'text-anchor': 'end', class: 'tick' }, `${v * 100}%`));
   }
   // The axis ends are labelled too, unless the label would land on a neighbour's.
   const ticks = [...new Set([lo, ...counts, hi])].filter((n) => counts.includes(n) || counts.every((k) => Math.abs(x(k) - x(n)) >= 20));
-  for (const n of ticks) svg.append(el('text', { x: x(n), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, fmtN(n)));
-  svg.append(el('line', { x1: x(current), x2: x(current), y1: M.t - 6, y2: H - M.b, class: 'you' }));
+  for (const n of ticks) art.append(el('text', { x: x(n), y: H - 8, 'text-anchor': 'middle', class: 'tick' }, fmtN(n)));
+  art.append(el('line', { x1: x(current), x2: x(current), y1: M.t - 6, y2: H - M.b, class: 'you' }));
 
   const sorted = [...points].sort((a, b) => a.phones - b.phones);
   const ends: { y: number; label: string }[] = [];
@@ -50,14 +53,14 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
       return v === null ? [] : [{ n: p.phones, v }];
     });
     if (!pts.length) continue;
-    svg.append(el('polyline', { points: pts.map((p) => `${x(p.n)},${y(p.v)}`).join(' '), fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
-    for (const p of pts) svg.append(el('circle', { cx: x(p.n), cy: y(p.v), r: 4, fill: s.color, class: 'dot' }));
+    art.append(el('polyline', { points: pts.map((p) => `${x(p.n)},${y(p.v)}`).join(' '), fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    for (const p of pts) art.append(el('circle', { cx: x(p.n), cy: y(p.v), r: 4, fill: s.color, class: 'dot' }));
     const last = pts[pts.length - 1];
     if (last.n === hi) ends.push({ y: y(last.v), label: s.key });
   }
   // Direct labels at the line ends, unless they would collide (the legend still names both).
   if (ends.length === 2 ? Math.abs(ends[0].y - ends[1].y) > 13 : ends.length === 1) {
-    for (const e of ends) svg.append(el('text', { x: W - M.r + 8, y: e.y + 4, class: 'end' }, e.label));
+    for (const e of ends) art.append(el('text', { x: W - M.r + 8, y: e.y + 4, class: 'end' }, e.label));
   }
 
   const tip = h('div', { class: 'chart-tip', hidden: true, role: 'status' });
@@ -74,7 +77,7 @@ export function sweepChart(counts: number[], points: Summary[], current: number)
   sorted.forEach((s, i) => {
     const left = i ? (x(sorted[i - 1].phones) + x(s.phones)) / 2 : M.l;
     const right = i < sorted.length - 1 ? (x(s.phones) + x(sorted[i + 1].phones)) / 2 : W - M.r;
-    const band = el('rect', { x: left, y: M.t, width: Math.max(1, right - left), height: H - M.t - M.b, class: 'band', tabindex: 0, 'aria-label': `${many(s.phones, 'phone')}: ${pct(s.detected)} detected, ${pct(s.warned)} warned in time` });
+    const band = el('rect', { x: left, y: M.t, width: Math.max(1, right - left), height: H - M.t - M.b, class: 'band', tabindex: 0, role: 'img', 'aria-label': `${many(s.phones, 'phone')}: ${pct(s.detected)} detected, ${pct(s.warned)} warned in time` });
     band.addEventListener('pointerenter', () => show(s, x(s.phones)));
     band.addEventListener('focus', () => show(s, x(s.phones)));
     band.addEventListener('pointerleave', () => (tip.hidden = true));

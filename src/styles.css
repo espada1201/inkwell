@@ -147,6 +147,7 @@ p { margin: 0; }
 .compare th { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
 .compare td.num { white-space: nowrap; }
 .compare tr:last-child td { border-bottom: 0; }
+.compare .note { padding: 8px 12px; }
 .compare .verdict { padding: 10px 12px; font-size: 14px; border-top: 1px solid var(--ink); }
 
 details.relays summary { cursor: pointer; font-size: 13px; text-transform: uppercase; letter-spacing: 0.14em; font-weight: 600; color: var(--ink-2); }
@@ -326,7 +327,7 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 .link { background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
 .usgs-order { margin-top: 8px; }
 .felt-btn { border: 1.5px solid var(--red); color: var(--red); background: var(--card); padding: 3px 10px; font: 500 13px var(--sans); border-radius: 2px; cursor: pointer; }
-.felt-btn:hover { background: var(--red-soft); }
+.felt-btn:hover { background: var(--red); color: #fff; }
 dialog.felt { border: 1px solid var(--ink); background: var(--paper); color: var(--ink); padding: 18px; width: min(440px, calc(100vw - 32px)); }
 dialog.felt[open] { display: grid; gap: 14px; }
 dialog.felt::backdrop { background: rgb(29 28 26 / 0.45); }

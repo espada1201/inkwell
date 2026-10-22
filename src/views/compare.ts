@@ -36,7 +36,7 @@ export function compareCard(title: string, est: DetectedEvent, ref: Reference | 
     h(
       'table',
       {},
-      h('tr', {}, h('th', {}, ''), h('th', {}, 'Tremor (phones)'), h('th', {}, ref ? ref.label : 'Official')),
+      h('tr', {}, h('td', {}), h('th', {}, 'Tremor (phones)'), h('th', {}, ref ? ref.label : 'Official')),
       h('tr', {}, h('td', {}, 'Epicentre'), h('td', { class: 'num', 'data-testid': 'est-loc', 'data-lat': est.lat.toFixed(3), 'data-lon': est.lon.toFixed(3) }, ...where(est), h('br'), h('small', { 'data-testid': 'est-km' }, give(u))), h('td', { class: 'num' }, ...(ref ? where(ref) : ['—']))),
       h('tr', {}, h('td', {}, 'Origin'), h('td', { class: 'num' }, utc(est.time).slice(11)), h('td', { class: 'num' }, ref ? utc(ref.time).slice(11) : '—')),
       h(
@@ -47,7 +47,7 @@ export function compareCard(title: string, est: DetectedEvent, ref: Reference | 
         h('td', { class: 'num' }, ref ? mag(ref.mag) : '—'),
       ),
     ),
-    h('p', { class: 'small muted' }, 'Nine times in ten the quake is within the ± distance of where the phones put it, and its magnitude within the range.'),
+    h('p', { class: 'note small muted' }, 'Nine times in ten the quake is within the ± distance of where the phones put it, and its magnitude within the range.'),
     h('p', { class: 'verdict', 'data-testid': 'verdict' }, verdict, ref?.url ? ' ' : null, ref?.url ? h('a', { href: ref.url, target: '_blank', rel: 'noopener' }, 'USGS page ↗') : null),
   );
 }

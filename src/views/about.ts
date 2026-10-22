@@ -30,7 +30,7 @@ export function aboutView() {
       'section',
       {},
       h('h2', {}, 'Open protocol'),
-      h('p', { class: 'small' }, 'Ordinary signed Nostr events tagged #tremor: picks are kind 4578, retractions kind 5, confirmed reports kind 4579, heartbeats kind 34579 and felt reports kind 4580. Most carry a small JSON body; a retraction just names its reason. Anyone can build their own viewer or detector on the same events.'),
+      h('p', { class: 'small' }, 'Ordinary signed Nostr events tagged #tremor: picks are kind 4578, retractions kind 5, confirmed reports kind 4579, heartbeats kind 34579 and felt reports kind 4580. Most carry a small JSON body; a retraction just names its reason. Anyone can build their own viewer or detector on the same events. ', h('a', { href: 'https://github.com/espada1201/inkwell', target: '_blank', rel: 'noopener' }, 'The code is open too ↗')),
     ),
   );
   return { el, dispose: () => {} };
