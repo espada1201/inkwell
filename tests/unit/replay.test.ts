@@ -34,7 +34,8 @@ describe('the Replay tab, run headless', () => {
     for (const s of SCENARIOS) {
       const r = loaded(s.id);
       const wrong = new Set<string>();
-      for (r.seek(0); r.vt < r.duration; r.advance(100)) {
+      // How a phone is drawn depends only on the clock, so move the clock itself.
+      for (r.vt = 0; r.vt < r.duration; r.vt += 100) {
         for (const n of r.nodes) {
           const checking = n.picks.some((p) => p.at <= r.vt && !((verdictOf(n, p.t)?.at ?? Infinity) <= r.vt));
           if (checking && r.nodeState(n) === 'idle') wrong.add(n.id);

@@ -23,14 +23,7 @@ export interface WarningSummary {
   median: number | null;
 }
 
-export function warningSummary(
-  phones: (LatLon & { pga: number })[],
-  epicentre: LatLon,
-  depthKm: number,
-  declaredS: number,
-  alertLatencyS = 1,
-): WarningSummary {
-  const alertAt = declaredS + alertLatencyS;
+export function warningSummary(phones: (LatLon & { pga: number })[], epicentre: LatLon, depthKm: number, alertAt: number): WarningSummary {
   const warnings = phones
     .filter((p) => intensityLevel(p.pga) >= 2)
     .map((p) => hypocentralKm(distanceKm(epicentre, p), depthKm) / VS_KMS - alertAt);

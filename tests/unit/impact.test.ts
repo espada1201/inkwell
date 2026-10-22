@@ -15,7 +15,7 @@ describe('warning time', () => {
   it('phones beyond the blind zone get positive warning, inside it negative', () => {
     const near = { ...offset(epi, 5, 0), pga: 3 };
     const far = { ...offset(epi, 60, 0), pga: 0.5 };
-    const w = warningSummary([near, far], epi, 10, 4);
+    const w = warningSummary([near, far], epi, 10, 5);
     expect(w.alertAt).toBe(5);
     expect(w.blindKm).toBeCloseTo(sRadiusKm(5, 10), 6);
     expect(w.warnings[0]).toBeLessThan(0);
@@ -24,7 +24,7 @@ describe('warning time', () => {
   });
 
   it('phones that barely felt anything are not counted', () => {
-    expect(warningSummary([{ ...offset(epi, 100, 0), pga: 0.01 }], epi, 10, 4).warnings).toEqual([]);
+    expect(warningSummary([{ ...offset(epi, 100, 0), pga: 0.01 }], epi, 10, 5).warnings).toEqual([]);
   });
 });
 

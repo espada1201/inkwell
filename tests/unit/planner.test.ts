@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { calibrate, simulatePlan, type PhoneModel, type PlanInput, type PlanResult } from '../../src/core/planner';
+import { alertS } from '../../src/core/simnet';
 import { upperMedian } from '../../src/core/stats';
 
 function runPlan(input: PlanInput, model: PhoneModel): PlanResult {
@@ -65,7 +66,7 @@ describe('network planner', () => {
     const { summary, trials } = runPlan({ city, radiusKm: 20, phones: 100, mag: 6, distanceKm: [15, 50], quakes: 8 }, m6);
     const declared = trials.flatMap((t) => (t.declaredS === null ? [] : [t.declaredS]));
     expect(declared.length).toBeGreaterThan(0);
-    expect(summary.medianAlertS).toBe(upperMedian(declared)! + 1);
+    expect(summary.medianAlertS).toBe(alertS(upperMedian(declared)!));
   });
 
   it('is reproducible for the same inputs', () => {

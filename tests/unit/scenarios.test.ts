@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { associate, type Trigger } from '../../src/core/associate';
 import { distanceKm } from '../../src/core/geo';
 import { SCENARIOS, simulate } from '../../src/core/scenarios';
+import { arrivalsOf } from '../../src/core/simnet';
 
+/** The vetted triggers a browser receives, with the wave each phone said it felt. */
 const triggersOf = (sim: ReturnType<typeof simulate>): Trigger[] =>
-  sim.nodes.flatMap((n) =>
-    n.outputs.filter((o) => o.kind === 'trigger').map((o, k) => ({ id: `${n.id}-${k}`, node: n.id, lat: n.lat, lon: n.lon, t: o.t, pga: o.pga })),
-  );
+  sim.nodes.flatMap((n) => arrivalsOf(n, n.outputs).filter((a) => a.kind === 'trigger').map((a) => a.tr));
 
 describe('bundled scenarios, end to end through the real detector', () => {
   for (const s of SCENARIOS.filter((x) => x.truth)) {

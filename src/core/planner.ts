@@ -5,6 +5,7 @@ import { VP_KMS, VS_KMS, hypocentralKm, intensityLevel, pgaFor, type Phase } fro
 import { gauss, rng } from './rng';
 import { upperMedian } from './stats';
 import { NodeDetector, type DetectorOutput } from './sensor';
+import { RELAY_LATENCY_MS, alertS, type Arrival } from './simnet';
 import { synthesize } from './synth';
 
 /**
@@ -22,10 +23,12 @@ const FS = 50;
 const PGA_LEVELS = [0.005, 0.01, 0.02, 0.035, 0.06, 0.1, 0.18, 0.3, 0.55, 1, 1.8, 3.2];
 const SP_LEVELS = [1, 2.5, 5, 9];
 const RUNS = 6;
-const LATENCY_MS = 1000;
-/** Seconds after the rupture an alert declared at `declaredS` reaches phones: one relay hop back out. */
-const alertAfter = (declaredS: number) => declaredS + LATENCY_MS / 1000;
-/** Browsers batch incoming relay messages; the network is re-evaluated at most this often. */
+/**
+ * The planner judges on frames this long, and only when a pick is new or quiet phones have
+ * come due. The live app judges 200 ms after each batch of messages and Replay at every
+ * arrival, so a planned declaration can come up to one frame later than theirs: a quarter
+ * second of fidelity traded for thousands of simulated quakes.
+ */
 const FRAME_MS = 250;
 /** Phones bumped, walked past or picked up in any given minute: an assumption, not a measurement. */
 export const DISTURBED_PER_MINUTE = 0.05;
@@ -152,11 +155,6 @@ export interface PlanResult {
   phones: LatLon[];
 }
 
-interface Arrival {
-  at: number;
-  kind: 'pick' | 'retract';
-  tr: Trigger;
-}
 type Node = LatLon & { id: string };
 
 function scatter(c: LatLon, radiusKm: number, n: number, r: () => number): LatLon[] {
@@ -180,8 +178,8 @@ function bump(node: Node, r: () => number, fromS: number, toS: number): [Arrival
   const t = (fromS + (toS - fromS) * r()) * 1000;
   const tr: Trigger = { id: `${node.id}:b`, node: node.id, lat: node.lat, lon: node.lon, t, pga: 0 };
   return [
-    { at: t + LATENCY_MS, kind: 'pick', tr },
-    { at: t + 15_000 + LATENCY_MS, kind: 'retract', tr },
+    { at: t + RELAY_LATENCY_MS, kind: 'pick', tr },
+    { at: t + 15_000 + RELAY_LATENCY_MS, kind: 'retract', tr },
   ];
 }
 
@@ -244,9 +242,9 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
     }
     if (t === null) return;
     const tr: Trigger = { id: `${node.id}:q`, node: node.id, lat: node.lat, lon: node.lon, t, pga: pga * o.gain, phase: o.phase };
-    arrivals.push({ at: t + o.sent * 1000 + LATENCY_MS, kind: 'pick', tr });
+    arrivals.push({ at: t + o.sent * 1000 + RELAY_LATENCY_MS, kind: 'pick', tr });
     if (o.confirmed) triggers.push(tr);
-    else arrivals.push({ at: t + o.vet * 1000 + LATENCY_MS, kind: 'retract', tr });
+    else arrivals.push({ at: t + o.vet * 1000 + RELAY_LATENCY_MS, kind: 'retract', tr });
   });
 
   // False alerts are counted in quiet minutes, so only look once the P wave has reached someone.
@@ -254,7 +252,7 @@ function quake(input: PlanInput, model: PhoneModel, people: LatLon[], r: () => n
   const dec = firstDeclaration(arrivals, nodes, firstPick);
   const declaredS = dec && dec.at / 1000;
   // The alert then travels back out through the relays to every phone.
-  const alertAt = declaredS === null ? Infinity : alertAfter(declaredS);
+  const alertAt = declaredS === null ? Infinity : alertS(declaredS);
   const warnings: number[] = [];
   for (const q of people) {
     const hyp = hypocentralKm(distanceKm(epi, q), depth);
@@ -308,7 +306,7 @@ export function* simulatePlan(input: PlanInput, model: PhoneModel): Generator<nu
     summary: {
       phones: input.phones,
       detected: declared.length / n,
-      medianAlertS: upperMedian(declared.map((t) => alertAfter(t.declaredS!))),
+      medianAlertS: upperMedian(declared.map((t) => alertS(t.declaredS!))),
       medianErrKm: upperMedian(trials.flatMap((t) => (t.errKm === null ? [] : [t.errKm]))),
       warned: shaken.length ? warned.length / shaken.length : null,
       medianWarningS: upperMedian(warned),

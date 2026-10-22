@@ -202,7 +202,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     map.setTruth(truth && t > 0 ? truth : null);
     map.setEvents([
       ...r.events.map((e) => ({ id: e.id, lat: e.lat, lon: e.lon, mag: e.mag, selected: true, members: e.triggers })),
-      ...(r.early && !r.events.length ? [{ id: 'early', lat: r.early.lat, lon: r.early.lon, mag: null, provisional: true, members: r.early.triggers }] : []),
+      ...r.provisional.map((e) => ({ id: 'early', lat: e.lat, lon: e.lon, mag: null, provisional: true, members: e.triggers })),
     ]);
     const w = r.warning();
     const rings: MapRing[] =

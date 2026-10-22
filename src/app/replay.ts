@@ -1,10 +1,11 @@
 import type { DetectedEvent, Trigger } from '../core/associate';
-import { confirmedEvents, earlyDetect, type EarlyEvent, type Onset } from '../core/early';
+import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
 import { Bandpass } from '../core/filters';
 import { warningSummary, type WarningSummary } from '../core/impact';
 import { VP_KMS, VS_KMS, waveRadiusKm, type Phase } from '../core/physics';
 import { FS, ORIGIN_OFFSET_S, simulate, sinceOrigin, type Scenario, type Simulation } from '../core/scenarios';
 import type { RejectReason } from '../core/sensor';
+import { alertS, arrivalsOf, type Arrival } from '../core/simnet';
 import type { NodeState } from '../ui/map';
 import { Emitter } from './emitter';
 
@@ -21,15 +22,6 @@ export interface ReplayNodeView {
   rejects: { t: number; at: number; reason: RejectReason }[];
 }
 
-/** What a browser watching the relays receives, in order. */
-interface Arrival {
-  at: number;
-  kind: 'pick' | 'retract' | 'trigger';
-  tr: Trigger;
-}
-
-/** Assumed phone → relay → browser latency, ms. */
-export const RELAY_LATENCY_MS = 1000;
 /** A withdrawn pick stays drawn as withdrawn this long. */
 const WITHDRAWN_SHOWN_MS = 8000;
 
@@ -83,13 +75,12 @@ export class Replay extends Emitter {
       trace.fill(0, 0, FS);
       const view: ReplayNodeView = { id: n.id, lat: n.lat, lon: n.lon, distKm: n.distKm, trace, picks: [], trigger: null, rejects: [] };
       for (const o of n.outputs) {
-        const tr: Trigger = { id: `${n.id}@${o.t}`, node: n.id, lat: n.lat, lon: n.lon, t: o.t, pga: o.kind === 'trigger' ? o.pga : 0, phase: o.kind === 'reject' ? undefined : o.phase };
         const rel = { t: o.t - start, at: o.at - start };
         if (o.kind === 'pick') view.picks.push({ ...rel, phase: o.phase });
         else if (o.kind === 'trigger') view.trigger ??= { ...rel, pga: o.pga, phase: o.phase };
         else view.rejects.push({ ...rel, reason: o.reason });
-        this.queue.push({ at: rel.at + RELAY_LATENCY_MS, kind: o.kind === 'reject' ? 'retract' : o.kind, tr });
       }
+      this.queue.push(...arrivalsOf(n, n.outputs, start));
       return view;
     });
     this.queue.sort((a, b) => a.at - b.at);
@@ -198,12 +189,17 @@ export class Replay extends Emitter {
     if (this.early && !this.declared) this.declared = { at, event: this.early };
   }
 
+  /** The provisional event to show: unless a confirmed one already explains it, as on the live map. */
+  get provisional(): EarlyEvent[] {
+    return unconfirmed(this.early ? [this.early] : [], this.events);
+  }
+
   /** Warning-time analysis for the first declaration (needs a real quake). */
   warning(): WarningSummary | null {
     const truth = this.sim?.scenario.truth;
     if (!truth || !this.declared) return null;
     const phones = this.sim!.nodes.map((n) => ({ lat: n.lat, lon: n.lon, pga: n.pga }));
-    return warningSummary(phones, truth, truth.depthKm, sinceOrigin(this.declared.at), RELAY_LATENCY_MS / 1000);
+    return warningSummary(phones, truth, truth.depthKm, alertS(sinceOrigin(this.declared.at)));
   }
 
   /** How a phone is drawn now: confirmed, withdrawn a moment ago, still checking a pick, or idle. */
