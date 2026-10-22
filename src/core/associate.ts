@@ -39,7 +39,7 @@ const solved = new Map<string, Solution | null>();
 const SOLVED_MAX = 2000;
 
 /** Triggers as arrivals to locate, in seconds after the first. */
-export function arrivalsOf(triggers: Trigger[]): Arrival[] {
+export function toArrivals(triggers: Trigger[]): Arrival[] {
   const ref = triggers[0].t;
   return triggers.map((c) => ({ lat: c.lat, lon: c.lon, t: (c.t - ref) / 1000, pga: c.pga, phase: c.phase }));
 }
@@ -47,7 +47,7 @@ export function arrivalsOf(triggers: Trigger[]): Arrival[] {
 function locateCached(members: Trigger[], minNodes: number): Solution | null {
   const key = members.length <= 64 ? `${minNodes}|${members.map((c) => `${c.id},${c.t},${c.lat},${c.lon},${c.pga},${c.phase}`).join(';')}` : null;
   if (key !== null && solved.has(key)) return solved.get(key)!;
-  const sol = locate(arrivalsOf(members), { minArrivals: minNodes, maxOutliers: Math.floor(members.length * 0.3) });
+  const sol = locate(toArrivals(members), { minArrivals: minNodes, maxOutliers: Math.floor(members.length * 0.3) });
   if (key !== null) {
     solved.set(key, sol);
     if (solved.size > SOLVED_MAX) solved.delete(solved.keys().next().value!);
@@ -187,7 +187,7 @@ export function eventUncertainty(e: DetectedEvent): Uncertainty {
   const key = `${e.id}|${e.time}|${e.lat}|${e.lon}|${e.triggers.length}`;
   let u = traced.get(key);
   if (!u) {
-    traced.set(key, (u = uncertainty(arrivalsOf(e.triggers), e)));
+    traced.set(key, (u = uncertainty(toArrivals(e.triggers), e)));
     if (traced.size > 200) traced.delete(traced.keys().next().value!);
   }
   return u;
