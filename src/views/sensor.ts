@@ -1,6 +1,6 @@
 import type { LiveNetwork } from '../app/live';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
-import { distanceKm } from '../core/geo';
+import { distanceKm, type LatLon } from '../core/geo';
 import type { RejectReason } from '../core/sensor';
 import { h, keepFocus } from '../ui/dom';
 import { coord, intensityWord, mag } from '../ui/format';
@@ -50,6 +50,10 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   const background = h('dd', { 'data-testid': 'background' });
   const feel = h('section', { class: 'card', 'data-testid': 'can-feel' });
   let shown = -Infinity;
+  // The location fields outlive redraws, so coordinates being typed are kept until they are set.
+  const lat = h('input', { inputmode: 'decimal', placeholder: 'lat', 'aria-label': 'Latitude' });
+  const lon = h('input', { inputmode: 'decimal', placeholder: 'lon', 'aria-label': 'Longitude' });
+  let filled: LatLon | null | undefined;
   const left = h('div', { style: 'display:grid;gap:14px;align-content:start' });
   const right = h('div', { style: 'display:grid;gap:14px;align-content:start' });
   let dimmed = false;
@@ -111,12 +115,11 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   }
 
   function locationCard() {
-    const lat = h('input', { inputmode: 'decimal', placeholder: 'lat', 'aria-label': 'Latitude' });
-    const lon = h('input', { inputmode: 'decimal', placeholder: 'lon', 'aria-label': 'Longitude' });
     const msg = h('p', { class: 'small muted', role: 'status' });
-    if (s.location) {
-      lat.value = String(s.location.lat);
-      lon.value = String(s.location.lon);
+    if (s.location !== filled) {
+      filled = s.location;
+      lat.value = s.location ? String(s.location.lat) : '';
+      lon.value = s.location ? String(s.location.lon) : '';
     }
     return h(
       'section',
@@ -175,8 +178,8 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
         'div',
         { class: 'transport' },
         running
-          ? h('button', { class: 'btn', onclick: () => s.stop() }, 'Stop sensor')
-          : h('button', { class: 'btn primary', 'data-testid': 'start', onclick: () => s.start() }, 'Start sensor'),
+          ? h('button', { class: 'btn', 'data-key': 'run', onclick: () => s.stop() }, 'Stop sensor')
+          : h('button', { class: 'btn primary', 'data-key': 'run', 'data-testid': 'start', onclick: () => s.start() }, 'Start sensor'),
         running ? h('button', { class: 'btn', onclick: () => dim(true) }, 'Dim screen') : null,
       ),
       h(
@@ -251,8 +254,12 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   root.append(left, right);
   // Don't rebuild the form under someone's fingers; catch up when they leave the field.
   const typing = () => root.contains(document.activeElement) && document.activeElement?.tagName === 'INPUT' && (document.activeElement as HTMLInputElement).type !== 'checkbox';
-  const redraw = () => !typing() && keepFocus(root, render);
-  root.addEventListener('focusout', () => setTimeout(redraw));
+  let behind = false;
+  const redraw = () => {
+    behind = typing();
+    if (!behind) keepFocus(root, render);
+  };
+  root.addEventListener('focusout', () => setTimeout(() => behind && redraw()));
   const off = s.on(redraw);
   render();
   loop();

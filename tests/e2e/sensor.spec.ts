@@ -108,16 +108,29 @@ test.describe('be a sensor', () => {
     await expect(card).toContainText('No USGS quake since it began listening was strong enough here to register.');
   });
 
-  test('keyboard focus stays put when the screen redraws', async ({ page }) => {
+  test('works by keyboard: focus stays put as the screen redraws, and typed coordinates are kept', async ({ page }) => {
     await page.goto('/#sensor');
     await page.getByTestId('start').focus();
-    // Moving focus redraws the screen, to catch up on what changed while someone typed.
-    await page.keyboard.press('Tab');
-    await page.waitForTimeout(100);
-    await expect(page.getByLabel('Share with the Tremor network')).toBeFocused();
-    await page.keyboard.press('Tab');
-    await page.waitForTimeout(100);
-    await expect(page.getByRole('button', { name: 'Use my approximate location' })).toBeFocused();
+    /** Tab on, let a redraw that may follow happen, and check where focus is. */
+    const tab = async (to: import('@playwright/test').Locator) => {
+      await page.keyboard.press('Tab');
+      await page.waitForTimeout(100);
+      await expect(to).toBeFocused();
+    };
+    await tab(page.getByLabel('Share with the Tremor network'));
+    await tab(page.getByRole('button', { name: 'Use my approximate location' }));
+    await tab(page.getByLabel('Latitude'));
+    await page.keyboard.type('37.77493');
+    await tab(page.getByLabel('Longitude'));
+    await page.keyboard.type('-122.41942');
+    await tab(page.getByRole('button', { name: 'Set' }));
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('loc')).toHaveText('37.77°N 122.42°W');
+    await expect(page.getByRole('button', { name: 'Set' })).toBeFocused();
+    // Starting moves focus to the button that stops it.
+    await page.getByTestId('start').focus();
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('button', { name: 'Stop sensor' })).toBeFocused();
   });
 
   test('nothing is published until the user opts in', async ({ page, relay }) => {
