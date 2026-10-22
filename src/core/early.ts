@@ -141,9 +141,23 @@ export function earlyDetect(picks: Trigger[], listeners: Listener[], now: number
   return { events, waiting };
 }
 
-/** Provisional events that no confirmed event already explains: none within 80 km and a minute. */
+/** Two detections this close in place and time are one quake, when their phones do not say. */
+export const nearby = (a: DetectedEvent, b: DetectedEvent) => distanceKm(a, b) < 80 && Math.abs(a.time - b.time) < 60_000;
+
+/**
+ * The confirmed event that explains a provisional detection with these picks: one whose triggers
+ * settle any of them, wherever each of the two was placed, since a few phones on one side of a
+ * quake can place it 100 km off and more. Only a pick's own phone settles it. Failing that, for
+ * triggers that name no pick or picks this browser never had, one `nearby`.
+ */
+export function explainedBy(e: DetectedEvent, picks: Trigger[], confirmed: DetectedEvent[]): DetectedEvent | undefined {
+  const author = new Map(picks.map((p) => [p.id, p.node]));
+  return confirmed.find((c) => c.triggers.some((t) => t.pick !== undefined && author.get(t.pick) === t.node)) ?? confirmed.find((c) => nearby(c, e));
+}
+
+/** Provisional events that no confirmed event already explains. */
 export function unconfirmed(early: EarlyEvent[], confirmed: DetectedEvent[]): EarlyEvent[] {
-  return early.filter((e) => !confirmed.some((c) => distanceKm(c, e) < 80 && Math.abs(c.time - e.time) < 60_000));
+  return early.filter((e) => !explainedBy(e, e.triggers, confirmed));
 }
 
 /**

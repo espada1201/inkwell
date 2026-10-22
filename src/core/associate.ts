@@ -11,6 +11,8 @@ export interface Trigger extends LatLon {
   pga: number;
   /** The wave the phone triggered on; P when not given. */
   phase?: Phase;
+  /** A confirmed trigger's own pick, by id, when the phone names the pick it settles. */
+  pick?: string;
 }
 
 export interface DetectedEvent extends Solution {

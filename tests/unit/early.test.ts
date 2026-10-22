@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Replay } from '../../src/app/replay';
 import type { Trigger } from '../../src/core/associate';
-import { confirmedEvents, earlyDetect, type Listener } from '../../src/core/early';
+import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Listener } from '../../src/core/early';
 import { coarsen, distanceKm, offset, type LatLon } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
@@ -148,5 +148,32 @@ describe('the declaration rule at its edges', () => {
     const quiet = [...ring(6, 16, 'q'), ...ring(9, 16, 'r')];
     const triggers: Trigger[] = felt.map((p) => ({ ...p, node: p.id, t: arrival(p), pga: pgaFor(5, hypocentralKm(distanceKm(C, p))), phase: 'P' }));
     expect(confirmedEvents(triggers, triggers, () => [...felt, ...quiet], T + 60_000)).toHaveLength(1);
+  });
+});
+
+describe('the confirmed event that explains a provisional one', () => {
+  const T = Date.UTC(2026, 0, 1, 0, 1);
+  const C = { lat: 35, lon: -118 };
+  const phones = [0, 1, 2, 3].map((i) => ({ id: `n${i}`, ...offset(C, 20 + 5 * i, 4 * i) }));
+  const picks: Trigger[] = phones.map((p) => ({ ...p, id: `pick-${p.id}`, node: p.id, t: T + 5000, pga: 0 }));
+  /** An event of these members, placed this far east of C. */
+  const placed = (eastKm: number, triggers: Trigger[]): EarlyEvent => ({ ...offset(C, eastKm, 0), t0: 0, rms: 0.2, residuals: [], used: [], mag: null, id: `ev${eastKm}`, time: T, triggers, agreement: 1 });
+  const early = placed(0, picks);
+  /** These phones' triggers, each naming the pick of the phone in its place, or none. */
+  const triggers = (named: boolean, by = phones) => by.map((p, i): Trigger => ({ ...p, id: `trigger-${p.id}`, node: p.id, t: T + 5000, pga: 0.2, pick: named ? picks[i].id : undefined }));
+
+  it('is the one whose triggers settle its picks, however far apart the two were placed', () => {
+    // Phones on one side of a quake can place it 100 km off and more, from their picks or their first triggers.
+    expect(unconfirmed([early], [placed(150, triggers(true))])).toEqual([]);
+  });
+
+  it('is not one whose triggers name picks that other phones made', () => {
+    const others = phones.map((p) => ({ ...p, id: `other-${p.id}` }));
+    expect(unconfirmed([early], [placed(150, triggers(true, others))])).toEqual([early]);
+  });
+
+  it('is, when its triggers name no picks, one within 80 km and a minute', () => {
+    expect(unconfirmed([early], [placed(60, triggers(false))])).toEqual([]);
+    expect(unconfirmed([early], [placed(100, triggers(false))])).toEqual([early]);
   });
 });

@@ -39,7 +39,7 @@ The compared view is `seen()` in `converge.test.ts`: each phone's place, rate, l
 - Every scenario stays well inside its time limits throughout (picks under a minute old, quiet phones long due, nothing near the two minutes a detection waits), so a last event that rightly queues nothing, like a repeat, leaves the same view as one that does.
 - Heartbeats carry `since`, as Tremor's own do.
 
-Not covered, on purpose: past a cap the oldest arrival is dropped, and past 30 picks an hour a phone's first ones win, so both depend on order by design. The history of provisional detections (`provisional`) records when this browser saw things. A heartbeat without `since` falls back to when it arrived. `parse`, the relay pool's de-duplication and USGS are covered by their own tests.
+Not covered, on purpose: past a cap the oldest arrival is dropped, and past 30 picks an hour a phone's first ones win, so both depend on order by design. The history of provisional detections (`provisional`) records when this browser saw things. A heartbeat without `since` falls back to when it arrived. `parse`, the relay pool's de-duplication, USGS, and which confirmed event explains a provisional one by the picks its triggers name (`explainedBy`, decided afresh from what has arrived at each recompute) are covered by their own tests.
 
 ## When it fails
 
