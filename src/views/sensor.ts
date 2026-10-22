@@ -2,7 +2,7 @@ import type { LiveNetwork } from '../app/live';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
 import { distanceKm } from '../core/geo';
 import type { RejectReason } from '../core/sensor';
-import { h } from '../ui/dom';
+import { h, keepFocus } from '../ui/dom';
 import { coord, intensityWord, mag } from '../ui/format';
 import { drawTrace } from '../ui/trace';
 
@@ -164,7 +164,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
     const [title, copy] = STATE_COPY[s.state];
     const running = s.state === 'warming' || s.state === 'listening';
     const pulse = s.state === 'listening' ? 'pulse live' : running ? 'pulse warn' : 'pulse';
-    const join = h('input', { type: 'checkbox', checked: s.joined, onchange: (e: Event) => s.setJoined((e.target as HTMLInputElement).checked) });
+    const join = h('input', { type: 'checkbox', 'data-key': 'join', checked: s.joined, onchange: (e: Event) => s.setJoined((e.target as HTMLInputElement).checked) });
     left.replaceChildren(
       h('div', { class: 'state-line' }, h('i', { class: pulse }), h('h1', { 'data-testid': 'sensor-state' }, title)),
       h('p', { class: 'muted' }, copy),
@@ -251,8 +251,9 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   root.append(left, right);
   // Don't rebuild the form under someone's fingers; catch up when they leave the field.
   const typing = () => root.contains(document.activeElement) && document.activeElement?.tagName === 'INPUT' && (document.activeElement as HTMLInputElement).type !== 'checkbox';
-  root.addEventListener('focusout', () => setTimeout(() => !typing() && render()));
-  const off = s.on(() => !typing() && render());
+  const redraw = () => !typing() && keepFocus(root, render);
+  root.addEventListener('focusout', () => setTimeout(redraw));
+  const off = s.on(redraw);
   render();
   loop();
   return { el: root, dispose: () => (off(), cancelAnimationFrame(raf)) };

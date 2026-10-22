@@ -108,6 +108,18 @@ test.describe('be a sensor', () => {
     await expect(card).toContainText('No USGS quake since it began listening was strong enough here to register.');
   });
 
+  test('keyboard focus stays put when the screen redraws', async ({ page }) => {
+    await page.goto('/#sensor');
+    await page.getByTestId('start').focus();
+    // Moving focus redraws the screen, to catch up on what changed while someone typed.
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(100);
+    await expect(page.getByLabel('Share with the Tremor network')).toBeFocused();
+    await page.keyboard.press('Tab');
+    await page.waitForTimeout(100);
+    await expect(page.getByRole('button', { name: 'Use my approximate location' })).toBeFocused();
+  });
+
   test('nothing is published until the user opts in', async ({ page, relay }) => {
     await page.goto(`/?relays=${relay.url}#sensor`);
     await page.getByTestId('start').click();
