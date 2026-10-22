@@ -117,6 +117,18 @@ describe('live network model', () => {
     }
   });
 
+  it('a flood of retractions from keys that never sent a heartbeat cannot push out a real one', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const a = phones[0];
+    live.ingest(signHeartbeat(a.sk, { ...a, noise: 0.01, sps: 60 }));
+    const pick = signPick(a.sk, a);
+    live.ingest(signRetraction(a.sk, pick.id, 'footsteps'));
+    const hex = (i: number) => i.toString(16).padStart(64, '0');
+    for (let i = 0; i < 6000; i++) live.receive({ id: hex(i), node: `x${i}`, at: Date.now(), type: 'retract', pick: hex(i + 1e6), reason: null });
+    live.ingest(pick);
+    expect(live.picks.has(pick.id)).toBe(false);
+  });
+
   it('a pick its author withdrew before it arrived stays withdrawn when a stranger retracts it too', () => {
     const [a, b] = phones;
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);

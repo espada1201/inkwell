@@ -84,10 +84,11 @@ export class LiveNetwork extends Emitter {
   /** Picks and triggers from phones not yet heard from, held until their heartbeat comes. */
   private pending: Message[] = [];
   /**
-   * Retractions by `pick:phone`. One can arrive before its pick, and only the pick's own author
-   * may retract it, so every retracting phone is kept until the pick shows.
+   * Retractions by `pick:phone`, from phones with a heartbeat. One can arrive before its pick,
+   * and only the pick's own author may retract it, so every retracting phone is kept until the
+   * pick shows.
    */
-  // shortcut: a flood of retractions from free keys can push real ones out of this cap; count only phones with a heartbeat if that is seen.
+  // shortcut: a phone with a heartbeat can still fill this cap with retractions of picks it never sent; cap them per phone if that is seen.
   private withdrawals = new Map<string, Withdrawal>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
@@ -157,6 +158,10 @@ export class LiveNetwork extends Emitter {
       const held = this.pending.filter((p) => p.node === m.node);
       this.pending = this.pending.filter((p) => p.node !== m.node);
       held.forEach((p) => this.receive(p));
+    } else if (m.type !== 'felt' && !this.nodes.has(m.node)) {
+      // Picks, triggers and retractions count only from phones that have announced themselves.
+      this.pending = [...this.pending, m].slice(-500);
+      return;
     } else if (m.type === 'retract') {
       // NIP-09: only the author may retract their own pick.
       const p = this.picks.get(m.pick);
@@ -172,10 +177,6 @@ export class LiveNetwork extends Emitter {
       if (this.felt.length > MAX_FELT) this.felt.shift();
       this.queueRecompute();
     } else {
-      if (!this.nodes.has(m.node)) {
-        this.pending = [...this.pending, m].slice(-500);
-        return;
-      }
       if (m.data.t < Date.now() - WINDOW_MS) return;
       const t: Trigger = { id: m.id, node: m.node, lat: m.data.lat, lon: m.data.lon, t: m.data.t, pga: m.type === 'trigger' ? m.data.pga : 0, phase: m.data.phase };
       const n = this.nodes.get(m.node)!;
