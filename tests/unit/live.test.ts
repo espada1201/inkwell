@@ -320,6 +320,17 @@ describe('live network model', () => {
     expect(sent.map((ev) => JSON.parse(ev.content).lvl)).toEqual([3]);
     expect(live.lastFelt(me.pubkey, Date.now())).toMatchObject({ lvl: 3, lat: 37.9, lon: -122.3 });
   });
+
+  it('reports shaking from earlier at the time it shook, which receivers accept', () => {
+    const sent: Event[] = [];
+    const live = new LiveNetwork(Object.assign(new NullTransport(), { publish: (ev: Event) => void sent.push(ev) }), 'hour', fetchNone);
+    const sk = generateSecretKey();
+    const me = { sk, pubkey: getPublicKey(sk) };
+    const t = Date.now() - 30 * 60_000;
+    expect(live.reportFelt(me, src, 2, t)).toBe(true);
+    expect(JSON.parse(sent[0].content).t).toBe(t);
+    expect(live.lastFelt(me.pubkey, t)).toMatchObject({ lvl: 2, t });
+  });
 });
 
 describe('a quake felt only from one side, by a town 100 km away', () => {

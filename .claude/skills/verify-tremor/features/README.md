@@ -12,7 +12,7 @@ This is the maintained list of what a Tremor user can do, one file per screen. R
 ## Driving conventions
 
 - Start every recipe from the baseline. A recipe that needs a saved location sets it through the sensor screen's form, as a user does.
-- Prefer roles and accessible names, then `data-testid`. The tabs are links in the `Sections` navigation.
+- Prefer roles and accessible names, then `data-testid`. The tabs are links in the `Sections` navigation. The first Tab stop on every screen is `Skip to content`, which focuses the screen's heading (on Be a sensor, its Start/Stop button); opening a tab by keyboard lands there too, and the map canvas shows a focus ring.
 - Wait on visible state (a heading, a status line, a count), never on fixed sleeps: the network recomputes 200 ms after each batch of messages and the planner runs in a worker for several seconds.
 - Read numbers off the page with `innerText` and note them; a proof quotes what a user would read.
 

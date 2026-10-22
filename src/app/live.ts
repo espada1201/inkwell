@@ -205,9 +205,8 @@ export class LiveNetwork extends Emitter {
     return this.felt.find((f) => f.node === node && Math.abs(f.t - t) < FELT_EVERY_MS);
   }
 
-  /** Publish this browser's felt report, unless its key sent one in the last ten minutes. */
-  reportFelt(me: { sk: Uint8Array; pubkey: string }, at: LatLon, lvl: number) {
-    const t = Date.now();
+  /** Publish this browser's felt report of shaking at `t`, unless its key reported shaking within ten minutes of then. */
+  reportFelt(me: { sk: Uint8Array; pubkey: string }, at: LatLon, lvl: number, t = Date.now()) {
     if (this.lastFelt(me.pubkey, t)) return false;
     const ev = signFelt(me.sk, { ...at, t, lvl });
     this.transport.publish(ev);

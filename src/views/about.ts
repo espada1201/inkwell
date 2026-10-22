@@ -24,7 +24,7 @@ export function aboutView() {
       'section',
       {},
       h('h2', {}, 'Privacy'),
-      h('p', { class: 'small' }, 'Nothing is sent until you switch sharing on and set a location, or report shaking you felt. Locations are snapped to a 0.01° grid on your phone and again on every receiver. A felt report carries that rough location too, for anyone watching the relays to see. Your node key lives only in this browser.'),
+      h('p', { class: 'small' }, 'Nothing is sent until you switch sharing on and set a location, or report shaking you felt. Locations are snapped to a 0.01° grid on your phone and again on every receiver. A felt report carries that rough location too, for anyone watching the relays to see. Your node key lives only in this browser. A town you type is looked up in a list that comes with the page (place names from GeoNames, CC BY 4.0), so it is never sent anywhere.'),
     ),
     h(
       'section',

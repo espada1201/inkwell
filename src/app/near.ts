@@ -4,7 +4,10 @@ import type { LiveNetwork } from './live';
 import type { SensorNode } from './sensor';
 
 /** This browser's rough location, which the sensor screen sets too, and whether this phone shares it as a sensor. */
-export type Place = Pick<SensorNode, 'location' | 'setLocation' | 'canPublish'>;
+export type Place = Pick<SensorNode, 'location' | 'placeName' | 'setLocation' | 'canPublish'>;
+
+/** How far a row is from the place set: "from Vallejo, CA, US" when it was named, else "from you". */
+export const fromPlace = (place: Pick<Place, 'placeName'>) => `from ${place.placeName ?? 'you'}`;
 
 const NEAR_KM = 100;
 export const NEAR_MS = 10 * 60_000;

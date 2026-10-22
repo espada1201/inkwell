@@ -121,10 +121,10 @@ test('shaking near you lists what was reported nearest first, with safety advice
 test('without a location the card asks once, by typed coordinates or the browser, and keeps it', async ({ page, relay }) => {
   await page.goto(`/?relays=${relay.url}#network`);
   const near = page.getByTestId('near');
-  const typed = near.getByLabel('Or type latitude, longitude');
+  const typed = near.getByLabel('Or type a town, or latitude, longitude');
   await typed.fill('38.7');
   await near.getByRole('button', { name: 'Set' }).click();
-  await expect(near.getByRole('status')).toHaveText('Type a latitude and a longitude, with a point for decimals, for example 37.80, -122.27.');
+  await expect(near.getByRole('status')).toHaveText('Type a town, or a latitude and a longitude with a point for decimals, for example 37.80, -122.27.');
   await expect(typed).toHaveAttribute('aria-invalid', 'true');
   await typed.fill('-33.9249, 18.4241');
   await near.getByRole('button', { name: 'Set' }).click();
@@ -260,7 +260,7 @@ test('with site storage blocked, a felt report still says it went out, and reope
   await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
   await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
   const dialog = page.getByRole('dialog', { name: 'I felt it' });
-  await dialog.getByLabel('Or type latitude, longitude').fill('38.7, -122.7');
+  await dialog.getByLabel('Or type a town, or latitude, longitude').fill('38.7, -122.7');
   await dialog.getByRole('button', { name: 'Set' }).click();
   await dialog.getByRole('button', { name: /^light/ }).click();
   await expect(dialog.getByRole('status')).toContainText('You reported light shaking at');
@@ -422,4 +422,94 @@ test('without online tiles the map falls back to a bundled coastline', async ({ 
   // The browser itself logs the failed style request; that one is expected here.
   const rest = consoleErrors.filter((e) => !e.includes('404'));
   consoleErrors.splice(0, consoleErrors.length, ...rest);
+});
+
+test('a town typed by name gives distances from it, and picking a quake takes the reader to how it compares', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await send(relay.url, [...napa.heartbeats, ...napa.finals]);
+  const near = page.getByTestId('near');
+  const typed = near.getByLabel('Or type a town, or latitude, longitude');
+  await typed.fill('San Rafael');
+  await typed.press('Enter');
+  await expect(near.getByRole('status')).toHaveText(/towns match\. Which one\?/);
+  // Biggest first, and the keyboard is on the first choice.
+  await expect(near.getByRole('button', { name: 'San Rafael, AR' })).toBeFocused();
+  await near.getByRole('button', { name: 'San Rafael, CA, US' }).click();
+  await expect(near).toContainText('Near San Rafael, CA, US (37.97°N 122.53°W)');
+  await near.getByRole('button', { name: 'change' }).click();
+  await typed.fill('vallejo');
+  await typed.press('Enter');
+  await expect(near).toContainText('Near Vallejo, CA, US (38.10°N 122.26°W)');
+  await expect(near.getByTestId('near-item').first()).toContainText(/\d+ km from Vallejo, CA, US/);
+  expect(await page.evaluate(() => localStorage.getItem('tremor.place'))).toBe('Vallejo, CA, US');
+
+  const row = page.getByTestId('event-list').getByRole('button');
+  await expect(row).toContainText('phones agreed · compare ›');
+  await row.focus();
+  await page.keyboard.press('Enter');
+  const detail = page.getByTestId('compare');
+  await expect(detail).toBeFocused();
+  await expect(detail).toBeInViewport();
+  await expect(detail.getByTestId('detail-km')).toHaveText(/^\d+ km from Vallejo, CA, US$/);
+
+  await near.getByRole('button', { name: 'change' }).click();
+  await typed.fill('Qqqqzz');
+  await typed.press('Enter');
+  await expect(near.getByRole('status')).toContainText('No town called “Qqqqzz”');
+  await expect(typed).toHaveAttribute('aria-invalid', 'true');
+  await typed.fill('38.7, -122.7');
+  await typed.press('Enter');
+  await expect(near).toContainText('Near 38.70°N 122.70°W');
+  await expect(near.getByTestId('near-item').first()).toContainText('km from you');
+  expect(await page.evaluate(() => localStorage.getItem('tremor.place'))).toBe('');
+});
+
+test('shaking felt a while ago is reported at the time it shook, and a press beside the dialog closes it', async ({ page, relay }) => {
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.7, lon: -122.7 })));
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
+  const dialog = page.getByRole('dialog', { name: 'I felt it' });
+  const when = dialog.getByRole('group', { name: 'When was it?' });
+  await expect(when.getByRole('button', { name: 'Just now' })).toHaveAttribute('aria-pressed', 'true');
+  await when.getByRole('button', { name: '15 min ago' }).click();
+  await expect(when.getByRole('button', { name: '15 min ago' })).toHaveAttribute('aria-pressed', 'true');
+  const before = Date.now();
+  await dialog.getByRole('button', { name: /^light/ }).click();
+  await expect(dialog.getByRole('status')).toContainText('You reported light shaking at');
+  await expect(dialog.getByRole('status')).toContainText('public relays');
+  await expect.poll(() => relay.events().filter((e) => e.kind === 4580).length).toBe(1);
+  const felt = relay.events().find((e) => e.kind === 4580)!;
+  expect(Math.abs(JSON.parse(felt.content).t - (before - 15 * 60_000))).toBeLessThan(5_000);
+  // Reopened at once, it still says the report went out, though the shaking was a quarter of an hour ago.
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('banner').getByRole('button', { name: 'I felt it' }).click();
+  await expect(dialog.getByRole('status')).toContainText('You can report again from');
+  await page.mouse.click(5, 400);
+  await expect(dialog).toBeHidden();
+});
+
+test('a keyboard skips the header and the map, and lands on each screen it opens', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Skip to content' })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Skip to content' })).toBeInViewport();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Live network' })).toBeFocused();
+  await page.getByRole('link', { name: 'Be a sensor' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByTestId('start')).toBeFocused();
+  await page.getByRole('link', { name: 'About' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Old phones as civic infrastructure' })).toBeFocused();
+  // The map takes the keyboard too, and shows that it has it.
+  await page.getByRole('link', { name: 'Network' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Live network' })).toBeFocused();
+  const canvas = page.locator('.maplibregl-canvas');
+  await page.locator('.map-legend summary').focus();
+  await page.keyboard.press('Tab');
+  await expect(canvas).toBeFocused();
+  await expect.poll(() => canvas.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
 });

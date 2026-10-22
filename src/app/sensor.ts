@@ -22,6 +22,7 @@ interface MotionEventCtor {
 
 const TRACE_S = 12;
 const LOC_KEY = 'tremor.location';
+const LOC_NAME_KEY = 'tremor.place';
 const JOIN_KEY = 'tremor.join';
 const LISTENED_KEY = 'tremor.listened';
 
@@ -54,6 +55,8 @@ export class SensorNode extends Emitter {
   head = 0;
   log: LogEntry[] = [];
   location: LatLon | null;
+  /** The town the location was set by, if it was named rather than located or typed as coordinates. */
+  placeName: string | null;
   joined: boolean;
   wakeLock: 'on' | 'off' | 'unsupported' = 'off';
   battery: { level: number; charging: boolean } | null = null;
@@ -89,6 +92,7 @@ export class SensorNode extends Emitter {
     } catch {
       this.location = null;
     }
+    this.placeName = (this.location && store?.getItem(LOC_NAME_KEY)) || null;
     this.joined = store?.getItem(JOIN_KEY) === '1';
     try {
       const b = JSON.parse(store?.getItem(LISTENED_KEY) ?? 'null');
@@ -140,9 +144,12 @@ export class SensorNode extends Emitter {
     this.set('idle');
   }
 
-  setLocation(p: LatLon | null) {
+  setLocation(p: LatLon | null, name: string | null = null) {
     this.location = p && coarsen(p);
-    safeStorage()?.setItem(LOC_KEY, JSON.stringify(this.location));
+    this.placeName = p && name;
+    const store = safeStorage();
+    store?.setItem(LOC_KEY, JSON.stringify(this.location));
+    store?.setItem(LOC_NAME_KEY, this.placeName ?? '');
     this.heartbeat();
     this.emit();
   }

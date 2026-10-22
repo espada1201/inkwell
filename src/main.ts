@@ -71,8 +71,15 @@ const panel = h('aside', { class: 'panel', 'aria-live': 'off' });
 const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Sensor' });
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
+// Past the header and the map, which take a keyboard many presses, to the screen's own heading.
+const skip = () => {
+  // The sensor's heading is its changing state, so its first control instead.
+  const start = stage.querySelector<HTMLElement>(sensorEl.hidden ? '.panel h1' : '.sensor [data-key=run]');
+  if (start?.tagName === 'H1') start.tabIndex = -1;
+  start?.focus();
+};
 document.getElementById('app')!.append(
-  h('header', { class: 'top' }, h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, h('button', { class: 'felt-btn', onclick: felt.open }, 'I felt it'), relayStatus, usgsStatus), heli),
+  h('header', { class: 'top' }, h('button', { class: 'btn skip', onclick: skip }, 'Skip to content'), h('a', { class: 'brand', href: '#network', 'aria-label': 'Tremor home' }, logo(), h('b', {}, 'TREMOR')), tabs, h('div', { class: 'status' }, h('button', { class: 'felt-btn', onclick: felt.open }, 'I felt it'), relayStatus, usgsStatus), heli),
   stage,
   felt.el,
   bell.note,
@@ -126,7 +133,7 @@ type View = keyof typeof TABS;
 
 let current: { view: View; dispose: () => void } | null = null;
 
-function route() {
+function route(e?: Event) {
   // A query typed after the hash (#replay/napa-2014?speed=10) belongs before it; it is dropped here.
   const [name, ...rest] = location.hash.replace(/^#/, '').split('?')[0].split('/');
   // Not `in`: that would also accept inherited names like "toString".
@@ -150,6 +157,8 @@ function route() {
   current = { view, dispose: v.dispose };
   requestAnimationFrame(() => map.resize());
   document.title = `Tremor · ${tab.label}`;
+  // Changing screens leaves the keyboard where the new screen starts, not back at the top of the page.
+  if (e) skip();
 }
 
 startHelicorder(heli, () => (current?.view === 'replay' ? replay.activity() : live.activity()));

@@ -98,6 +98,38 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
     );
   }
 
+  /** The browser's rough location, with what happened said in `msg`. */
+  const locate = (msg: HTMLElement, then = () => {}) => {
+    if (!navigator.geolocation) return void (msg.textContent = 'Geolocation is unavailable. Enter coordinates instead.');
+    msg.textContent = 'Locating…';
+    navigator.geolocation.getCurrentPosition(
+      (p) => (s.setLocation({ lat: p.coords.latitude, lon: p.coords.longitude }), then()),
+      () => (msg.textContent = 'Location refused. You can type approximate coordinates instead.'),
+      { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
+    );
+  };
+
+  /** Right under Start: what is still missing before this phone helps anyone, one press each. */
+  function helpSteps() {
+    if (s.canPublish || s.state === 'unsupported' || s.state === 'denied') return null;
+    const msg = h('p', { class: 'small', role: 'status' });
+    // Each press removes its button: keep the keyboard on the next step, or on the switch that now says On.
+    const next = () => root.querySelector<HTMLElement>('[data-key=join-now], [data-key=locate-now], [data-key=join]')?.focus();
+    return h(
+      'section',
+      { class: 'card steps', 'data-testid': 'help-steps' },
+      h('h2', {}, 'Not helping anyone yet'),
+      h('p', { class: 'small' }, `Only you see what this phone feels until you ${!s.joined && !s.location ? 'share it and set its location' : !s.joined ? 'share it' : 'set its location'}.`),
+      h(
+        'div',
+        { class: 'transport' },
+        s.joined ? null : h('button', { class: 'btn primary', 'data-key': 'join-now', onclick: () => (s.setJoined(true), next()) }, 'Share with the Tremor network'),
+        s.location ? null : h('button', { class: 'btn', 'data-key': 'locate-now', onclick: () => locate(msg, next) }, 'Use my approximate location'),
+      ),
+      msg,
+    );
+  }
+
   function locationCard() {
     const msg = h('p', { class: 'small muted', role: 'status' });
     if (s.location !== filled) {
@@ -115,15 +147,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
         'button',
         {
           class: 'btn',
-          onclick: () => {
-            if (!navigator.geolocation) return void (msg.textContent = 'Geolocation is unavailable. Enter coordinates instead.');
-            msg.textContent = 'Locating…';
-            navigator.geolocation.getCurrentPosition(
-              (p) => s.setLocation({ lat: p.coords.latitude, lon: p.coords.longitude }),
-              () => (msg.textContent = 'Location refused. You can type approximate coordinates instead.'),
-              { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
-            );
-          },
+          onclick: () => locate(msg),
         },
         'Use my approximate location',
       ),
@@ -168,6 +192,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
           : h('button', { class: 'btn primary', 'data-key': 'run', 'data-testid': 'start', onclick: () => s.start() }, 'Start sensor'),
         running ? h('button', { class: 'btn', onclick: () => dim(true) }, 'Dim screen') : null,
       ),
+      ...[helpSteps()].filter((x) => x !== null),
       h(
         'section',
         { class: 'card' },

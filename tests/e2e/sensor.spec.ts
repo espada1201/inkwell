@@ -30,6 +30,24 @@ test.describe('be a sensor', () => {
     });
   });
 
+  test('after Start, the screen says what is missing before the phone helps anyone, one press each', async ({ page, relay }) => {
+    await page.context().grantPermissions(['geolocation']);
+    await page.context().setGeolocation({ latitude: 37.8044, longitude: -122.2712 });
+    await page.goto(`/?relays=${relay.url}#sensor`);
+    const steps = page.getByTestId('help-steps');
+    await expect(steps).toContainText('Only you see what this phone feels until you share it and set its location.');
+    await page.getByTestId('start').click();
+    await expect(steps).toBeInViewport();
+    await steps.getByRole('button', { name: 'Share with the Tremor network' }).click();
+    await expect(steps).toContainText('until you set its location');
+    await expect(steps.getByRole('button', { name: 'Use my approximate location' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(steps).toHaveCount(0);
+    await expect(page.getByLabel('Share with the Tremor network')).toBeFocused();
+    await expect(page.getByTestId('publish-note')).toContainText('On.');
+    await expect(page.getByTestId('loc')).toHaveText('37.80°N 122.27°W');
+  });
+
   test('a phone on a table publishes a pick, then a confirmed trigger', async ({ page, relay }) => {
     test.setTimeout(120_000);
     await page.goto(`/?relays=${relay.url}#sensor`);
@@ -116,8 +134,12 @@ test.describe('be a sensor', () => {
       await page.waitForTimeout(100);
       await expect(to).toBeFocused();
     };
+    // The steps still missing come first, right under Start; then the same choices in their own cards.
+    const steps = page.getByTestId('help-steps');
+    await tab(steps.getByRole('button', { name: 'Share with the Tremor network' }));
+    await tab(steps.getByRole('button', { name: 'Use my approximate location' }));
     await tab(page.getByLabel('Share with the Tremor network'));
-    await tab(page.getByRole('button', { name: 'Use my approximate location' }));
+    await tab(page.locator('section.card', { has: page.getByRole('heading', { name: 'Location' }) }).getByRole('button', { name: 'Use my approximate location' }));
     await tab(page.getByLabel('Latitude'));
     await page.keyboard.type('37.77493');
     await tab(page.getByLabel('Longitude'));

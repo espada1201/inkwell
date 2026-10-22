@@ -10,7 +10,7 @@
   --card: #fbfaf5;
   --ink: #1d1c1a;
   --ink-2: #3b3934;
-  --muted: #6b675d;
+  --muted: #5c584f;
   --rule: #d8d2c2;
   --red: #c8261c;
   --red-soft: #f3d9d4;
@@ -18,7 +18,7 @@
   --night: #0f0f0d;
   --night-2: #191916;
   --night-ink: #efe9da;
-  --night-muted: #9a9486;
+  --night-muted: #b3ad9f;
   --night-rule: #2b2a25;
   --sans: 'IBM Plex Sans Condensed', 'Arial Narrow', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
@@ -37,6 +37,10 @@ body {
 button, input, textarea { font: inherit; color: inherit; }
 a { color: inherit; }
 :focus-visible { outline: none; box-shadow: var(--focus); border-radius: 3px; }
+/* The map's canvas fills a clipped box, where a ring outside it would not show. */
+.maplibregl-canvas:focus-visible { outline: 3px solid var(--ink); outline-offset: -3px; }
+.skip { position: absolute; left: 8px; top: -60px; z-index: 50; }
+.skip:focus { top: 8px; }
 .mono, .num { font-family: var(--mono); font-feature-settings: 'tnum'; }
 
 /* ── top bar ─────────────────────────────────────────── */
@@ -98,7 +102,7 @@ h2 small { font: 11px var(--mono); letter-spacing: 0; text-transform: none; colo
 p { margin: 0; }
 .lede { color: var(--ink-2); margin-top: 6px; }
 .muted { color: var(--muted); }
-.small { font-size: 13px; }
+.small { font-size: 14px; }
 
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--ink); }
 .stats > div { padding: 10px 10px 8px; border-left: 1px solid var(--rule); }
@@ -114,7 +118,7 @@ p { margin: 0; }
 }
 .row:hover { background: var(--paper-2); }
 .row[aria-pressed='true'] { background: var(--red-soft); }
-.row .where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .where { overflow-wrap: anywhere; }
 .row .when { font: 12px var(--mono); color: var(--muted); white-space: nowrap; }
 .badge {
   font: 500 13px var(--mono); text-align: center; padding: 3px 0; border: 1.5px solid var(--ink); border-radius: 2px;

@@ -1,5 +1,5 @@
 import { NODE_STALE_MS, SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
-import { NOTICED_LEVEL, nearYou, type Near, type Place } from '../app/near';
+import { NOTICED_LEVEL, fromPlace, nearYou, type Near, type Place } from '../app/near';
 import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
 import { shakeGrid } from '../core/impact';
@@ -82,7 +82,7 @@ export function networkView(ctx: NetworkCtx) {
       'div',
       {},
       h('h1', {}, 'Live network'),
-      h('p', { class: 'lede' }, 'Phones lying still on tables, wherever someone has set one up, and people saying what they felt. Their reports travel over public Nostr relays and are pieced together in your browser, with no server.'),
+      h('p', { class: 'lede' }, 'Earthquakes caught by volunteers’ phones, wherever someone has set one up, and by what people felt, checked against the official USGS feed.'),
     ),
   );
   const parts = { near: part(), stats: part(), provisional: part(), detail: part(), detections: part(), felt: part(), usgs: part() };
@@ -106,6 +106,10 @@ export function networkView(ctx: NetworkCtx) {
     const at = kind === 'event' ? live.events.find((e) => e.id === id) : live.usgs.find((q) => q.id === id);
     if (at) map.fly(at, kind === 'event' ? 8 : 7);
     render();
+    // The details open above the lists; take the reader, and the keyboard, to them.
+    const shown = root.querySelector<HTMLElement>('[data-key=detail]');
+    shown?.scrollIntoView({ block: 'nearest' });
+    shown?.focus({ preventScroll: true });
   }
 
   function syncMap() {
@@ -168,7 +172,7 @@ export function networkView(ctx: NetworkCtx) {
       h(
         'p',
         { class: 'small muted' },
-        `Near ${coord(you.lat, you.lon)} · `,
+        `Near ${place.placeName ? `${place.placeName} (${coord(you.lat, you.lon)})` : coord(you.lat, you.lon)} · `,
         place.canPublish ? h('a', { href: '#sensor' }, 'change it under Be a sensor') : h('button', { class: 'link', 'data-key': 'move', onclick: move }, 'change'),
         place.canPublish ? ', since this phone shares it' : null,
       ),
@@ -181,7 +185,7 @@ export function networkView(ctx: NetworkCtx) {
                 'li',
                 { 'data-testid': 'near-item' },
                 h('span', { class: `badge${x.kind === 'provisional' || x.kind === 'confirmed' ? ' ours' : ''}` }, x.kind === 'felt' ? 'felt' : magBadge(x.mag)),
-                h('span', {}, nearTitle(x), h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km from you${x.level === null ? '' : ` · ${x.kind === 'felt' ? 'typically' : 'rough local shaking:'} ${INTENSITY_WORDS[x.level]}`}`)),
+                h('span', {}, nearTitle(x), h('br'), h('span', { class: 'small muted' }, `${Math.round(x.km)} km ${fromPlace(place)}${x.level === null ? '' : ` · ${x.kind === 'felt' ? 'typically' : 'rough local shaking:'} ${INTENSITY_WORDS[x.level]}`}`)),
                 h('span', { class: 'when' }, ago(x.time)),
               ),
             ),
@@ -212,12 +216,14 @@ export function networkView(ctx: NetworkCtx) {
 
   function statsRow() {
     const st = live.transport.statuses();
+    const phones = [...live.nodes.values()].filter((n) => live.isOnline(n)).length;
+    const one = (n: number, word: string, words: string) => (n === 1 ? word : words);
     return h(
       'div',
       { class: 'stats', title: `Phones listening now (heard from in the last ${NODE_STALE_MS / 60_000} minutes); confirmed reports and quakes from the last ${HOURS} hours` },
-      h('div', {}, h('b', { 'data-testid': 'stat-nodes' }, [...live.nodes.values()].filter((n) => live.isOnline(n)).length), h('span', {}, 'phones')),
-      h('div', {}, h('b', {}, live.triggers.length), h('span', {}, 'confirmed reports')),
-      h('div', {}, h('b', { 'data-testid': 'stat-events' }, live.events.length), h('span', {}, 'quakes')),
+      h('div', {}, h('b', { 'data-testid': 'stat-nodes' }, phones), h('span', {}, one(phones, 'phone', 'phones'))),
+      h('div', {}, h('b', {}, live.triggers.length), h('span', {}, one(live.triggers.length, 'confirmed report', 'confirmed reports'))),
+      h('div', {}, h('b', { 'data-testid': 'stat-events' }, live.events.length), h('span', {}, one(live.events.length, 'quake', 'quakes'))),
       h('div', {}, h('b', {}, `${st.filter((s) => s.state === 'open').length}/${st.length}`), h('span', {}, 'relays')),
     );
   }
@@ -247,24 +253,36 @@ export function networkView(ctx: NetworkCtx) {
     );
   }
 
+  /** The open details take focus when chosen, and keep it while the panel redraws. */
+  const detailKey = (el: HTMLElement) => {
+    el.tabIndex = -1;
+    el.dataset.key = 'detail';
+    return el;
+  };
+
   function detailCard() {
     const ev = selected?.kind === 'event' ? live.events.find((e) => e.id === selected!.id) : null;
     if (ev) {
       const m = matchUsgs(ev, live.usgs);
-      return compareCard(
+      const card = compareCard(
         'Network detection',
         ev,
         m ? { lat: m.quake.lat, lon: m.quake.lon, time: m.quake.time, mag: m.quake.mag, label: 'USGS', url: m.quake.url } : null,
         live.usgsState === 'ok' ? `No matching USGS event yet. Official solutions can take minutes, or this may be a false alarm. ${USGS_GAP}` : 'USGS feed unavailable, cannot cross-check right now.',
       );
+      if (place.location) card.querySelector('header')!.after(h('p', { class: 'small', 'data-testid': 'detail-km' }, `${Math.round(distanceKm(place.location, ev))} km ${fromPlace(place)}`));
+      return detailKey(card);
     }
     const q = selected?.kind === 'usgs' ? live.usgs.find((x) => x.id === selected!.id) : null;
     return q
-      ? h(
-          'section',
-          { class: 'compare', 'aria-label': 'USGS event' },
-          h('header', {}, h('b', {}, `${mag(q.mag)} · ${q.place}`), h('a', { href: q.url, target: '_blank', rel: 'noopener', class: 'small' }, 'USGS ↗')),
-          h('p', { class: 'verdict mono small' }, `${coord(q.lat, q.lon)} · depth ${q.depthKm.toFixed(0)} km · ${ago(q.time)}`),
+      ? detailKey(
+          h(
+            'section',
+            { class: 'compare', 'aria-label': 'USGS event' },
+            h('header', {}, h('b', {}, `${mag(q.mag)} · ${q.place}`), h('a', { href: q.url, target: '_blank', rel: 'noopener', class: 'small' }, 'USGS ↗')),
+            place.location ? h('p', { class: 'small', 'data-testid': 'detail-km' }, `${Math.round(distanceKm(place.location, q))} km ${fromPlace(place)}`) : null,
+            h('p', { class: 'verdict mono small' }, `${coord(q.lat, q.lon)} · depth ${q.depthKm.toFixed(0)} km · ${ago(q.time)}`),
+          ),
         )
       : null;
   }
@@ -292,7 +310,7 @@ export function networkView(ctx: NetworkCtx) {
                   'button',
                   { class: 'row', 'aria-pressed': selected?.kind === 'event' && selected.id === e.id ? 'true' : 'false', 'data-key': `event:${e.id}`, onclick: () => select('event', e.id) },
                   h('span', { class: 'badge ours' }, magBadge(e.mag)),
-                  h('span', { class: 'where' }, m ? `Matches USGS: ${m.quake.place}` : coord(e.lat, e.lon), h('br'), h('span', { class: 'small muted' }, `${e.triggers.length} phones agreed`)),
+                  h('span', { class: 'where' }, m ? `Matches USGS: ${m.quake.place}` : coord(e.lat, e.lon), h('br'), h('span', { class: 'small muted' }, `${e.triggers.length} phones agreed · compare ›`)),
                   h('span', { class: 'when' }, ago(e.time)),
                 ),
               );
@@ -345,7 +363,7 @@ export function networkView(ctx: NetworkCtx) {
         'button',
         { class: 'row', 'aria-pressed': selected?.kind === 'usgs' && selected.id === q.id ? 'true' : 'false', 'data-key': `usgs:${q.id}`, onclick: () => select('usgs', q.id) },
         h('span', { class: 'badge' }, magBadge(q.mag)),
-        h('span', { class: 'where' }, q.place, you && h('br'), you && h('span', { class: 'small muted' }, `${Math.round(distanceKm(you, q))} km from you`)),
+        h('span', { class: 'where' }, q.place, you && h('br'), you && h('span', { class: 'small muted' }, `${Math.round(distanceKm(you, q))} km ${fromPlace(place)}`)),
         h('span', { class: 'when' }, ago(q.time)),
       ),
     );
