@@ -7,27 +7,11 @@ import { gauss, rng } from './rng';
 import { upperMedian } from './stats';
 import { CLOCK_SIGMA_MS, RELAY_LATENCY_MS, alertS, pointInDisk, siteScatter, type Arrival } from './simnet';
 
-/**
- * Network planner: how many phones does a city need?
- *
- * Hundreds of quakes against thousands of phones is too much to synthesise sample by sample,
- * so each phone draws its behaviour from a model measured on the real detector (see
- * phonemodel.ts). Everything downstream is the real network code: early detection from picks,
- * association, location and warning time.
- */
-
-/**
- * The planner judges on frames this long, and only when a pick is new or quiet phones have
- * come due. The live app judges 200 ms after each batch of messages and Replay at every
- * arrival, so a planned declaration can come up to one frame later than theirs: a quarter
- * second of fidelity traded for thousands of simulated quakes.
- */
 const FRAME_MS = 250;
 /** Phones bumped, walked past or picked up in any given minute: an assumption, not a measurement. */
 export const DISTURBED_PER_MINUTE = 0.05;
 /** Above this many confirmed triggers, locate from an even sample of them (the app uses all). */
 const MAX_CONFIRM = 300;
-/** Residents count toward the share warned once they shake at least moderately (intensity 3). */
 const SHAKEN_LEVEL = 3;
 
 export interface PlanInput {
@@ -87,7 +71,6 @@ export const RELIABLY = 0.9;
  * while a smaller count is still being simulated, null once none of them does.
  */
 export function enoughPhones(sweep: number[], points: Summary[]): Summary | null | undefined {
-  // shortcut: the answer is one of the sweep's steps, not a search between them; bisect between the last miss and the first hit when a sharper count is wanted.
   for (const n of sweep) {
     const s = points.find((p) => p.phones === n);
     if (!s) return undefined;
@@ -96,7 +79,6 @@ export function enoughPhones(sweep: number[], points: Summary[]): Summary | null
   return null;
 }
 
-/** Where the plan's phones are, and the coarse positions the network knows them by. */
 function phoneNodes(input: PlanInput, r: () => number) {
   const phones = Array.from({ length: input.phones }, () => pointInDisk(input.city, input.radiusKm, r));
   return { phones, nodes: phones.map((p, i): Listener => ({ id: `p${i}`, ...coarsen(p) })) };
@@ -218,8 +200,6 @@ function quietMinute(input: PlanInput, r: () => number) {
 /** The planner as a sequence of steps (one simulated quake or quiet minute each), yielding progress 0..1. */
 export function* simulatePlan(input: PlanInput, model: PhoneModel): Generator<number, PlanResult> {
   const r = rng(input.seed ?? 1);
-  // Where the quakes strike has its own stream, so every network size faces the same quakes: at
-  // 60 to 150 km an alert comes about 20 s sooner below 130 km, and 24 draws differ by chance.
   const where = rng((input.seed ?? 1) + 0x9e3779b9);
   const people = residents(input.city, input.radiusKm);
   const n = input.quakes ?? 24;

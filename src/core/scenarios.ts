@@ -120,16 +120,13 @@ export const ORIGIN_OFFSET_S = 25;
 /** Scenario ms (since the scenario started) → seconds since the quake's origin. */
 export const sinceOrigin = (scenarioMs: number) => scenarioMs / 1000 - ORIGIN_OFFSET_S;
 
-/** No record is shorter than this, s. */
 const MIN_DURATION_S = 80;
-/** A phone judges its shaking by this long after the onset, s (see NodeDetector). */
 const CHECK_S = 30;
 
 /** Build a phone network around the city and synthesise every phone's accelerometer record. */
 export function simulate(s: Scenario, start: number): Simulation {
   const r = rng(s.seed);
   const kinds = ['footsteps', 'slam', 'pickup'] as const;
-  // Every phone is drawn before any record is made: the farthest one sets how long they all run.
   const phones = Array.from({ length: s.nodes }, () => {
     const loc = coarsen(pointInDisk(s.city, s.radiusKm, r));
     const distKm = s.truth ? distanceKm(s.truth, loc) : null;
@@ -138,15 +135,12 @@ export function simulate(s: Scenario, start: number): Simulation {
     const tS = hyp === null ? null : ORIGIN_OFFSET_S + hyp / VS_KMS;
     const pga = hyp === null ? 0 : pgaFor(s.truth!.mag, hyp) * siteScatter(r);
     const disturbance = r() < s.disturbed ? kinds[Math.floor(r() * 3)] : null;
-    // A disturbance comes when it would in the shortest record: the extra length is for far phones' checks.
     const dT = 8 + r() * (MIN_DURATION_S - 30);
     const clockMs = CLOCK_SIGMA_MS * gauss(r);
     const noise = phoneNoise(r);
     const steps = disturbance === 'footsteps' ? 6 + Math.floor(r() * 8) : 0;
     return { loc, distKm, tP, tS, pga, disturbance, dT, clockMs, noise, steps };
   });
-  // Run until the farthest phone's verdict on the S wave has reached the network: a phone judges
-  // within 30 s of the onset, quake shaking typically in 15, and the relay adds a second.
   const lastS = Math.max(0, ...phones.map((p) => p.tS ?? 0));
   const durationS = Math.max(MIN_DURATION_S, Math.ceil(lastS + CHECK_S + RELAY_LATENCY_MS / 1000));
   const nodes = phones.map(({ loc, distKm, tP, tS, pga, disturbance, dT, clockMs, noise, steps }, i): SimNode => {

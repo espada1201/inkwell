@@ -5,19 +5,14 @@ import { h, keepFocus } from '../ui/dom';
 import { WITHDRAWN, coord, intensityWord, mag } from '../ui/format';
 import { drawTrace } from '../ui/trace';
 
-/** A still phone's own flicker keeps STA/LTA under 2.5: at most 2.0 over three hours of quiet tables. */
 const STIRRING = 2.5;
 
-/** Other phones this close count as neighbours. */
 const NEAR_KM = 25;
 
-/** How each verdict reads, and its look: a felt quake like a confirmed entry in the log, a missed one like a withdrawn one. */
 const VERDICTS: Record<Verdict, [label: string, cls: string]> = { felt: ['felt', 'tag trig'], missed: ['missed', 'tag rej'], 'too weak': ['too weak here, as expected', 'muted'] };
 
-/** A distance for "about": whole km close by, tens of km further out. */
 const about = (km: number) => (km < 20 ? Math.max(1, Math.round(km)) : Math.round(km / 10) * 10);
 
-/** Listening time in minutes and hours, floored. */
 function duration(ms: number) {
   const m = Math.floor(ms / 60_000);
   return !ms ? 'none' : m < 1 ? 'under a minute' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
@@ -42,7 +37,6 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
   const background = h('dd', { 'data-testid': 'background' });
   const feel = h('section', { class: 'card', 'data-testid': 'can-feel' });
   let shown = -Infinity;
-  // The location fields outlive redraws, so coordinates being typed are kept until they are set.
   const lat = h('input', { inputmode: 'decimal', placeholder: 'lat', 'aria-label': 'Latitude' });
   const lon = h('input', { inputmode: 'decimal', placeholder: 'lon', 'aria-label': 'Longitude' });
   let filled: LatLon | null | undefined;
@@ -59,7 +53,6 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
     meterThr.style.left = `${d ? scale(d.threshold) : 0}%`;
     meterWord.textContent = !d || d.warmingUp ? '' : d.overTrigger ? 'Shaking' : d.ratio >= STIRRING ? 'Something moving' : 'Quiet';
     ratioText.textContent = d ? `STA/LTA ${d.ratio.toFixed(1)} · threshold ${d.threshold.toFixed(1)}` : 'STA/LTA —';
-    // The detector's own background, once a second: it moves slowly, and digits that flicker are hard to read.
     if (performance.now() - shown > 1000) {
       shown = performance.now();
       background.textContent = !d ? '—' : d.warmingUp ? 'learning…' : `${(d.background * 1000).toFixed(1)} mm/s²`;
@@ -69,7 +62,6 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
     raf = dimmed || document.hidden ? 0 : requestAnimationFrame(loop);
   }
 
-  /** What this phone can feel, from its background now, the shaking model and the network around it. */
   function canFeel() {
     const d = s.detector;
     const here = s.location;
@@ -141,7 +133,6 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
           class: 'inputs',
           onsubmit: (e: Event) => {
             e.preventDefault();
-            // Read as one pair, so each box takes one plain number: 37,77 is refused, not read as 37.
             const at = parseLatLon(`${lat.value}, ${lon.value}`);
             if (at) s.setLocation(at);
             else msg.textContent = 'Type a number in each box, with a point for decimals: latitude from −90 to 90, longitude from −180 to 180, like 37.77 and -122.42.';

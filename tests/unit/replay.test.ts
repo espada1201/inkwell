@@ -10,13 +10,10 @@ const loaded = (id: string) => {
   return r;
 };
 
-/** The verdict a phone reached on one of its picks, if it has reached one. */
 const verdictOf = (n: ReplayNodeView, t: number) => (n.trigger?.t === t ? n.trigger : n.rejects.find((x) => x.t === t));
 
-/** Phones with a pick whose verdict has not reached the network by the end of the replay. */
 const unresolved = (r: Replay) => r.nodes.filter((n) => n.picks.some((p) => !((verdictOf(n, p.t)?.at ?? Infinity) + RELAY_LATENCY_MS <= r.duration))).map((n) => n.id);
 
-/** A quake from the feed replayed around a saved location `km` from it, as the Replay screen builds one: 40 phones within 30 km. */
 function aroundHome(mag: number, km: number): Scenario {
   const epicentre = { lat: 37.85, lon: -122.22 };
   return {
@@ -49,7 +46,6 @@ describe('the Replay tab, run headless', () => {
     for (const s of SCENARIOS) {
       const r = loaded(s.id);
       const wrong = new Set<string>();
-      // How a phone is drawn depends only on the clock, so move the clock itself.
       for (r.vt = 0; r.vt < r.duration; r.vt += 100) {
         for (const n of r.nodes) {
           const checking = n.picks.some((p) => p.at <= r.vt && !((verdictOf(n, p.t)?.at ?? Infinity) <= r.vt));

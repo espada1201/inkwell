@@ -11,7 +11,6 @@ const live = (usgs: UsgsQuake[]) => ({ early: [], events: [], feltClusters: [], 
 
 describe('shaking near you', () => {
   it('puts a small quake close by at weak at most, and leaves out one too weak to feel here', () => {
-    // An M2.0 5 km away and 2 km deep, an M2.6 there, and an M1.0 90 km away.
     const near = nearYou(live([quake('m2', 2, 5, 2), quake('m26', 2.6, 5, 2), quake('m1', 1, 90, 5)]), you, now);
     expect(near.map((x) => [x.kind === 'usgs' && x.place, x.level])).toEqual([
       ['m2', 1],

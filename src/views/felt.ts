@@ -7,9 +7,7 @@ import { h } from '../ui/dom';
 import { INTENSITY_WORDS, clock, coord } from '../ui/format';
 import { placeForm } from './place';
 
-/** What each level feels like, weak to very strong. */
 const FEELS = ['Barely felt, like a truck passing', 'Windows, doors and dishes rattled', 'Felt by everyone; small things fell over', 'Hard to stand; furniture moved', 'Hard to stay on your feet; buildings damaged'];
-/** USGS "Did You Feel It?", for when no listed quake matches. */
 const DYFI = 'https://earthquake.usgs.gov/data/dyfi/';
 
 /**
@@ -20,7 +18,6 @@ export function feltDialog(live: LiveNetwork, place: Place, me: { sk: Uint8Array
   const body = h('div', { class: 'stack' });
   const el = h('dialog', { class: 'felt', 'aria-labelledby': 'felt-title' }, h('h2', { id: 'felt-title' }, 'I felt it'), body, h('form', { method: 'dialog' }, h('button', { class: 'btn' }, 'Close')));
 
-  /** A report is out: what it said, and where else to tell. */
   function sent(f: Felt) {
     const m = matchFelt(f, live.usgs);
     const out = reach(live.transport.statuses()) === 'open' ? 'It is on its way to the relays.' : 'No relay is connected yet: it goes out once one is, while this page stays open.';

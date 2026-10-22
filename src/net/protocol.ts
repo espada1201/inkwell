@@ -24,12 +24,9 @@ const TAG = 'tremor';
 export const HEARTBEAT_EVERY_MS = 60_000;
 /** Events dated further ahead than this are refused: they would never expire. */
 const MAX_FUTURE_MS = 5 * 60_000;
-/** Onsets dated further ahead of now than this are refused: a clock that far off would misplace any quake. */
 const MAX_ONSET_AHEAD_MS = 60_000;
-/** A felt report says when it was felt: up to an hour before it was signed, or a minute after (clock error). */
 const FELT_BEFORE_MS = 3600_000;
 const FELT_AFTER_MS = 60_000;
-/** Why a phone withdrew a pick, as its retraction says it; any other text gives no reason. */
 const REASONS = ['handling', 'impulse', 'footsteps', 'interrupted'] as const satisfies readonly RejectReason[];
 
 export interface Heartbeat {

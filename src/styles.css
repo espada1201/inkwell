@@ -297,7 +297,6 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
   * { animation: none !important; transition: none !important; }
 }
 
-/* ── replay-plan: Plan for Here, recent quakes in Replay ── */
 .here-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; }
 .here-form[hidden] { display: none; }
 .here-form input { width: 100%; min-width: 0; background: var(--card); border: 1px solid var(--ink); padding: 8px; font: 13px var(--mono); border-radius: 2px; }
@@ -310,9 +309,7 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
 .recent .btn { grid-column: 1 / -1; justify-self: start; min-height: 36px; padding: 6px 12px; font-size: 13px; }
 .recent .btn[aria-pressed='true'] { background: var(--ink); color: var(--paper); }
 
-/* ── network (live screen) ───────────────────────────── */
 .stack { display: grid; gap: 12px; }
-/* Grey text on a selected row's tint falls short of 4.5:1. */
 .row[aria-pressed='true'] .when, .row[aria-pressed='true'] .muted { color: var(--ink-2); }
 .relays-note { color: var(--red); margin: 6px 0; }
 /* Kept in the page while empty, so screen readers hear it when it fills. */

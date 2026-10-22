@@ -21,7 +21,6 @@ export interface ReplayNodeView {
   rejects: { t: number; at: number; reason: RejectReason }[];
 }
 
-/** A withdrawn pick stays drawn as withdrawn this long. */
 const WITHDRAWN_SHOWN_MS = 8000;
 
 /**
@@ -202,7 +201,6 @@ export class Replay extends Emitter {
     if (n.rejects.some((x) => x.at <= vt && vt - x.at < WITHDRAWN_SHOWN_MS)) return 'reject';
     const pick = n.picks.filter((p) => p.at <= vt).pop();
     if (!pick) return 'idle';
-    // Only the latest pick's own verdict ends its check, not one on an earlier pick.
     const verdict = n.trigger?.t === pick.t ? n.trigger : n.rejects.find((x) => x.t === pick.t);
     return verdict && verdict.at <= vt ? 'idle' : 'pick';
   }

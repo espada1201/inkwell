@@ -30,7 +30,6 @@ const MAX_WITHDRAWALS = 5000;
 const MAX_FELT = 2000;
 /** Phones kept at most: past it, the one silent longest goes. */
 export const MAX_NODES = 10_000;
-/** A phone shows as checking its pick for a minute unless it withdraws it, and as shaken for two after a trigger. */
 const PICKING_MS = 60_000;
 const SHAKEN_MS = 120_000;
 /** A provisional detection that neither its phones nor a confirmed one settle this long after it was declared stays unconfirmed. */
@@ -55,7 +54,6 @@ export interface Provisional {
   outcome: 'open' | 'confirmed' | 'withdrawn' | 'unconfirmed';
   /** The confirmed event that explains it. */
   confirmed: DetectedEvent | null;
-  /** Its phones that withdrew their picks. */
   withdrew: Withdrawal[];
 }
 
@@ -81,20 +79,17 @@ export class LiveNetwork extends Emitter {
   usgs: UsgsQuake[] = [];
   usgsState: 'loading' | 'ok' | 'error' = 'loading';
   usgsWindow: UsgsWindow;
-  /** Picks and triggers from phones not yet heard from, held until their heartbeat comes. */
   private pending: Message[] = [];
   /**
    * Retractions by `pick:phone`, from phones with a heartbeat. One can arrive before its pick,
    * and only the pick's own author may retract it, so every retracting phone is kept until the
    * pick shows.
    */
-  // shortcut: a phone with a heartbeat can still fill this cap with retractions of picks it never sent; cap them per phone if that is seen.
   private withdrawals = new Map<string, Withdrawal>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
   private recomputeQueued = false;
   private recheck: ReturnType<typeof setTimeout> | undefined;
-  /** USGS requests made, and the latest one whose answer is shown. */
   private usgsAsked = 0;
   private usgsShown = 0;
 
@@ -130,9 +125,7 @@ export class LiveNetwork extends Emitter {
     try {
       quakes = await fetchUsgs(w, this.fetchImpl);
     } catch {
-      /* shown as unavailable */
     }
-    // Answers can come back out of order: one for the other window, or older than the one shown, is stale.
     if (w !== this.usgsWindow || asked < this.usgsShown) return;
     this.usgsShown = asked;
     if (quakes) this.usgs = quakes;
@@ -150,18 +143,14 @@ export class LiveNetwork extends Emitter {
     if (m.type === 'heartbeat') {
       const prev = this.nodes.get(m.node);
       if (prev && prev.lastSeen > m.at) return;
-      // shortcut: a linear scan for the quietest phone once full; keep phones ordered by lastSeen if floods of new keys make it slow.
       if (!prev && this.nodes.size >= MAX_NODES) this.nodes.delete([...this.nodes.values()].reduce((a, b) => (b.lastSeen < a.lastSeen ? b : a)).id);
-      // A phone resumes listening when first heard, after saying it stopped, or after going stale.
       const resumed = !prev || prev.sps === 0 || m.at - prev.lastSeen > NODE_STALE_MS;
       this.nodes.set(m.node, { ...m.data, id: m.node, firstSeen: resumed ? m.at : prev.firstSeen, lastSeen: m.at, lastTrigger: prev?.lastTrigger ?? null });
       const held = this.pending.filter((p) => p.node === m.node);
       this.pending = this.pending.filter((p) => p.node !== m.node);
       held.forEach((p) => this.receive(p));
-      // Which phones are listening, and where, decides what their silence vetoes, so a phone first heard after the picks still has its say.
       this.queueRecompute();
     } else if (m.type !== 'felt' && !this.nodes.has(m.node)) {
-      // Picks, triggers and retractions count only from phones that have announced themselves.
       this.pending = [...this.pending, m].slice(-500);
       return;
     } else if (m.type === 'retract') {
@@ -173,7 +162,6 @@ export class LiveNetwork extends Emitter {
       this.picks.delete(m.pick);
       this.queueRecompute();
     } else if (m.type === 'felt') {
-      // Every report is kept, so clustering alone decides which of a key's reports count, the same in any order.
       if (m.data.t < Date.now() - WINDOW_MS || this.felt.some((f) => f.id === m.id)) return;
       this.felt.push({ id: m.id, node: m.node, ...m.data });
       if (this.felt.length > MAX_FELT) this.felt.shift();
@@ -181,7 +169,6 @@ export class LiveNetwork extends Emitter {
     } else {
       if (m.data.t < Date.now() - WINDOW_MS) return;
       const t: Trigger = { id: m.id, node: m.node, lat: m.data.lat, lon: m.data.lon, t: m.data.t, pga: m.type === 'trigger' ? m.data.pga : 0, phase: m.data.phase };
-      // The pick a trigger settles ties the confirmed quake to the provisional detection that pick was part of.
       if (m.type === 'trigger' && m.pick) t.pick = m.pick;
       const n = this.nodes.get(m.node)!;
       if (m.type === 'pick') {
@@ -260,10 +247,8 @@ export class LiveNetwork extends Emitter {
       }, 500);
   }
 
-  /** Follow each provisional detection until it is confirmed, its phones withdraw, or it has waited too long. */
   private settle(now: number) {
     for (const e of this.early) {
-      // The same detection again: one that shares a pick with it, wherever each was placed, or failing that one nearby.
       const ids = new Set(e.triggers.map((t) => t.id));
       const open = this.provisional.filter((x) => x.outcome === 'open');
       const d = open.find((x) => x.picks.some((p) => ids.has(p.id))) ?? open.find((x) => nearby(e, x.event));
@@ -274,14 +259,11 @@ export class LiveNetwork extends Emitter {
       }
     }
     for (const d of this.provisional) {
-      // A confirmed one follows its quake as later triggers refine it, and keeps the last it had once that is gone.
       d.confirmed = explainedBy(d.event, d.picks, this.events) ?? (d.outcome === 'confirmed' ? d.confirmed : null);
       if (d.outcome === 'confirmed') continue;
-      // Once it has ended, the reasons it ended with are its record: the withdrawals behind them can be pushed out or pruned first.
       if (d.outcome === 'open') d.withdrew = d.picks.flatMap((p) => this.withdrawals.get(`${p.id}:${p.node}`) ?? []);
       if (d.confirmed) d.outcome = 'confirmed';
       else if (d.outcome === 'open' && !this.early.includes(d.event)) {
-        // No longer declared: too few of its phones are left to confirm it, or it has waited long enough.
         if (d.picks.length - d.withdrew.length < MIN_PICKS) d.outcome = 'withdrawn';
         else if (now - d.declared >= SETTLE_MS) d.outcome = 'unconfirmed';
       }

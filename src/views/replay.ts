@@ -12,11 +12,8 @@ import { drawSection } from '../ui/section';
 import { compareCard, give } from './compare';
 
 const ISOCHRONS = [5, 10, 20];
-/** Minutes and seconds into a replay: 0:55. */
 const elapsed = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-/** A replayed quake puts its simulated phones around the viewer's saved location when it is this close to it. */
 const NEAR_HOME_KM = 150;
-/** How many recent quakes from the USGS feed are offered. */
 const RECENT = 5;
 
 export const REPLAY_LEGEND: Swatch[] = [
@@ -38,7 +35,6 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   const playBtn = h('button', { class: 'btn primary', 'data-testid': 'play' });
   const stats = h('p', { class: 'small mono muted', 'data-testid': 'replay-stats' });
   const steps = h('ol', { class: 'timeline', 'aria-label': 'What the network knew, and when' });
-  // The cards redraw as the replay plays; screen readers hear only its milestones, through `said`.
   const warn = h('div', {});
   const result = h('div', {});
   const said = h('p', { class: 'sr-only', role: 'status', 'data-testid': 'replay-status' });
@@ -56,7 +52,6 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     ...[1, 4, 10].map((s) => h('button', { 'data-speed': s, 'aria-pressed': String(r.speed === s), onclick: () => ((r.speed = s), update()) }, `${s}×`)),
   );
 
-  /** The clock at scenario ms `at`, as shown: from the quake's origin, or into a replay that has none. */
   const clockText = (at: number) => (r.sim?.scenario.truth ? clockT(r.clockAt(at)) : elapsed(r.clockAt(at)));
 
   /** Fit the map to the loaded scenario's phones and epicentre. */
@@ -66,11 +61,9 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     map.fitTo(pts, 10);
   }
 
-  /** A quake from the feed or a link, with simulated phones around the viewer if it is near them, else around the epicentre. */
   function quakeScenario(q: QuakeRef): Scenario {
     const home = saved && distanceKm(saved, q) <= NEAR_HOME_KM ? saved : null;
     const where = live.usgs.find((x) => x.id === q.id)?.place ?? coord(q.lat, q.lon);
-    // shortcut: every replayed quake gets 40 phones within 30 km, not the density of real phones there; derive it from Tremor's own network once it has one.
     return {
       id: quakeLink(q),
       title: mag(q.mag),
@@ -85,7 +78,6 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     };
   }
 
-  /** The scenario's story, and how to read its record section. */
   function describe(s: Scenario) {
     blurb.textContent = s.blurb;
     caption.textContent = s.truth ? 'Each line is a phone, farther phones lower; the slanted bands are the P and S waves arriving.' : 'Each line is a phone; with no quake, only local disturbances show.';
@@ -116,7 +108,6 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   }
 
   let recentKey = '';
-  /** The latest quakes in the USGS feed that phones could feel, each ready to replay. */
   function renderRecent() {
     const quakes = live.usgs.filter((q): q is typeof q & { mag: number } => q.mag !== null && q.mag >= MIN_REPLAY_MAG).slice(0, RECENT);
     const key = `${live.usgsState}|${r.sim?.scenario.id}|${quakes.map((q) => `${q.id} ${ago(q.time)}`)}`;
@@ -232,7 +223,6 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     );
   }
 
-  /** The one line screen readers hear: the latest milestone the replay has passed. */
   function milestone() {
     const { declared, confirmedAt } = r;
     const real = !!r.sim?.scenario.truth;

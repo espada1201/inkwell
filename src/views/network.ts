@@ -32,22 +32,17 @@ export interface NetworkCtx {
   relays: string[];
   saveRelays: (urls: string[]) => void;
   place: Place;
-  /** Opens the "I felt it" question. */
   openFelt: () => void;
   /** The opt-in chime for shaking confirmed near you. */
   chime: { readonly on: boolean; set(on: boolean): void };
 }
 
 type Selection = { kind: 'event' | 'usgs'; id: string };
-/** How far back the panel looks. */
 const HOURS = WINDOW_MS / 3600_000;
-/** Why a quake can be missing from the USGS list. */
 const USGS_GAP = 'Outside the US, USGS may not list quakes below about M4.5.';
 const feltText = (c: { people: number; places: number }) => `${c.people} people in ${c.places} places felt shaking`;
-/** What a row of "Shaking near you?" is called. */
 const nearTitle = (x: Near) => (x.kind === 'felt' ? feltText(x) : x.kind === 'usgs' ? `USGS: ${x.place}` : x.kind === 'provisional' ? 'Provisional Tremor detection' : 'Tremor detection');
 
-/** How a provisional detection ended, in the words of both the panel and the screen-reader announcer. */
 function outcomeText(d: Provisional, usgs: UsgsQuake[]) {
   if (d.confirmed) return `Confirmed: ${mag(d.confirmed.mag)}${matchUsgs(d.confirmed, usgs) ? ', matches USGS' : ''}`;
   const w = d.withdrew;
@@ -61,22 +56,12 @@ export function networkView(ctx: NetworkCtx) {
   const { live, map, place } = ctx;
   let selected: Selection | null = null;
   let flewToData = false;
-  /** Asking for a new location, though one is set. */
   let moving = false;
-  /** The USGS list in feed order rather than nearest first. */
   let worldwide = false;
   const root = h('div', { class: 'panel-inner' });
-  // Screen readers hear once of each provisional detection and of how it ended; the rest of the panel is not a live region.
   const announcer = h('p', { class: 'sr-only', role: 'alert' });
-  // What the announcer last said of each detection: those that had ended before this screen opened are old news.
   const told = new Map(live.provisional.filter((d) => d.outcome !== 'open').map((d) => [d, d.outcome]));
 
-  /**
-   * A part of the panel, swapped in only when what it shows has changed: the parts that did not
-   * change keep focus, are not read out again, and keep whatever is being typed into them. They
-   * also keep their old handlers, so a handler looks up what it acts on when it runs, by id,
-   * rather than holding what the render that drew it saw.
-   */
   const part = (parent: HTMLElement = root) => {
     let shown: ChildNode = parent.appendChild(document.createComment(''));
     let html = '';
@@ -159,11 +144,9 @@ export function networkView(ctx: NetworkCtx) {
     if (news.length) announcer.textContent = news.join(' ');
   }
 
-  /** The most common question: was that a quake, near me? */
   function nearCard() {
     const you = place.location;
     const card = (...body: (Node | null)[]) => h('section', { class: 'near', 'data-testid': 'near', 'aria-labelledby': 'near-title' }, h('h2', { id: 'near-title' }, 'Shaking near you?'), ...body);
-    // A phone sharing as a sensor publishes where it is: moving it here, to look elsewhere, would misplace its picks.
     if (!you || (moving && !place.canPublish))
       return card(
         placeForm(place, () => {
@@ -234,7 +217,6 @@ export function networkView(ctx: NetworkCtx) {
     );
   }
 
-  /** Declared detections as cards; once no longer declared, each stays for two hours as a line saying how it ended. */
   function provisionalCards() {
     const ended = live.provisional.filter((d) => !live.early.includes(d.event)).reverse();
     if (!live.early.length && !ended.length) return null;
@@ -327,7 +309,6 @@ export function networkView(ctx: NetworkCtx) {
     );
   }
 
-  /** The shakings people felt, once enough keys in enough places agree: the map's felt dots, in words. */
   function feltSection() {
     if (!live.feltClusters.length) return null;
     return h(
@@ -413,12 +394,10 @@ export function networkView(ctx: NetworkCtx) {
     );
   }
 
-  /** Built once: what is typed into it, and whether it is open, survive every update. */
   function relaysBox() {
     const note = h('p', { class: 'small relays-note', role: 'status', id: 'relays-note' });
     const ta = h('textarea', { 'aria-label': 'Relay URLs, one per line', 'aria-describedby': 'relays-note', spellcheck: 'false' });
     ta.value = ctx.relays.join('\n');
-    // Saving reloads the page, so a list with a wrong line is not saved at all: the user sees why first.
     const save = () => {
       const lines = ta.value.split(/\s+/).filter(Boolean);
       const wrong = lines.filter((s) => !isRelayUrl(s));

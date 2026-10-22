@@ -18,7 +18,6 @@ test('Napa replay: phones declare early, locate near USGS, and show warning time
   const est = { lat: Number(await loc.getAttribute('data-lat')), lon: Number(await loc.getAttribute('data-lon')) };
   expect(distanceKm(est, truth)).toBeLessThan(15);
   await expect(page.getByTestId('verdict')).toContainText('Off by');
-  // It says how far off it could be, and the catalogue's epicentre is inside that.
   const km = Number((await page.getByTestId('est-km').innerText()).match(/^± (\d+) km/)![1]);
   expect(distanceKm(est, truth)).toBeLessThanOrEqual(km);
   await expect(page.getByTestId('est-mag')).toHaveText(/^M\d\.\d–\d\.\d$/);
@@ -36,21 +35,17 @@ test('concert night: no earthquake is declared', async ({ page }) => {
   await expect(page.getByTestId('warning')).toContainText('No alert');
   await expect(page.getByTestId('compare')).toHaveCount(0);
   await expect(page.getByTestId('replay-status')).toHaveText('Replay finished: no quake declared.');
-  // Withdrawn picks are counted by the reason each phone gave, never as false alarms.
   const stats = await page.getByTestId('replay-stats').innerText();
   expect(stats).toMatch(/^40 simulated phones · \d+ confirmed · \d+ picks withdrawn on-device \((footsteps|bump or door slam|phone moved) \d+(, (footsteps|bump or door slam|phone moved) \d+)*\)$/);
-  // Disturbances that passed their phones' own checks are explained, when there are any.
   const confirmed = Number(stats.match(/(\d+) confirmed/)![1]);
   const card = page.getByTestId('warning');
   if (confirmed) await expect(card).toContainText(`${confirmed} more passed`);
   else await expect(card).not.toContainText('passed');
-  // With no quake there is no T+: the clock counts time into the replay.
   await expect(page.getByTestId('clock')).toHaveText('1:20');
   await expect(page.getByRole('slider', { name: 'Replay position' })).toHaveAttribute('aria-valuetext', '80 seconds into the replay');
   await expect(page.locator('.timeline li.done .when').first()).toHaveText(/^\d:\d\d$/);
 });
 
-/** Keep every text a screen reader is asked to announce: what changes inside a live region, as it happens. */
 function recordAnnouncements() {
   const said: string[] = [];
   Object.assign(window, { said });
@@ -89,7 +84,6 @@ test('switching scenarios and scrubbing works with the keyboard', async ({ page 
   await expect(page.getByTestId('compare')).toBeVisible();
 });
 
-// Half an hour ago the feed listed a strong quake near Berkeley.
 const berkeley = { id: 'nc-berkeley', mag: 5.1, place: '4 km SE of Berkeley, CA', time: Date.now() - 30 * 60_000, lat: 37.85, lon: -122.22, depth: 8 };
 const berkeleyLink = `usgs/nc-berkeley/${berkeley.time}/37.85/-122.22/8/5.1`;
 
@@ -99,7 +93,6 @@ test.describe('recent quakes from the USGS feed', () => {
   test('a recent quake replays with simulated phones, and its link works once it has left the feed', async ({ page }) => {
     await page.goto('/?speed=10#replay/napa-2014');
     const rows = page.getByTestId('recent').locator('li');
-    // The feed's M2.1 is too weak for phones to feel, so it is not offered.
     await expect(rows).toHaveCount(3);
     await expect(rows.nth(1)).toContainText('M5.1');
     await rows.nth(1).getByRole('button', { name: 'Replay with simulated phones: M5.1, 4 km SE of Berkeley, CA' }).click();
@@ -111,7 +104,6 @@ test.describe('recent quakes from the USGS feed', () => {
     await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
     await expect(page.getByTestId('replay-stats')).toHaveText(/^40 simulated phones · /);
 
-    // Later the quake has left the feed; the link still replays it, around the viewer's own spot nearby.
     await page.route('**/earthquake.usgs.gov/earthquakes/feed/**', (r) => r.fulfill({ json: usgsFeed() }));
     await page.evaluate(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 37.8, lon: -122.27 })));
     await page.goto('about:blank');
@@ -128,13 +120,11 @@ test('a quake 140 km from the saved location plays on until the phones there hav
   await page.goto(`/?speed=10#replay/usgs/nc-far/${Date.UTC(2026, 9, 1, 12)}/37.85/-122.22/8/6.8`);
   await expect(page.getByText(/The quake is real; the phones are simulated, around your saved location\./)).toBeVisible();
   await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
-  // Past the 55 s after the origin that phones around the epicentre need.
   const clock = page.getByTestId('clock');
   const end = Number((await clock.innerText()).match(/^T\+(\d+)\.0 s$/)![1]);
   expect(end).toBeGreaterThan(55);
   await expect(page.locator('.timeline li.done')).toHaveCount(4);
   await expect(page.getByTestId('replay-status')).toHaveText(/^Replay finished: declared at T\+\d+\.\d s, confirmed at T\+\d+\.\d s\.$/);
-  // The scrubber spans the whole record.
   const scrub = page.getByRole('slider', { name: 'Replay position' });
   await scrub.focus();
   await page.keyboard.press('Home');

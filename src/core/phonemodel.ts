@@ -4,13 +4,6 @@ import { NodeDetector, type DetectorOutput } from './sensor';
 import { FS, codaS, phoneNoise } from './simnet';
 import { synthesize } from './synth';
 
-/**
- * A simulated phone's measured behaviour, for when there are too many phones and quakes to
- * synthesise sample by sample. `calibrate` runs the real on-device detector over synthetic
- * records across shaking levels and S−P times; `respond` then draws one phone's outcome
- * (noticed or not, how late, confirmed or retracted) from those runs.
- */
-
 const PGA_LEVELS = [0.005, 0.01, 0.02, 0.035, 0.06, 0.1, 0.18, 0.3, 0.55, 1, 1.8, 3.2];
 const SP_LEVELS = [1, 2.5, 5, 9];
 const RUNS = 6;
@@ -73,7 +66,6 @@ export function respond(m: PhoneModel, pga: number, sp: number, r: () => number)
   const lp = Math.log(pga);
   let i = 0;
   while (i < PGA_LEVELS.length - 1 && Math.log(PGA_LEVELS[i + 1]) <= lp) i++;
-  // Between two measured levels: choose one at random, weighted by closeness in log PGA.
   if (i < PGA_LEVELS.length - 1 && lp > Math.log(PGA_LEVELS[i])) {
     const f = (lp - Math.log(PGA_LEVELS[i])) / (Math.log(PGA_LEVELS[i + 1]) - Math.log(PGA_LEVELS[i]));
     if (r() < f) i++;

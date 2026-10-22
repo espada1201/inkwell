@@ -100,7 +100,6 @@ describe('epicentre grid search', () => {
 
 describe('how far off a location could be', () => {
   const C = { lat: 35, lon: -118 };
-  /** Phones scattered over a disc `spreadKm` across, a quake `awayKm` from its middle. */
   function quake(seed: number, phones: number, spreadKm: number, awayKm: number, waves: 'P' | 'S' | 'both', mag = 5) {
     const r = rng(seed);
     const a = r() * 2 * Math.PI;
@@ -120,7 +119,6 @@ describe('how far off a location could be', () => {
       sol,
     );
     const middle = { lat: arr.reduce((s, x) => s + x.lat, 0) / phones, lon: arr.reduce((s, x) => s + x.lon, 0) / phones };
-    /** Within the distance claimed, or, when it says so, farther from the phones than placed. */
     const honest = (p: LatLon) => distanceKm(sol, p) <= u.km || (u.mayBeFarther && distanceKm(p, middle) > distanceKm(sol, middle));
     return { src, sol, u, covered: honest(src) };
   }

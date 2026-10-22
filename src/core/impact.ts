@@ -10,7 +10,6 @@ import { upperMedian } from './stats';
  *    so you see how hard the ground shook where people are, not just where the fault broke.
  */
 
-/** Phones count toward the warning time once they feel at least light shaking (intensity 2). */
 const FELT_LEVEL = 2;
 
 /** Surface distance at which the S wave arrives `tS` seconds after origin. */

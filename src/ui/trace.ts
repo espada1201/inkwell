@@ -34,7 +34,6 @@ export function drawTrace(canvas: HTMLCanvasElement, s: SensorNode) {
     else ctx.lineTo(px, py);
   }
   ctx.stroke();
-  // Trigger level: shaking that would cross the STA/LTA threshold over the background learned.
   const thr = s.detector && !s.detector.warmingUp ? s.detector.triggerLevel : 0;
   if (thr > 0 && thr < scale) {
     ctx.strokeStyle = red;

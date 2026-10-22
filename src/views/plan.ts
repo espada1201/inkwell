@@ -22,7 +22,6 @@ const CITIES: City[] = [
   { id: 'mexico-city', name: 'Mexico City', lat: 19.43, lon: -99.13, radiusKm: 25, note: 'An M7.1 earthquake shook the city in September 2017.' },
   { id: 'bay-area', name: 'San Francisco Bay', lat: 37.8, lon: -122.27, radiusKm: 25, note: 'The Hayward Fault runs under the East Bay.' },
 ];
-/** "Here" plans for the phones within this distance of one spot: a saved location or typed coordinates. */
 const HERE_KM = 20;
 const SETTINGS = {
   under: { label: 'Directly beneath', words: 'beneath the city', km: [0, 10] },
@@ -36,7 +35,6 @@ const PHONES = [5, 10, 15, 20, 30, 50, 75, 100, 150, 200, 300, 500, 750, 1000, 1
 const SWEEP = [10, 25, 50, 100, 250, 500, 1000];
 const QUAKES = 24;
 
-/** A spot typed or linked as "lat, lon", snapped to the grid phones publish on; null unless both are in range. */
 function parseSpot(text: string): LatLon | null {
   const at = parseLatLon(text);
   return at && coarsen(at);
@@ -66,11 +64,9 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     mag: MAGS.includes(Number(m)) ? Number(m) : 6,
     // Not `in`: that would also accept inherited names like "toString".
     setting: SETTING_KEYS.find((k) => k === d) ?? 'near',
-    // Any whole count the slider spans, so a link can carry the phones listening at a spot.
     phones: Number.isInteger(phones) && phones >= 1 && phones <= PHONES[PHONES.length - 1] ? phones : 200,
   };
   const here = () => !CITIES.includes(state.city);
-  /** In Here, the plan runs at the phones listening right now until the reader picks a count. */
   let follow = false;
   const root = h('div', { class: 'panel-inner' });
   const cityButtons = h('div', { class: 'scenarios', role: 'group', 'aria-label': 'Place' });
@@ -151,10 +147,8 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     history.replaceState(null, '', `#plan/${state.city.id}/${state.mag}/${state.setting}/${state.phones}`);
   }
 
-  /** Phones heard from right now within the Here radius. */
   const listening = () => [...live.nodes.values()].filter((n) => live.isOnline(n) && distanceKm(n, state.city) <= HERE_KM).length;
 
-  /** While following, take the phones listening now as the plan's count; true if it changed. */
   function adopt() {
     const n = listening();
     if (!follow || n === 0 || n === state.phones) return false;
@@ -171,7 +165,6 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     run(true);
   }
 
-  /** Where the phones are and where the quakes strike, in words: a city by name, or a spot. */
   function words() {
     const { city, setting } = state;
     if (!here()) return { area: `across ${city.name}`, where: SETTINGS[setting].words };
@@ -232,7 +225,6 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
   }
 
   function showPhones() {
-    // A count between the slider's steps (the phones listening at a spot) sits at the next step up.
     const i = PHONES.findIndex((v) => v >= state.phones);
     slider.value = String(i < 0 ? PHONES.length - 1 : i);
     phonesOut.textContent = many(state.phones, 'phone');
@@ -246,7 +238,6 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     run();
   });
 
-  /** Here only: the phones listening now beside the count that would catch the chosen quake, never one without the other. */
   function renderGap() {
     gap.hidden = !here();
     if (gap.hidden) return;

@@ -28,7 +28,6 @@ function permutations<T>(xs: T[]): T[][] {
 const round = (x: number) => Math.round(x * 1000) / 1000;
 const ids = (xs: { id: string }[]) => xs.map((x) => x.id).sort();
 
-/** What a reader of the network can see, with every collection in a fixed order. */
 function seen(live: LiveNetwork, probes: number[]) {
   const quake = (e: LiveNetwork['events'][number]) => ({ members: ids(e.triggers), lat: round(e.lat), lon: round(e.lon), time: Math.round(e.time), mag: e.mag === null ? null : round(e.mag) });
   const order = (xs: unknown[]) => xs.map((x) => JSON.stringify(x)).sort();
@@ -45,14 +44,8 @@ function seen(live: LiveNetwork, probes: number[]) {
   });
 }
 
-/** Time given after each message: past the 200 ms batch, so the recompute it queued has run before the next arrives. */
 const BETWEEN_MS = 250;
 
-/**
- * Feeds `pre` in order, then `msgs` in every order, from the clock at `now` and with BETWEEN_MS
- * after each message, and returns the orders that leave the network looking different from the
- * first one. The network is read as its own recomputes left it.
- */
 function divergences(pre: Message[], msgs: [string, Message][], now: number) {
   const probes = [...new Set([...pre, ...msgs.map(([, m]) => m)].flatMap((m) => [m.at, 'data' in m && 't' in m.data ? m.data.t : m.at]))].sort();
   let first: string | null = null;
@@ -158,12 +151,10 @@ describe('the live network converges', () => {
       const p = offset(src, east, north);
       return { sk: generateSecretKey(), ...p, t: t0 + (hypocentralKm(distanceKm(src, p)) / VP_KMS) * 1000 };
     };
-    // Four phones around the source felt it start; two within 4 km of it felt nothing.
     const pickers = [at(10, 0), at(-12, 3), at(2, 14), at(-4, -15)];
     const quiet = [at(3, 3), at(-3, 2)];
     const hb = (p: (typeof pickers)[number]) => msg(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50, since: now - 600_000 }));
     const picks = pickers.map((p) => msg(signPick(p.sk, p)));
-    // Without the quiet phones, the four picks make a quake.
     const alone = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     for (const m of [...pickers.map(hb), ...picks]) alone.receive(m);
     vi.advanceTimersByTime(BETWEEN_MS);

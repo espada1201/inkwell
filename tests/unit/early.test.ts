@@ -7,7 +7,6 @@ import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
 import { SCENARIOS, sinceOrigin } from '../../src/core/scenarios';
 
-/** The Replay tab's own run of a scenario, start to finish: when and where the network first declared it. */
 function firstDeclaration(id: string) {
   const s = SCENARIOS.find((x) => x.id === id)!;
   const r = new Replay();
@@ -135,7 +134,6 @@ describe('the declaration rule at its edges', () => {
     Array.from({ length: n }, (_, i) => ({ id: `${tag}${i}`, ...coarsen(offset(C, km * Math.cos((i / n) * 2 * Math.PI), km * Math.sin((i / n) * 2 * Math.PI))) }));
 
   it('picks from four phones in three places declare a quake', () => {
-    // Two of the four share a building, so one coarse cell.
     const spots = [offset(C, -6, 0), offset(C, 6, 0), offset(C, 0, 6)].map(coarsen);
     const phones = [0, 1, 2, 2].map((k, i) => ({ id: `f${i}`, ...spots[k] }));
     const picks: Trigger[] = phones.map((p) => ({ ...p, node: p.id, t: arrival(p), pga: 0 }));
@@ -143,7 +141,6 @@ describe('the declaration rule at its edges', () => {
   });
 
   it('from sixteen places, a third of the phones that should have felt it is enough', () => {
-    // Sixteen phones in sixteen places felt it; thirty-two closer ones stayed quiet.
     const felt = ring(12, 16, 'y');
     const quiet = [...ring(6, 16, 'q'), ...ring(9, 16, 'r')];
     const triggers: Trigger[] = felt.map((p) => ({ ...p, node: p.id, t: arrival(p), pga: pgaFor(5, hypocentralKm(distanceKm(C, p))), phase: 'P' }));
@@ -156,14 +153,11 @@ describe('the confirmed event that explains a provisional one', () => {
   const C = { lat: 35, lon: -118 };
   const phones = [0, 1, 2, 3].map((i) => ({ id: `n${i}`, ...offset(C, 20 + 5 * i, 4 * i) }));
   const picks: Trigger[] = phones.map((p) => ({ ...p, id: `pick-${p.id}`, node: p.id, t: T + 5000, pga: 0 }));
-  /** An event of these members, placed this far east of C. */
   const placed = (eastKm: number, triggers: Trigger[]): EarlyEvent => ({ ...offset(C, eastKm, 0), t0: 0, rms: 0.2, residuals: [], used: [], mag: null, id: `ev${eastKm}`, time: T, triggers, agreement: 1 });
   const early = placed(0, picks);
-  /** These phones' triggers, each naming the pick of the phone in its place, or none. */
   const triggers = (named: boolean, by = phones) => by.map((p, i): Trigger => ({ ...p, id: `trigger-${p.id}`, node: p.id, t: T + 5000, pga: 0.2, pick: named ? picks[i].id : undefined }));
 
   it('is the one whose triggers settle its picks, however far apart the two were placed', () => {
-    // Phones on one side of a quake can place it 100 km off and more, from their picks or their first triggers.
     expect(unconfirmed([early], [placed(150, triggers(true))])).toEqual([]);
   });
 

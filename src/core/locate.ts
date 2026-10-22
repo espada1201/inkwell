@@ -50,7 +50,6 @@ export interface LocateOptions {
   silent?: { phones: LatLon[]; now: number; slackS: number };
 }
 
-/** An arrival this many seconds off the fit is a bad clock or another event's. */
 const OUTLIER_S = 2.5;
 
 /** Points projected to a local flat km grid: accurate enough over a few hundred km, and fast. */
@@ -187,12 +186,6 @@ const RING_RATIO = 0.07;
 
 /** Typical size of one phone's timing error (clock and pick), s: it scales the distance prior. */
 const TIMING_S = 0.12;
-/**
- * Half the strength the Gutenberg–Richter argument behind DISTANCE_PRIOR gives. In a seeded sweep
- * of networks and distances, that placed quakes outside a small network 3–10 km nearer the truth,
- * for about 1 km worse on a quake right under four phones a few km apart. Either way a quake
- * outside a small network is placed poorly, which is what `uncertainty` owns up to.
- */
 const PRIOR_S = (TIMING_S * DISTANCE_PRIOR) / 2;
 
 /** Grid misfits use at most this many arrivals: a few dozen pin an epicentre as well as a thousand. */
@@ -204,7 +197,6 @@ function spread(arr: Arrival[], k: number): Arrival[] {
   return Array.from({ length: k }, (_, i) => byTime[Math.round((i * (byTime.length - 1)) / (k - 1))]);
 }
 
-/** The arrivals on a flat local grid, the misfit of a trial epicentre there, and how far to look. */
 function problem(all: Arrival[], depth: number, opts: LocateOptions) {
   const arr = all.length > MAX_GRID_ARRIVALS ? spread(all, MAX_GRID_ARRIVALS) : all;
   const f = frame(arr);
@@ -224,8 +216,6 @@ function problem(all: Arrival[], depth: number, opts: LocateOptions) {
   // The misfit is the L1 timing error plus the distance prior in the same units: phones close
   // together cannot time a wavefront's curvature, and without the prior a quake under them
   // drifts to wherever the noise fits best, tens of km away with an inflated magnitude.
-  // Costs only grow term by term, so summing stops as soon as a trial point is already worse
-  // than the bound: exact, and most grid points are far from the best.
   const misfit = (px: number, py: number, bound = Infinity, prior = true) => {
     let farP2 = -1;
     let farS2 = -1;
@@ -277,7 +267,6 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
     const c = misfit(x, y, best.cost);
     if (c.cost < best.cost) best = { x, y, ...c };
   };
-  // Coarse rings around the network, then two finer square grids around the best point.
   for (let r = spacing(0); r <= range; r += spacing(r)) {
     const k = Math.ceil((2 * Math.PI * r) / spacing(r));
     for (let j = 0; j < k; j++) at(r * Math.cos((2 * Math.PI * j) / k), r * Math.sin((2 * Math.PI * j) / k));
@@ -296,19 +285,11 @@ function search(all: Arrival[], depth: number, opts: LocateOptions) {
   return { p, t0, res: res.map((x) => x - t0) };
 }
 
-/**
- * A point fits the arrival times "nearly as well" as the best one when its timing misfit is within
- * this many error scales: the 90% likelihood-ratio region for an epicentre (half of χ² with two
- * degrees of freedom), with each phone's error taken as Laplace-distributed, as the L1 misfit does.
- */
 const PLAUSIBLE = 2.3;
-/** Phones publish their position to about a kilometre, so no epicentre is surer than that. */
 const MIN_UNCERTAINTY_KM = 1;
-/** Directions from the middle of the network along which the region is traced. */
 const BEARINGS = 72;
 /** Depths tried: real quakes are rarely as shallow as half the default or deeper than twice it. */
 const DEPTHS_KM = [DEFAULT_DEPTH_KM / 2, DEFAULT_DEPTH_KM, 2 * DEFAULT_DEPTH_KM];
-/** Golden-section steps that pin a minimum along a ray to well under a kilometre. */
 const GOLDEN_STEPS = 14;
 
 /**
@@ -329,7 +310,6 @@ export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
     y: [ay],
   } = toXY(f, [at]);
 
-  // The lowest misfit along each ray, at each depth.
   const rays: { k: number; c: number; s: number; r: number; cost: number }[] = [];
   for (let k = 0; k < DEPTHS_KM.length; k++)
     for (let j = 0; j < BEARINGS; j++) {
@@ -357,7 +337,6 @@ export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
       if (Math.min(f1, f2) < low) ((low = Math.min(f1, f2)), (r = f1 < f2 ? x1 : x2));
       rays.push({ k, c, s, r, cost: low });
     }
-  // And a fine grid around the solution, as the search's first refinement has it.
   const step = 0.15 * spacing(Math.hypot(ax, ay));
   const fine: { k: number; x: number; y: number; cost: number }[] = [];
   for (let k = 0; k < DEPTHS_KM.length; k++)
@@ -390,12 +369,8 @@ export function uncertainty(arrivals: Arrival[], at: LatLon): Uncertainty {
     lo = Math.min(lo, mag);
     hi = Math.max(hi, mag);
   };
-  // The solution itself, at the depth it was located at, then every plausible point near it.
   include(ax, ay, DEPTHS_KM.indexOf(DEFAULT_DEPTH_KM));
   for (const p of fine) if (p.cost <= top) include(p.x, p.y, p.k);
-  // Along each ray that holds a plausible point, out and in to where the fit gets too poor.
-  // shortcut: one stretch per ray, and rays 5° apart, so a second patch farther along a ray or a
-  // sliver between rays is missed; widen if the calibration test's coverage ever drops.
   for (const ray of rays) {
     if (ray.cost > top) continue;
     const m = (r: number) => probs[ray.k].misfit(r * ray.c, r * ray.s, top + 1, false).cost;

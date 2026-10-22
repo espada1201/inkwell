@@ -28,7 +28,6 @@ const LISTENED_KEY = 'tremor.listened';
 /** What this phone made of a quake nearby: confirmed its shaking, missed it, or too weak here to notice. */
 export type Verdict = 'felt' | 'missed' | 'too weak';
 
-/** Monday 00:00, local time, of the week `t` falls in. */
 function weekStart(t: number): number {
   const d = new Date(t);
   d.setHours(0, 0, 0, 0);
@@ -65,14 +64,10 @@ export class SensorNode extends Emitter {
   private noDataTimer: ReturnType<typeof setTimeout> | undefined;
   private lock: { release(): Promise<void> } | null = null;
   private openPick: { t: number; id: string } | null = null;
-  /** When this phone listened, this session: from the end of each warm-up to the last sample before a break. */
   private stretches: { from: number; to: number }[] = [];
-  /** Onsets of the shaking it confirmed. */
   private confirmed: number[] = [];
-  /** Listening time kept in this browser for the week starting `week`, from sessions before this one. */
   private before = { week: 0, ms: 0 };
   private lastSample = 0;
-  /** Wall clock minus the clock motion events are stamped by. */
   private offset = 0;
   private readonly onMotion = (e: DeviceMotionEvent) => this.motion(e);
   private readonly onVisible = () => {
@@ -99,7 +94,6 @@ export class SensorNode extends Emitter {
       const b = JSON.parse(store?.getItem(LISTENED_KEY) ?? 'null');
       if (Number.isFinite(b?.week) && Number.isFinite(b?.ms) && b.ms >= 0) this.before = { week: b.week, ms: b.ms };
     } catch {
-      /* start the count afresh */
     }
   }
 
@@ -114,8 +108,6 @@ export class SensorNode extends Emitter {
         return this.set('denied');
       }
     }
-    // A second tap, perhaps while the first was still asking, changes nothing; after a start
-    // that found no motion data, start over.
     if (this.state === 'warming' || this.state === 'listening') return;
     if (this.hbTimer) this.stop();
     window.addEventListener('devicemotion', this.onMotion);
@@ -157,9 +149,6 @@ export class SensorNode extends Emitter {
 
   setJoined(on: boolean) {
     if (!on) {
-      // Leaving: withdraw a pick still being checked, whose verdict will not be sent (the check
-      // goes on here, for the log), and say this phone has stopped while it still may, or it is
-      // counted on for minutes.
       if (this.openPick) this.transport.publish(signRetraction(this.sk, this.openPick.id, 'interrupted'));
       this.openPick = null;
       this.heartbeat(false);
@@ -199,20 +188,16 @@ export class SensorNode extends Emitter {
       const km = distanceKm(here, quake);
       const r = hypocentralKm(km, quake.depthKm);
       const pga = pgaFor(quake.mag, r);
-      // From a little before its P wave was due here until a little after its S wave.
       const from = quake.time + (r / VP_KMS) * 1000 - 3000;
       const to = quake.time + (r / VS_KMS) * 1000 + 5000;
       const felt = this.confirmed.some((t) => t >= from && t <= to);
-      // Listening from before the shaking was due until its verdict would have come.
       const heard = this.stretches.some((s) => s.from <= from && s.to >= to + 30_000);
       if (pga < d.floor || !(felt || heard)) return [];
       return [{ quake, km, pga, verdict: felt ? 'felt' : pga < d.noticesPga ? 'too weak' : 'missed' }];
     });
   }
 
-  /** The samples stop here: withdraw a pick still being checked, which never will be now, and say this phone has stopped. */
   private interrupt() {
-    // Interrupted, the detector starts afresh: report the background it had.
     const noise = this.detector?.background;
     const out = this.detector?.interrupt(Date.now());
     if (out) this.handle(out);
@@ -250,7 +235,6 @@ export class SensorNode extends Emitter {
     const s: SensorState = d.warmingUp ? 'warming' : 'listening';
     if (s !== this.state) {
       this.set(s);
-      // Listening once the background is learned, after a break too: tell the network.
       if (s === 'listening') {
         this.stretches.push({ from: t, to: t });
         this.heartbeat();
@@ -261,10 +245,8 @@ export class SensorNode extends Emitter {
   }
 
   private handle(out: DetectorOutput) {
-    // Picks go out within a second or so of the shaking; the verdict follows 15–30 s later.
     const open = this.openPick?.t === out.t ? this.openPick.id : undefined;
     this.openPick = null;
-    // Only while sharing, except that a pick already out is still withdrawn (a retraction needs no location).
     const ev = this.canPublish || out.kind === 'reject' ? signOutput(this.sk, this.location!, out, open) : null;
     if (ev) this.transport.publish(ev);
     if (out.kind === 'pick') {
@@ -276,7 +258,6 @@ export class SensorNode extends Emitter {
     this.emit();
   }
 
-  /** I'm here and listening since the end of the warm-up; or, with `listening` false, I have stopped. `noise`: the background to report, if not the detector's now. */
   private heartbeat(listening = true, noise?: number) {
     const d = this.detector;
     if (!this.canPublish || !d) return;
@@ -286,9 +267,7 @@ export class SensorNode extends Emitter {
     this.transport.publish(signHeartbeat(this.sk, { ...this.location!, noise: noise ?? d.background, sps: listening ? this.fs : 0, since: this.stretches.at(-1)?.from }));
   }
 
-  /** Keep this week's listening time in this browser. */
   private saveListened(now = Date.now()) {
-    // shortcut: two tabs listening at once each keep their own count and the last to save wins; add per-tab counts if people run several.
     try {
       safeStorage()?.setItem(LISTENED_KEY, JSON.stringify({ week: weekStart(now), ms: this.listened(now).week }));
     } catch {
@@ -304,7 +283,6 @@ export class SensorNode extends Emitter {
     }
     try {
       const lock = await wl.request('screen');
-      // One lock at a time, and none once stopped: Stop may come while this one was asked for.
       this.lock?.release().catch(() => {});
       this.lock = this.state === 'idle' ? null : lock;
       if (!this.lock) return void lock.release().catch(() => {});

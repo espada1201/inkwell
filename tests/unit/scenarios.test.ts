@@ -4,7 +4,6 @@ import { distanceKm } from '../../src/core/geo';
 import { MIN_REPLAY_MAG, SCENARIOS, parseQuakeLink, quakeLink, simulate } from '../../src/core/scenarios';
 import { arrivalsOf } from '../../src/core/simnet';
 
-/** The vetted triggers a browser receives, with the wave each phone said it felt. */
 const triggersOf = (sim: ReturnType<typeof simulate>): Trigger[] =>
   sim.nodes.flatMap((n) => arrivalsOf(n, n.outputs).filter((a) => a.kind === 'trigger').map((a) => a.tr));
 
