@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
-import { LiveNetwork } from '../../src/app/live';
+import { LiveNetwork, WINDOW_MS } from '../../src/app/live';
 import { ModelMirror, ModelSender, computeModel, type ModelDelta, type ModelInput } from '../../src/app/model';
 import type { Onset } from '../../src/core/early';
 import { rng } from '../../src/core/rng';
@@ -63,14 +63,13 @@ describe('the worker keeps the same network as the page, delta by delta', () => 
       const step = wire(live);
       const nodes = Array.from({ length: 40 }, (_, i) => hex(i + 1, 0));
       const sent: Extract<Message, { type: 'pick' }>[] = [];
+      const sentTriggers: Extract<Message, { type: 'trigger' }>[] = [];
       let ids = 0;
       const id = () => hex(++ids, 1);
       const at = (node: string) => ({ lat: 35 + (nodes.indexOf(node) % 7) * 0.1, lon: -118 + (nodes.indexOf(node) % 5) * 0.1 });
+      const beat = (node: string) => live.receive({ id: id(), node, at: Date.now() - Math.floor(r() * 3000), type: 'heartbeat', data: { ...at(node), noise: 0.01, sps: r() < 0.15 ? 0 : 50, ...(r() < 0.5 ? { since: Date.now() - 3600_000 } : {}) } });
       const ops = [
-        () => {
-          const node = pick(nodes);
-          live.receive({ id: id(), node, at: Date.now() - Math.floor(r() * 3000), type: 'heartbeat', data: { ...at(node), noise: 0.01, sps: r() < 0.15 ? 0 : 50, ...(r() < 0.5 ? { since: Date.now() - 3600_000 } : {}) } });
-        },
+        () => beat(pick(nodes)),
         () => {
           const node = pick(nodes);
           const t = Date.now() - Math.floor(r() * 8 * MIN);
@@ -84,8 +83,12 @@ describe('the worker keeps the same network as the page, delta by delta', () => 
           const node = pick(nodes);
           const t = Date.now() - Math.floor(r() * 30_000);
           const named = sent.length && r() < 0.5 ? pick(sent).id : undefined;
-          live.receive({ id: id(), node, at: t, type: 'trigger', pick: named ?? null, data: { ...at(node), t, phase: 'P', pga: 0.2, dur: 5 } });
+          const m: Message = { id: id(), node, at: t, type: 'trigger', pick: named ?? null, data: { ...at(node), t, phase: 'P', pga: 0.2, dur: 5 } };
+          sentTriggers.push(m);
+          live.receive(m);
         },
+        // The same trigger again, after a prune or the cap let it go: it comes back last.
+        () => sentTriggers.length && live.receive(pick(sentTriggers)),
         () => {
           const p = sent.length ? pick(sent) : undefined;
           const node = p && r() < 0.8 ? p.node : pick(nodes);
@@ -95,25 +98,39 @@ describe('the worker keeps the same network as the page, delta by delta', () => 
           vi.setSystemTime(Date.now() + Math.floor(r() * (r() < 0.1 ? 130 * MIN : 3 * MIN)));
           (live as unknown as Inside).prune();
         },
+        // Time passes and a prune lets things go; then relays send some of them again, all before the next delta.
+        () => {
+          vi.setSystemTime(Date.now() + (r() < 0.93 ? 1.5 * MIN : 121 * MIN));
+          (live as unknown as Inside).prune();
+          const recent = sent.filter((m) => Date.now() - m.data.t < WINDOW_MS);
+          for (let i = 0; i < 4 && recent.length; i++) live.receive(pick(recent));
+          for (let i = 0; i < 4; i++) beat(pick(nodes));
+        },
       ];
       // Weighted: mostly messages, now and then time passing.
-      const weighted = [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5].map((i) => ops[i]);
+      const weighted = [0, 0, 0, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 7].map((i) => ops[i]);
       // What the run covered, so a seed that never reaches the awkward cases does not pass for one that does.
-      const reached = { full: 0, droppedAndSentAgain: 0, nodesGone: 0, picksGone: 0, triggersGone: 0 };
+      const reached = { full: 0, nodesMoved: 0, picksMoved: 0, triggersMoved: 0, nodesGone: 0, picksGone: 0, triggersGone: 0 };
+      const both = (dropped: string[], sentAgain: { id: string }[]) => dropped.filter((id) => sentAgain.some((x) => x.id === id)).length;
       for (let round = 0; round < 400; round++) {
         for (let k = Math.ceil(r() * 12); k > 0; k--) pick(weighted)();
         expect(step(), `round ${round}`).toEqual(expected(live, Date.now()));
         const d = step.last!;
         if (live.nodes.size > 5 && live.picks.size > 5 && live.triggers.length > 5) reached.full++;
-        if (d.dropPicks.some((id) => d.addPicks.some((p) => p.id === id)) || d.dropNodes.some((id) => d.setNodes.some((n) => n.id === id))) reached.droppedAndSentAgain++;
+        reached.nodesMoved += both(d.dropNodes, d.setNodes);
+        reached.picksMoved += both(d.dropPicks, d.addPicks);
+        reached.triggersMoved += both(d.dropTriggers, d.addTriggers);
         reached.nodesGone += d.dropNodes.length;
         reached.picksGone += d.dropPicks.length;
         reached.triggersGone += d.dropTriggers.length;
       }
-      expect(reached.full).toBeGreaterThan(50);
+      expect(reached.full).toBeGreaterThan(25);
       expect(reached.nodesGone).toBeGreaterThan(0);
       expect(reached.picksGone).toBeGreaterThan(0);
       expect(reached.triggersGone).toBeGreaterThan(0);
+      // The awkward case: a thing dropped and sent again in one delta, because it came back or sat after one that did.
+      expect(reached.nodesMoved, 'nodes dropped and sent again').toBeGreaterThan(0);
+      expect(reached.picksMoved, 'picks dropped and sent again').toBeGreaterThan(0);
     });
   }
 
@@ -197,16 +214,39 @@ describe('the worker keeps the same network as the page, delta by delta', () => 
     expect(live.nodes.size).toBe(10_000);
     expect(step()).toEqual(expected(live, now));
     const t = (n: number) => now - 100_000 + n;
+    const messages = new Map<string, Message>();
+    const take = (m: Message) => (messages.set(m.id, m), live.receive(m));
     for (let n = 0; n < 6200; n++) {
       const node = hex(5000 + (n % 220), 0);
-      live.receive({ id: id(), node, at: t(n), type: 'pick', data: { lat: 35, lon: -118, t: t(n), phase: 'P' } });
-      live.receive({ id: id(), node, at: t(n), type: 'trigger', pick: null, data: { lat: 35, lon: -118, t: t(n), phase: 'P', pga: 0.2, dur: 5 } });
+      take({ id: id(), node, at: t(n), type: 'pick', data: { lat: 35, lon: -118, t: t(n), phase: 'P' } });
+      take({ id: id(), node, at: t(n), type: 'trigger', pick: null, data: { lat: 35, lon: -118, t: t(n), phase: 'P', pga: 0.2, dur: 5 } });
       if (n % 1500 === 0) expect(step()).toEqual(expected(live, now));
     }
     expect(live.picks.size).toBe(5000);
     expect(live.triggers.length).toBe(5000);
     expect((live as unknown as Inside).heard.length).toBe(10_000);
     expect(step()).toEqual(expected(live, now));
+
+    // At a cap a newcomer pushes the oldest out, and the relay sends the oldest again before the next delta: it is now the newest.
+    const both = (dropped: string[], sentAgain: { id: string }[]) => dropped.filter((k) => sentAgain.some((x) => x.id === k));
+    const oldestTrigger = live.triggers[0].id;
+    const oldestPick = live.picks.keys().next().value!;
+    const silent = [...live.nodes.values()].reduce((a, b) => (b.lastSeen < a.lastSeen ? b : a));
+    take({ id: id(), node: hex(5001, 0), at: now, type: 'trigger', pick: null, data: { lat: 35, lon: -118, t: t(6300), phase: 'P', pga: 0.2, dur: 5 } });
+    take({ id: id(), node: hex(5002, 0), at: now, type: 'pick', data: { lat: 35, lon: -118, t: t(6300), phase: 'P' } });
+    live.receive({ id: id(), node: hex(20_000, 0), at: now + 1000, type: 'heartbeat', data: { lat: 35, lon: -118, noise: 0.01, sps: 50 } });
+    live.receive(messages.get(oldestTrigger)!);
+    live.receive(messages.get(oldestPick)!);
+    live.receive({ id: id(), node: silent.id, at: silent.lastSeen, type: 'heartbeat', data: { lat: silent.lat, lon: silent.lon, noise: 0.01, sps: 50 } });
+    expect(live.triggers[live.triggers.length - 1].id).toBe(oldestTrigger);
+    expect([...live.picks.keys()].pop()).toBe(oldestPick);
+    expect([...live.nodes.keys()].pop()).toBe(silent.id);
+    const held = step();
+    const d = step.last!;
+    expect(both(d.dropTriggers, d.addTriggers).map(String)).toContain(oldestTrigger);
+    expect(both(d.dropPicks, d.addPicks).map(String)).toContain(oldestPick);
+    expect(both(d.dropNodes, d.setNodes)).toContain(silent.id);
+    expect(held).toEqual(expected(live, now));
   });
 
   it('works out the same quakes from what the worker holds as from what the page holds', () => {
