@@ -57,6 +57,7 @@ const transport = new RelayPool(relays);
 const live = new LiveNetwork(transport, params.get('usgs') === 'hour' ? 'hour' : 'day', undefined, workerVerifier() ?? undefined, workerModel() ?? undefined);
 const me = loadIdentity();
 const sensor = new SensorNode(transport, me);
+sensor.on(() => transport.setSensorActive(sensor.canPublish && (sensor.state === 'warming' || sensor.state === 'listening')));
 const replay = new Replay();
 
 const tabs = h('nav', { class: 'tabs', 'aria-label': 'Sections' });

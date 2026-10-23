@@ -45,6 +45,13 @@ const req = (s: Sub) => ['REQ', s.id, ...(s.filters = s.make())];
 
 export const RETRY_FIRST_MS = 1000;
 export const RETRY_CAP_MS = 5 * 60_000;
+/** The longest wait while this browser is a sensor: its picks and heartbeats should not sit in a queue of 50 for five minutes. */
+export const RETRY_CAP_SENSOR_MS = 60_000;
+/** Coming back to a tab retries a down relay, but not more often than this: each refused try is a line in the console. */
+const VISIBLE_RETRY_GAP_MS = 10_000;
+
+/** A wait of 70% to 130% of `ms`, so phones that lost the network together do not all come back on the same second. */
+const jitter = (ms: number) => ms * (0.7 + 0.6 * Math.random());
 
 /** Minimal NIP-01 client: one socket per relay, reconnect with backoff, resubscribe, de-duplicate. */
 class RelayConn {
@@ -54,12 +61,16 @@ class RelayConn {
   private queue: string[] = [];
   private closed = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
+  /** When the waiting retry is due, if one is waiting. */
+  private due: number | null = null;
+  private attempted = 0;
 
   constructor(
     url: string,
     private readonly subs: Map<string, Sub>,
     private readonly deliver: (subId: string, ev: Event) => void,
     private readonly changed: () => void,
+    private readonly cap: () => number = () => RETRY_CAP_MS,
   ) {
     this.status = { url, state: 'connecting', received: 0, failures: 0 };
     this.connect();
@@ -67,6 +78,8 @@ class RelayConn {
 
   private connect() {
     if (this.closed) return;
+    this.due = null;
+    this.attempted = Date.now();
     this.setState('connecting');
     let ws: WebSocket;
     try {
@@ -109,15 +122,30 @@ class RelayConn {
     this.status.failures++;
     this.setState('closed');
     if (this.closed) return;
-    this.timer = setTimeout(() => this.connect(), this.backoff);
+    this.wait(Math.min(this.backoff, this.cap()));
     this.backoff = Math.min(this.backoff * 2, RETRY_CAP_MS);
   }
 
-  retryNow() {
-    if (this.closed || this.status.state !== 'closed') return;
+  private wait(ms: number) {
+    clearTimeout(this.timer);
+    const delay = jitter(ms);
+    this.due = Date.now() + delay;
+    this.timer = setTimeout(() => this.connect(), delay);
+  }
+
+  /** At once, from the first wait again; `minGap` ms at least since the last try. */
+  retryNow(minGap = 0) {
+    if (this.closed || this.status.state !== 'closed' || Date.now() - this.attempted < minGap) return;
     clearTimeout(this.timer);
     this.backoff = RETRY_FIRST_MS;
     this.connect();
+  }
+
+  /** The cap came down: a wait longer than it allows is shortened to it. */
+  recap() {
+    const cap = this.cap();
+    this.backoff = Math.min(this.backoff, cap);
+    if (this.due !== null && this.due - Date.now() > cap * 1.3) this.wait(cap);
   }
 
   private setState(s: RelayState) {
@@ -150,11 +178,24 @@ export class RelayPool implements Transport {
   private listeners: (() => void)[] = [];
   private n = 0;
 
+  private sensor = false;
+
   private readonly online = () => this.conns.forEach((c) => c.retryNow());
+  private readonly visible = () => {
+    if (document.visibilityState === 'visible') this.conns.forEach((c) => c.retryNow(VISIBLE_RETRY_GAP_MS));
+  };
 
   constructor(urls: string[]) {
-    this.conns = urls.map((u) => new RelayConn(u, this.subs, (id, ev) => this.deliver(id, ev), () => this.emit()));
+    this.conns = urls.map((u) => new RelayConn(u, this.subs, (id, ev) => this.deliver(id, ev), () => this.emit(), () => (this.sensor ? RETRY_CAP_SENSOR_MS : RETRY_CAP_MS)));
     if (typeof window !== 'undefined') window.addEventListener('online', this.online);
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.visible);
+  }
+
+  /** Whether this browser is reporting as a sensor: then a down relay is retried at least every minute. */
+  setSensorActive(on: boolean) {
+    if (on === this.sensor) return;
+    this.sensor = on;
+    if (on) this.conns.forEach((c) => c.recap());
   }
 
   private deliver(subId: string, ev: Event) {
@@ -199,6 +240,7 @@ export class RelayPool implements Transport {
 
   close() {
     if (typeof window !== 'undefined') window.removeEventListener('online', this.online);
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.visible);
     for (const c of this.conns) c.close();
     this.listeners = [];
   }

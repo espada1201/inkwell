@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { filters, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
-import { RETRY_CAP_MS, RelayPool, isRelayUrl, reach } from '../../src/net/transport';
+import { RETRY_CAP_MS, RETRY_CAP_SENSOR_MS, RelayPool, isRelayUrl, reach } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
@@ -222,12 +222,14 @@ describe('a relay that is down', () => {
   }
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     Refused.tries = [];
   });
 
   it('is retried after 1 s, 2 s, 4 s and so on, never less often than every five minutes, so the console does not fill up', () => {
     vi.useFakeTimers();
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
     vi.stubGlobal('WebSocket', Refused);
     const pool = new RelayPool(['wss://down.example']);
     vi.advanceTimersByTime(3600_000);
@@ -249,8 +251,91 @@ describe('a relay that is down', () => {
     const before = Refused.tries.length;
     online.forEach((f) => f());
     expect(Refused.tries.length).toBe(before + 1);
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1300);
     expect(Refused.tries.length).toBe(before + 2);
+    pool.close();
+  });
+
+  // To the nearest 10 ms: the refused socket reports its failure one tick after it is made.
+  const gapsOf = () => Refused.tries.slice(1).map((t, i) => Math.round((t - Refused.tries[i]) / 10) * 10);
+
+  it('waits a random 70% to 130% of each delay, so relays and phones do not come back together', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Refused);
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const low = new RelayPool(['wss://down.example']);
+    vi.advanceTimersByTime(30_000);
+    low.close();
+    expect(gapsOf().slice(0, 4)).toEqual([700, 1400, 2800, 5600]);
+    Refused.tries = [];
+    vi.spyOn(Math, 'random').mockReturnValue(0.999999);
+    const high = new RelayPool(['wss://down.example']);
+    vi.advanceTimersByTime(30_000);
+    high.close();
+    expect(gapsOf().slice(0, 4)).toEqual([1300, 2600, 5200, 10400]);
+  });
+
+  it('keeps that spread on the retries that follow the network coming back', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Refused);
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+    const online: (() => void)[] = [];
+    vi.stubGlobal('window', { addEventListener: (_: string, f: () => void) => online.push(f), removeEventListener() {} });
+    const pool = new RelayPool(['wss://down.example']);
+    vi.advanceTimersByTime(60_000);
+    online.forEach((f) => f());
+    const before = Refused.tries.length;
+    vi.advanceTimersByTime(699);
+    expect(Refused.tries.length).toBe(before);
+    vi.advanceTimersByTime(1);
+    expect(Refused.tries.length).toBe(before + 1);
+    pool.close();
+  });
+
+  it('is retried at least every minute while this browser is a sensor', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Refused);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const pool = new RelayPool(['wss://down.example']);
+    pool.setSensorActive(true);
+    vi.advanceTimersByTime(3 * 3600_000);
+    pool.close();
+    expect(RETRY_CAP_SENSOR_MS).toBe(60_000);
+    const gaps = gapsOf().map((g) => Math.round(g / 1000) * 1000);
+    expect(gaps.slice(0, 7)).toEqual([1000, 2000, 4000, 8000, 16000, 32000, 60000]);
+    expect(Math.max(...gaps)).toBe(60_000);
+  });
+
+  it('brings a long wait forward when the browser becomes a sensor', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Refused);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const pool = new RelayPool(['wss://down.example']);
+    vi.advanceTimersByTime(30 * 60_000);
+    const before = Refused.tries.length;
+    pool.setSensorActive(true);
+    vi.advanceTimersByTime(60_000);
+    expect(Refused.tries.length).toBe(before + 1);
+    pool.close();
+  });
+
+  it('is tried when the page becomes visible again, not when it is hidden, and not again within ten seconds of a try', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Refused);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const doc = { visibilityState: 'hidden', fns: [] as (() => void)[], addEventListener: (_: string, f: () => void) => doc.fns.push(f), removeEventListener() {} };
+    vi.stubGlobal('document', doc);
+    const pool = new RelayPool(['wss://down.example']);
+    vi.advanceTimersByTime(10 * 60_000);
+    const before = Refused.tries.length;
+    doc.fns.forEach((f) => f());
+    expect(Refused.tries.length).toBe(before);
+    doc.visibilityState = 'visible';
+    doc.fns.forEach((f) => f());
+    expect(Refused.tries.length).toBe(before + 1);
+    vi.advanceTimersByTime(5);
+    doc.fns.forEach((f) => f());
+    expect(Refused.tries.length).toBe(before + 1);
     pool.close();
   });
 });
