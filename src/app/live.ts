@@ -1,15 +1,18 @@
 import type { Event } from 'nostr-tools/pure';
 import type { DetectedEvent, Trigger } from '../core/associate';
-import { MIN_PICKS, confirmedEvents, earlyDetect, explainedBy, nearby, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
+import { MIN_PICKS, explainedBy, nearby, type EarlyEvent, type Onset } from '../core/early';
 import { FELT_EVERY_MS, clusterFelt, type Felt, type FeltCluster } from '../core/felt';
 import type { LatLon } from '../core/geo';
 import type { RejectReason } from '../core/sensor';
-import { HEARTBEAT_EVERY_MS, filters, parse, signFelt, type Heartbeat, type Message } from '../net/protocol';
+import { filters, parse, signFelt, type Heartbeat, type Message } from '../net/protocol';
 import type { Transport } from '../net/transport';
 import type { Verify } from '../net/verifier';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
 import type { MapNode } from '../ui/map';
 import { Emitter } from './emitter';
+import { ModelSender, NODE_STALE_MS, computeModel, isOnline, type Compute, type ModelInput, type ModelOutput } from './model';
+
+export { NODE_STALE_MS };
 
 export interface LiveNode extends Heartbeat {
   id: string;
@@ -21,8 +24,6 @@ export interface LiveNode extends Heartbeat {
 
 /** Picks, triggers and quakes older than this are forgotten. */
 export const WINDOW_MS = 2 * 3600_000;
-/** A phone that has missed three heartbeats is offline. */
-export const NODE_STALE_MS = 3 * HEARTBEAT_EVERY_MS;
 const MAX_PER_NODE_HOUR = 30;
 /** Keys are free, so the per-phone limit alone does not bound memory: keep the newest. */
 const MAX_TRIGGERS = 5000;
@@ -133,6 +134,10 @@ export class LiveNetwork extends Emitter {
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
   private recomputeQueued = false;
+  private computing = false;
+  private sender = new ModelSender();
+  private again = false;
+  private waiting = false;
   /** How long the last recompute took, ms: a big network waits longer between them, so the page keeps most of its time. */
   private recomputeCost = 0;
   private recheck: ReturnType<typeof setTimeout> | undefined;
@@ -145,6 +150,8 @@ export class LiveNetwork extends Emitter {
     private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
     /** Where relay events are checked; without one, here and at once. */
     private readonly verify?: Verify,
+    /** Where the quakes are worked out from what has been heard; without one, here and at once. */
+    private compute?: Compute,
   ) {
     super();
     this.usgsWindow = usgsWindow;
@@ -316,7 +323,7 @@ export class LiveNetwork extends Emitter {
     setTimeout(() => {
       this.recomputeQueued = false;
       this.recompute();
-      this.emit();
+      if (!this.compute) this.emit();
     }, this.pause(200));
   }
 
@@ -325,26 +332,63 @@ export class LiveNetwork extends Emitter {
     return Math.min(2000, Math.max(ms, 3 * this.recomputeCost));
   }
 
+  /** What the model works from, here. */
+  private snapshot(now: number): ModelInput {
+    return { now, nodes: [...this.nodes.values()], picks: [...this.picks.values()], triggers: this.triggers, heard: this.heard };
+  }
+
   recompute(now = Date.now()) {
-    const began = Date.now();
     clearTimeout(this.recheck);
-    const nodes = [...this.nodes.values()];
-    // Confirmed events face the phones that were listening when they struck, and stayed quiet.
-    this.events = confirmedEvents(this.triggers, this.heard, (t) => nodes.filter((n) => this.isOnline(n, t)), now);
-    const early = earlyDetect(
-      [...this.picks.values()],
-      nodes.filter((n) => this.isOnline(n, now)),
-      now,
+    if (!this.compute) {
+      const began = Date.now();
+      this.apply(computeModel(this.snapshot(now)), now);
+      this.recomputeCost = Date.now() - began;
+      this.scheduleRecheck();
+      return;
+    }
+    // One at a time: what arrives while it works is taken up when it is done.
+    if (this.computing) return void (this.again = true);
+    this.computing = true;
+    const began = Date.now();
+    const delta = this.sender.delta(now, this.nodes, this.picks, this.triggers, this.heard);
+    this.recomputeCost = Date.now() - began;
+    this.compute(delta).then(
+      (out) => {
+        this.computing = false;
+        const applied = Date.now();
+        this.apply(out, now);
+        // The page's own share is small; the worker's is not, and it too is spared the next few moments.
+        this.recomputeCost = Math.max(Date.now() - applied, (applied - began) / 3);
+        this.scheduleRecheck();
+        this.emit();
+        if (this.again) {
+          this.again = false;
+          this.queueRecompute();
+        }
+      },
+      () => {
+        // The worker failed, and what it was told is gone with it: from here the page does the work.
+        this.computing = false;
+        this.compute = undefined;
+        this.queueRecompute();
+      },
     );
-    this.early = unconfirmed(early.events, this.events);
+  }
+
+  private apply(out: ModelOutput, now: number) {
+    this.events = out.events;
+    this.early = out.early;
+    this.waiting = out.waiting;
     this.settle(now);
     this.feltClusters = clusterFelt(this.felt);
-    this.recomputeCost = Date.now() - began;
+  }
+
+  private scheduleRecheck() {
     // A candidate holds for now, but phones the wave is still reaching could overturn it.
-    if (early.waiting)
+    if (this.waiting)
       this.recheck = setTimeout(() => {
         this.recompute();
-        this.emit();
+        if (!this.compute) this.emit();
       }, this.pause(500));
   }
 
@@ -406,12 +450,8 @@ export class LiveNetwork extends Emitter {
     }));
   }
 
-  /**
-   * Whether a phone was listening at time t: it had started by then, and was heard from after
-   * it, or shortly before without saying it had stopped.
-   */
+  /** Whether a phone was listening at time t (see `isOnline`). */
   isOnline(n: LiveNode, t = Date.now()) {
-    if ((n.since ?? n.firstSeen) > t) return false;
-    return n.lastSeen >= t || (n.sps > 0 && t - n.lastSeen < NODE_STALE_MS);
+    return isOnline(n, t);
   }
 }

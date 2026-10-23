@@ -9,6 +9,7 @@ import { RELAY_LATENCY_MS } from '../../src/core/simnet';
 import { HEARTBEAT_EVERY_MS, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import type { Transport } from '../../src/net/transport';
 import type { Verify } from '../../src/net/verifier';
+import { ModelMirror, computeModel, type Compute } from '../../src/app/model';
 
 class NullTransport implements Transport {
   publish() {}
@@ -468,5 +469,69 @@ describe('events checked beside the page', () => {
     const ev = beat(phones[0]);
     for (let i = 0; i < 64; i++) deliver(ev);
     expect(batches).toEqual([64]);
+  });
+});
+
+describe('the quakes worked out beside the page', () => {
+  /** A worker's way: each change is copied across to its own mirror of the model, and the answer copied back. */
+  const apartFrom = (): Compute => {
+    const mirror = new ModelMirror();
+    return async (delta) => structuredClone(computeModel(mirror.apply(structuredClone(delta))));
+  };
+  const feed = (live: LiveNetwork) => {
+    for (const p of phones) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const picks = phones.map((p) => signPick(p.sk, p));
+    picks.forEach((ev) => live.ingest(ev));
+    phones.forEach((p, i) => live.ingest(signTrigger(p.sk, { ...p, dur: 5 }, picks[i].id)));
+  };
+  const seen = (live: LiveNetwork) => JSON.stringify({ events: live.events.map((e) => [e.id, e.lat, e.lon, e.time, e.mag, e.triggers.map((t) => t.id)]), early: live.early.map((e) => e.id), outcomes: live.provisional.map((d) => d.outcome) });
+
+  it('finds what it finds on the page, a recompute at a time, and says so when it is done', async () => {
+    const here = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const away = new LiveNetwork(new NullTransport(), 'hour', fetchNone, undefined, apartFrom());
+    feed(here);
+    feed(away);
+    const told = vi.fn();
+    away.on(told);
+    here.recompute();
+    away.recompute();
+    // A second ask while the first is being worked out waits for it.
+    away.recompute();
+    expect(away.events).toHaveLength(0);
+    await vi.waitFor(() => expect(away.events).toHaveLength(1));
+    expect(seen(away)).toBe(seen(here));
+    expect(told).toHaveBeenCalled();
+  });
+
+  it('keeps a provisional detection from picks alone, and closes it as the page would when its phones withdraw', async () => {
+    const away = new LiveNetwork(new NullTransport(), 'hour', fetchNone, undefined, apartFrom());
+    for (const p of phones) away.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const picks = phones.map((p) => signPick(p.sk, p));
+    picks.forEach((ev) => away.ingest(ev));
+    away.recompute();
+    await vi.waitFor(() => expect(away.early).toHaveLength(1));
+    expect(away.provisional.map((d) => d.outcome)).toEqual(['open']);
+    phones.forEach((p, i) => away.ingest(signRetraction(p.sk, picks[i].id, 'footsteps')));
+    away.recompute();
+    await vi.waitFor(() => expect(away.provisional.map((d) => d.outcome)).toEqual(['withdrawn']));
+    expect(away.early).toHaveLength(0);
+  });
+
+  it('works the quake out on the page when the worker fails, and does not ask it again', async () => {
+    const asked = vi.fn();
+    const broken: Compute = async () => {
+      asked();
+      throw new Error('worker crashed');
+    };
+    const here = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const away = new LiveNetwork(new NullTransport(), 'hour', fetchNone, undefined, broken);
+    feed(here);
+    feed(away);
+    here.recompute();
+    away.recompute();
+    await vi.waitFor(() => expect(away.events).toHaveLength(1));
+    expect(seen(away)).toBe(seen(here));
+    away.recompute();
+    expect(asked).toHaveBeenCalledTimes(1);
   });
 });

@@ -473,6 +473,8 @@ export function networkView(ctx: NetworkCtx) {
   // A busy network changes the model many times a second; the screen follows a few times a second, in step with a frame.
   let queued = false;
   let lastDrawn = 0;
+  // A redraw that took long (thousands of phones for the map to take in) is followed by a longer rest.
+  let rest = DRAW_EVERY_MS;
   const off = live.on(() => {
     if (queued) return;
     queued = true;
@@ -481,8 +483,9 @@ export function networkView(ctx: NetworkCtx) {
         queued = false;
         lastDrawn = performance.now();
         render();
+        rest = Math.min(2000, Math.max(DRAW_EVERY_MS, 4 * (performance.now() - lastDrawn)));
       });
-    }, Math.max(0, DRAW_EVERY_MS - (performance.now() - lastDrawn)));
+    }, Math.max(0, rest - (performance.now() - lastDrawn)));
   });
   const tick = setInterval(render, 15_000);
   render();

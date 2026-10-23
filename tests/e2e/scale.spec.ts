@@ -8,24 +8,30 @@ const PHONES = Number(process.env.SCALE_PHONES) || 3000;
 test(`a quake over ${PHONES} listening phones keeps the page responsive`, async ({ page, relay }, testInfo) => {
   test.setTimeout(10 * 60_000);
   // Signing thousands of events takes longer than a quake's picks stay fresh, so the page's clock
-  // starts 25 seconds before the crowd was made and runs on from there.
+  // starts 25 seconds before the crowd was made, and is set again to just after it when picks go out.
   const made = Date.now();
   const events = signedCrowd(crowd(PHONES, made));
+  // A few phones far away, for a quake that comes first.
+  const warmUp = signedCrowd(crowd(40, made, { lat: 35.6, lon: -117.7 }));
   // The phones were there before this browser opened: the relay replays their heartbeats at once.
   await send(relay.url, events.heartbeats);
   await page.addInitScript((delta) => {
+    const w = window as unknown as { clockShift: number };
+    w.clockShift = delta;
     const Real = Date;
     class Shifted extends Real {
       constructor(...args: unknown[]) {
         if (args.length) super(...(args as [number]));
-        else super(Real.now() + delta);
+        else super(Real.now() + w.clockShift);
       }
       static now() {
-        return Real.now() + delta;
+        return Real.now() + w.clockShift;
       }
     }
     window.Date = Shifted as DateConstructor;
   }, made - 25_000 - Date.now());
+  // Whatever the load on the machine, the page's clock is set to just after the crowd was made when the phones' picks go out.
+  const clockAtCrowd = () => page.evaluate((at) => ((window as unknown as { clockShift: number }).clockShift = at - Date.now() + (window as unknown as { clockShift: number }).clockShift), made + 2000);
 
   await page.addInitScript(() => {
     const w = window as unknown as { long: { at: number; ms: number }[]; frames: number[] };
@@ -81,21 +87,35 @@ test(`a quake over ${PHONES} listening phones keeps the page responsive`, async 
   });
 
   if (process.env.PROFILE) await cdp.send('Profiler.enable'), await cdp.send('Profiler.setSamplingInterval', { interval: 500 }), await cdp.send('Profiler.start');
+  // A first quake on the map makes the browser build the shaders that draw it (seconds in software GL, a blink on a graphics card). That is the browser's one-time work, so it is done before the quake that is timed.
+  await clockAtCrowd();
+  await send(relay.url, [...warmUp.heartbeats, ...warmUp.picks]);
+  await expect(page.getByTestId('provisional').first()).toBeVisible({ timeout: 120_000 });
+  await send(relay.url, warmUp.triggers);
+  await expect(page.getByTestId('stat-events')).toHaveText('1', { timeout: 120_000 });
+  await page.getByTestId('event-list').getByRole('button').first().click();
+  await page.waitForTimeout(4000);
+
   const quake = await phase('quake', async () => {
+    await clockAtCrowd();
     for (let i = 0; i < events.picks.length; i += 100) {
       await send(relay.url, events.picks.slice(i, i + 100));
       await page.waitForTimeout(100);
     }
     await expect(page.getByTestId('provisional').first()).toBeVisible({ timeout: 120_000 });
     await send(relay.url, events.triggers);
-    await expect(page.getByTestId('stat-events')).toHaveText('1', { timeout: 120_000 });
+    await expect(page.getByTestId('stat-events')).toHaveText('2', { timeout: 120_000 });
   });
 
-  if (process.env.PROFILE) writeFileSync(testInfo.outputPath('page.cpuprofile'), JSON.stringify((await cdp.send('Profiler.stop')).profile));
+  if (process.env.PROFILE) writeFileSync(process.env.PROFILE?.startsWith('/') ? process.env.PROFILE : testInfo.outputPath('page.cpuprofile'), JSON.stringify((await cdp.send('Profiler.stop')).profile));
   const quiet = await phase('quiet', () => page.waitForTimeout(5000));
   // Signatures are checked beside the page, and no one stretch of work freezes it for seconds.
   expect(page.workers().length).toBeGreaterThan(0);
   for (const p of [load, quake, quiet]) expect(p.longestMs, `longest task while ${p.phase}`).toBeLessThan(4000);
+  // Finding the quake runs beside the page too. On this test's machine with the work on the page, the quake phase took 8.5 to 9.5 s of script, 4.5 to 5.5 s of blocked time and a longest task of 420 to 980 ms; beside the page it takes 3 to 4 s, 1.5 to 2.2 s and 200 to 290 ms. A single longest task is shared out by the scheduler on a busy machine, so the totals say whether the work came back, and the longest only that nothing holds the page for half a second.
+  expect(quake.scriptMs, 'script time while the quake is found').toBeLessThan(6500);
+  expect(quake.blockedMs, 'time past 50 ms in long tasks while the quake is found').toBeLessThan(3500);
+  expect(quake.longestMs, 'longest task while the quake is found').toBeLessThan(450);
   // A listening network with nothing happening costs a page next to nothing.
   expect(quiet.busyMs, 'main-thread time in 5 quiet seconds').toBeLessThan(2500);
 });

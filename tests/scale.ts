@@ -16,17 +16,17 @@ export interface Crowd {
   triggers: Message[];
 }
 
-const CITY: LatLon = { lat: 37.9, lon: -122.3 };
+const BAY: LatLon = { lat: 37.9, lon: -122.3 };
 const RADIUS_KM = 80;
 const MAG = 5.5;
 const hex = (n: number, salt: number) => (n * 4 + salt).toString(16).padStart(64, '0');
 
 /**
- * `phones` phones spread over a disc of 80 km around one city, all listening. An M5.5 starts 40 s
+ * `phones` phones spread over a disc of 80 km around a city (the Bay Area unless another is given), all listening. An M5.5 starts 40 s
  * before `now` at the middle; each phone picks with the chance its shaking suggests, a quarter of
  * those picks are withdrawn, and 2% of the others send a footstep pick of their own and withdraw it.
  */
-export function crowd(phones: number, now = Date.now()): Crowd {
+export function crowd(phones: number, now = Date.now(), CITY: LatLon = BAY): Crowd {
   const r = rng(phones);
   const origin = now - 40_000;
   const epicentre = offset(CITY, 3, -2);

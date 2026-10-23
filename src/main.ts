@@ -1,5 +1,6 @@
 import './styles.css';
 import { LiveNetwork } from './app/live';
+import { workerModel } from './app/modelworker';
 import { Replay } from './app/replay';
 import { SensorNode } from './app/sensor';
 import { loadIdentity, safeStorage } from './net/identity';
@@ -52,7 +53,7 @@ const logo = () => {
 
 const relays = relayList();
 const transport = new RelayPool(relays);
-const live = new LiveNetwork(transport, params.get('usgs') === 'hour' ? 'hour' : 'day', undefined, workerVerifier() ?? undefined);
+const live = new LiveNetwork(transport, params.get('usgs') === 'hour' ? 'hour' : 'day', undefined, workerVerifier() ?? undefined, workerModel() ?? undefined);
 const me = loadIdentity();
 const sensor = new SensorNode(transport, me);
 const replay = new Replay();
