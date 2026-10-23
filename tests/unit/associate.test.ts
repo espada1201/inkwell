@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { associate, compatible, eventUncertainty, onSphere, type Trigger } from '../../src/core/associate';
+import { DEFAULT_MAX_RMS, DEFAULT_MIN_NODES, associate, compatible, eventUncertainty, onSphere, type Trigger } from '../../src/core/associate';
 import { distanceKm, offset, type LatLon } from '../../src/core/geo';
 import { VP_KMS, VS_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
@@ -243,3 +243,14 @@ describe('association answers asked twice', () => {
   });
 });
 
+describe('association answers cannot be changed by whoever holds them', () => {
+  it('hands out frozen events, and one memo entry for the default options spelled out or left off', () => {
+    const triggers = quake({ lat: 35, lon: -118 }, T0, 10, 1, 'a');
+    const [e] = associate(triggers);
+    expect(Object.isFrozen(e)).toBe(true);
+    expect(Object.isFrozen(e.triggers)).toBe(true);
+    expect(() => ((e as { mag: number }).mag = 9)).toThrow();
+    const spelled = associate(triggers, { minNodes: DEFAULT_MIN_NODES, maxRmsS: DEFAULT_MAX_RMS });
+    expect(spelled[0]).toBe(e);
+  });
+});

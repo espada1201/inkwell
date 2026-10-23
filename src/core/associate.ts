@@ -27,6 +27,10 @@ export interface AssociateOptions {
   maxRmsS?: number;
 }
 
+/** What `associate` uses for an option left off: the memo key and the search read the same numbers. */
+export const DEFAULT_MIN_NODES = 4;
+export const DEFAULT_MAX_RMS = 1.5;
+
 /** Slack allowed beyond the travel time between two phones' triggers, s: phone clocks drift. */
 const TOLERANCE_S = 1.5;
 const MAX_DISTANCE_KM = 400;
@@ -118,9 +122,9 @@ const lastAnswer = new Map<string, { input: Trigger[]; events: DetectedEvent[] }
  *  5. Later triggers the event explains as either wave are absorbed so they do not spawn ghosts.
  */
 function associateAll(triggers: Trigger[], opts: AssociateOptions): DetectedEvent[] {
-  const minNodes = opts.minNodes ?? 4;
+  const minNodes = opts.minNodes ?? DEFAULT_MIN_NODES;
   const maxSpan = MAX_SPAN_S * 1000;
-  const maxRms = opts.maxRmsS ?? 1.5;
+  const maxRms = opts.maxRmsS ?? DEFAULT_MAX_RMS;
 
   const sorted = [...triggers].sort(byOnsetThenId);
   const used = new Set<string>();
@@ -251,10 +255,14 @@ function associateAll(triggers: Trigger[], opts: AssociateOptions): DetectedEven
 }
 
 export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
-  const key = `${opts.minNodes ?? 4}|${opts.maxRmsS ?? 1.5}`;
+  const key = `${opts.minNodes ?? DEFAULT_MIN_NODES}|${opts.maxRmsS ?? DEFAULT_MAX_RMS}`;
   const last = lastAnswer.get(key);
+  // Same trigger objects, not same values: a trigger is not changed once it has been pushed (`LiveNetwork.receive`
+  // builds it whole before it is stored), so an object that is the same is the same trigger.
   if (last && last.input.length === triggers.length && last.input.every((t, i) => t === triggers[i])) return [...last.events];
   const events = associateAll(triggers, opts);
+  // The memo hands the same event objects to every caller, so none of them may change one.
+  for (const e of events) Object.freeze(e.triggers), Object.freeze(e);
   lastAnswer.set(key, { input: [...triggers], events });
   return [...events];
 }
