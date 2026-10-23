@@ -87,3 +87,11 @@ export function nearestTown(towns: Town[], p: LatLon, km = 25): Town | null {
   }
   return best;
 }
+
+/**
+ * The town a quake is named for: the biggest within `bigKm` of the epicentre (Napa, not the closer American Canyon), else the
+ * nearest within `maxKm`. The list is biggest first.
+ */
+export function epicentreTown(towns: Town[], epicentre: LatLon, bigKm = 10, maxKm = 25): Town | null {
+  return towns.find((t) => distanceKm(t, epicentre) <= bigKm) ?? nearestTown(towns, epicentre, maxKm);
+}

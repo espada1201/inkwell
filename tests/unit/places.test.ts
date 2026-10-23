@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { findTowns, nearestTown, parseTowns, townLabel } from '../../src/core/places';
+import { epicentreTown, findTowns, nearestTown, parseTowns, townLabel } from '../../src/core/places';
 
 const towns = parseTowns(readFileSync(new URL('../../src/data/places.tsv', import.meta.url), 'utf8'));
 const labels = (typed: string) => findTowns(towns, typed).map(townLabel);
@@ -49,5 +49,17 @@ describe('towns by name', () => {
   it('names the town nearest a place, and none out at sea', () => {
     expect(townLabel(nearestTown(towns, { lat: 37.97, lon: -122.53 })!)).toBe('San Rafael, CA, US');
     expect(nearestTown(towns, { lat: 30, lon: -140 })).toBeNull();
+  });
+});
+
+describe('the town a quake is named for', () => {
+  it('is the biggest town within 10 km of the epicentre, not the closest hamlet: Napa, not American Canyon', () => {
+    expect(townLabel(epicentreTown(towns, { lat: 38.215, lon: -122.312 })!)).toBe('Napa, CA, US');
+    expect(townLabel(epicentreTown(towns, { lat: -43.583, lon: 172.68 })!)).toBe('Christchurch, NZ');
+  });
+
+  it('is the nearest town within 25 km when none is within 10 km, and none out at sea', () => {
+    expect(townLabel(epicentreTown(towns, { lat: 35.77, lon: -117.599 })!)).toBe('Ridgecrest, CA, US');
+    expect(epicentreTown(towns, { lat: 0, lon: -140 })).toBeNull();
   });
 });
