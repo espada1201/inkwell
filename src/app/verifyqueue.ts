@@ -26,6 +26,8 @@ export class VerifyQueue {
   /** Events taken and not yet handed on or dropped. */
   backlog = 0;
   private waiting: Event[] = [];
+  private flying = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
   private inOrder: Promise<void> = Promise.resolve();
 
   constructor(
@@ -45,19 +47,37 @@ export class VerifyQueue {
     }
     this.backlog++;
     this.waiting.push(ev);
-    if (this.waiting.length >= CHECK_BATCH) this.send();
-    else if (this.waiting.length === 1) setTimeout(() => this.send(), CHECK_EVERY_MS);
+    this.pump(false);
+  }
+
+  /**
+   * Send full batches while the verifier has room (`slots`, or no limit), and the rest 20 ms after
+   * they began to wait or, with no room then, as soon as there is. What is held here is counted
+   * in `backlog` like what is out, so a flood is shed the same.
+   */
+  private pump(flush: boolean) {
+    const room = this.verify.slots ?? Infinity;
+    while (this.flying < room && this.waiting.length && (flush || this.waiting.length >= CHECK_BATCH)) this.send();
+    if (this.waiting.length && this.timer === undefined && this.flying < room)
+      this.timer = setTimeout(() => {
+        this.timer = undefined;
+        this.pump(true);
+      }, CHECK_EVERY_MS);
   }
 
   private send() {
-    const batch = this.waiting.splice(0);
-    if (!batch.length) return;
+    const batch = this.waiting.splice(0, CHECK_BATCH);
     let checked: Promise<(Message | null)[]>;
     try {
       checked = this.verify(batch, Date.now()).catch(() => []);
     } catch {
       checked = Promise.resolve([]);
     }
+    this.flying++;
+    void checked.then(() => {
+      this.flying--;
+      this.pump(false);
+    });
     this.inOrder = this.inOrder
       .then(() => checked)
       .then((messages) => {

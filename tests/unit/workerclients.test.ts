@@ -3,7 +3,9 @@ import { generateSecretKey } from 'nostr-tools/pure';
 import { workerModel } from '../../src/app/modelworker';
 import type { ModelDelta, ModelOutput } from '../../src/app/model';
 import { parse, signHeartbeat } from '../../src/net/protocol';
+import { VerifyQueue } from '../../src/app/verifyqueue';
 import { workerVerifier } from '../../src/net/verifier';
+import type { Message } from '../../src/net/protocol';
 
 class StubWorker {
   static made: StubWorker[] = [];
@@ -100,5 +102,29 @@ describe('the signature workers as the page sees them', () => {
     expect(await verify(evs, now)).toEqual(onPage);
     expect(StubWorker.made.map((w) => w.terminated)).toEqual([1, 1, 1]);
     expect(onPage[0]).not.toBeNull();
+  });
+
+  it('a history load of 200 batches on a one-worker phone is answered one at a time, with at most two out, and nothing falls back to the page', async () => {
+    const verify = workerVerifier(1)!;
+    const delivered: Message[] = [];
+    const queue = new VerifyQueue(verify, (m) => void delivered.push(m));
+    const [w] = StubWorker.made;
+    const ev = events()[0];
+    for (let i = 0; i < 200 * 64; i++) queue.push(ev);
+    expect(w.sent.length).toBeLessThanOrEqual(2);
+    let answered = 0;
+    for (let tick = 0; tick < 250 * 3 && answered < 200; tick++) {
+      expect(w.sent.length - answered).toBeLessThanOrEqual(2);
+      await vi.advanceTimersByTimeAsync(100);
+      if (w.sent.length > answered) {
+        const job = w.sent[answered++];
+        w.onmessage?.({ data: { id: job.id, result: (job.args as { events: unknown[] }).events.map(() => ({ type: 'felt' })) } } as MessageEvent);
+        await vi.advanceTimersByTimeAsync(0);
+      }
+    }
+    expect(answered).toBe(200);
+    expect(w.terminated).toBe(0);
+    expect(delivered).toHaveLength(200 * 64);
+    expect(queue.backlog).toBe(0);
   });
 });

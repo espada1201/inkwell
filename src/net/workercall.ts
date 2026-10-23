@@ -7,7 +7,7 @@ export interface WorkerLike {
   onmessageerror: ((e: MessageEvent) => void) | null;
 }
 
-/** How long a question may go unanswered before the worker is taken for dead: long past the slowest honest answer, short enough that a stuck page recovers. */
+/** How long a worker with questions waiting may go without answering any before it is taken for dead: long past the slowest honest answer, short enough that a stuck page recovers. */
 export const WORKER_TIMEOUT_MS = 10_000;
 
 export class WorkerFailed extends Error {}
@@ -15,14 +15,13 @@ export class WorkerFailed extends Error {}
 interface Waiting<R> {
   done: (r: R) => void;
   fail: (why: WorkerFailed) => void;
-  timer: ReturnType<typeof setTimeout>;
 }
 
 /**
  * Questions to one worker and their answers, matched by id. When the worker cannot answer it
  * is stopped for good, whichever way it failed: an error event, a message that could not be
  * read, an answer that says it threw, a question that could not be posted, or no answer
- * within `timeoutMs` (a timer runs only while a question is waiting). Everything waiting and
+ * within `timeoutMs` of the last answer (one timer, started when a question is posted to an idle worker and started again at each answer, so it runs only while the worker has work, and a long queue answered steadily is not mistaken for a stuck worker). Everything waiting and
  * everything asked after fails the same way, by the caller's choice:
  *  - with a `fallback`, the call answers with `fallback(args)` instead, on the caller's own
  *    thread (a throw there rejects that call alone);
@@ -32,18 +31,23 @@ interface Waiting<R> {
 export function workerCall<A, R>(worker: WorkerLike, { timeoutMs = WORKER_TIMEOUT_MS, onBroken }: { timeoutMs?: number; onBroken?: () => void } = {}) {
   const waiting = new Map<number, Waiting<R>>();
   let broken: WorkerFailed | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   let n = 0;
+
+  const arm = () => {
+    clearTimeout(timer);
+    timer = waiting.size ? setTimeout(() => giveUp(`no answer in ${timeoutMs} ms`), timeoutMs) : undefined;
+  };
 
   const giveUp = (why: string) => {
     if (broken) return;
     broken = new WorkerFailed(why);
     worker.terminate();
+    clearTimeout(timer);
+    timer = undefined;
     const jobs = [...waiting.values()];
     waiting.clear();
-    for (const job of jobs) {
-      clearTimeout(job.timer);
-      job.fail(broken);
-    }
+    for (const job of jobs) job.fail(broken);
     onBroken?.();
   };
 
@@ -52,10 +56,12 @@ export function workerCall<A, R>(worker: WorkerLike, { timeoutMs = WORKER_TIMEOU
     const job = waiting.get(id);
     if (!job) return;
     waiting.delete(id);
-    clearTimeout(job.timer);
-    if (error === undefined) return job.done(result as R);
-    waiting.set(id, job);
-    giveUp(error);
+    if (error !== undefined) {
+      job.fail(new WorkerFailed(error));
+      return giveUp(error);
+    }
+    arm();
+    job.done(result as R);
   };
   worker.onerror = () => giveUp('the worker raised an error');
   worker.onmessageerror = () => giveUp('a message to or from the worker could not be read');
@@ -78,8 +84,8 @@ export function workerCall<A, R>(worker: WorkerLike, { timeoutMs = WORKER_TIMEOU
         };
         if (broken) return fail(broken);
         const id = ++n;
-        const timer = setTimeout(() => giveUp(`no answer in ${timeoutMs} ms`), timeoutMs);
-        waiting.set(id, { done: resolve, fail, timer });
+        waiting.set(id, { done: resolve, fail });
+        if (timer === undefined) arm();
         try {
           worker.postMessage({ id, args });
         } catch (e) {

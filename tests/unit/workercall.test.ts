@@ -105,6 +105,27 @@ describe('asking a worker, and what happens when it cannot answer', () => {
     expect((await outcomes).map((o) => o.status)).toEqual(['rejected', 'fulfilled']);
   });
 
+  it('judges a worker by progress: a long queue answered steadily is alive, a worker that goes quiet is not', async () => {
+    const w = new FakeWorker();
+    const ask = workerCall<number, number>(w, { timeoutMs: 1000 });
+    const all = Array.from({ length: 30 }, (_, i) => ask.call(i));
+    for (let i = 0; i < 30; i++) {
+      vi.advanceTimersByTime(400);
+      w.reply(w.sent[i].id, i);
+    }
+    expect(await Promise.all(all)).toEqual(Array.from({ length: 30 }, (_, i) => i));
+    expect(ask.broken).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    const stuck = Promise.allSettled([ask.call(1), ask.call(2)]);
+    vi.advanceTimersByTime(900);
+    w.reply(w.sent[30].id, 1);
+    vi.advanceTimersByTime(999);
+    expect(ask.broken).toBe(false);
+    vi.advanceTimersByTime(1);
+    expect(ask.broken).toBe(true);
+    expect((await stuck).map((o) => o.status)).toEqual(['fulfilled', 'rejected']);
+  });
+
   it('can be stopped by its owner, which fails what waits like any other failure', async () => {
     const w = new FakeWorker();
     const ask = workerCall<string, string>(w);
