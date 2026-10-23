@@ -63,7 +63,6 @@ test('the tabs stay in reach on a phone, however far the page is scrolled, and c
   await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(300);
   const bar = await reachable();
-  // The end of the page sits above the bar, not under it.
   const last = await page.evaluate(() => {
     const panel = document.querySelector('.panel-inner')!;
     return panel.lastElementChild!.getBoundingClientRect().bottom;

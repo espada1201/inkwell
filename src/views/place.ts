@@ -22,7 +22,6 @@ export function placeForm(place: Place, then: () => void) {
   const msg = h('p', { class: 'small', role: 'status' });
   const choices = h('div', { class: 'choices' });
   const typed = h('input', { autocomplete: 'off', placeholder: 'Fresno, CA  or  36.74, -119.79' });
-  // Nothing happens until Set or Enter: the button stands out while the box holds text that has not been used.
   const setButton = h('button', { class: 'btn', type: 'submit' }, 'Set');
   typed.addEventListener('input', () => setButton.classList.toggle('primary', typed.value.trim() !== ''));
   const set = (p: LatLon, name: string | null = null) => {

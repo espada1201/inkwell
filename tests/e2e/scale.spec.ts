@@ -11,9 +11,7 @@ test(`a quake over ${PHONES} listening phones keeps the page responsive`, async 
   // starts 25 seconds before the crowd was made, and is set again to just after it when picks go out.
   const made = Date.now();
   const events = signedCrowd(crowd(PHONES, made));
-  // A few phones far away, for a quake that comes first.
   const warmUp = signedCrowd(crowd(40, made, { lat: 35.6, lon: -117.7 }));
-  // The phones were there before this browser opened: the relay replays their heartbeats at once.
   await send(relay.url, events.heartbeats);
   await page.addInitScript((delta) => {
     const w = window as unknown as { clockShift: number };
@@ -30,7 +28,6 @@ test(`a quake over ${PHONES} listening phones keeps the page responsive`, async 
     }
     window.Date = Shifted as DateConstructor;
   }, made - 25_000 - Date.now());
-  // Whatever the load on the machine, the page's clock is set to just after the crowd was made when the phones' picks go out.
   const clockAtCrowd = () => page.evaluate((at) => ((window as unknown as { clockShift: number }).clockShift = at - Date.now() + (window as unknown as { clockShift: number }).clockShift), made + 2000);
 
   await page.addInitScript(() => {
@@ -109,13 +106,11 @@ test(`a quake over ${PHONES} listening phones keeps the page responsive`, async 
 
   if (process.env.PROFILE) writeFileSync(process.env.PROFILE?.startsWith('/') ? process.env.PROFILE : testInfo.outputPath('page.cpuprofile'), JSON.stringify((await cdp.send('Profiler.stop')).profile));
   const quiet = await phase('quiet', () => page.waitForTimeout(5000));
-  // Signatures are checked beside the page, and no one stretch of work freezes it for seconds.
   expect(page.workers().length).toBeGreaterThan(0);
   for (const p of [load, quake, quiet]) expect(p.longestMs, `longest task while ${p.phase}`).toBeLessThan(4000);
-  // Finding the quake runs beside the page too. On this test's machine with the work on the page, the quake phase took 8.5 to 9.5 s of script, 4.5 to 5.5 s of blocked time and a longest task of 420 to 980 ms; beside the page it takes 3 to 4 s, 1.5 to 2.2 s and 200 to 290 ms. A single longest task is shared out by the scheduler on a busy machine, so the totals say whether the work came back, and the longest only that nothing holds the page for half a second.
+  // A single longest task is noisy on a busy machine: the totals show whether the work came back, the longest only that nothing holds the page for half a second.
   expect(quake.scriptMs, 'script time while the quake is found').toBeLessThan(6500);
   expect(quake.blockedMs, 'time past 50 ms in long tasks while the quake is found').toBeLessThan(3500);
   expect(quake.longestMs, 'longest task while the quake is found').toBeLessThan(450);
-  // A listening network with nothing happening costs a page next to nothing.
   expect(quiet.busyMs, 'main-thread time in 5 quiet seconds').toBeLessThan(2500);
 });

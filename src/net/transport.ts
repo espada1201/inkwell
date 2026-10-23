@@ -43,11 +43,6 @@ interface Sub {
 
 const req = (s: Sub) => ['REQ', s.id, ...(s.filters = s.make())];
 
-/**
- * A relay that cannot be reached is tried again after 1 s, then 2 s, 4 s and so on, but never
- * less often than this: the browser logs an error for every refused connection, and a relay that
- * is down for an hour should not fill the console. Coming back online tries at once.
- */
 export const RETRY_FIRST_MS = 1000;
 export const RETRY_CAP_MS = 5 * 60_000;
 
@@ -118,7 +113,6 @@ class RelayConn {
     this.backoff = Math.min(this.backoff * 2, RETRY_CAP_MS);
   }
 
-  /** The network is back: a relay waiting out a long pause tries now. */
   retryNow() {
     if (this.closed || this.status.state !== 'closed') return;
     clearTimeout(this.timer);

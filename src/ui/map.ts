@@ -333,7 +333,6 @@ export class QuakeMap {
 
   private nodesShown: MapNode[] = [];
   setNodes(nodes: MapNode[]) {
-    // Thousands of phones, and most redraws change none of them: skip handing the map the same points again.
     const was = this.nodesShown;
     if (nodes.length === was.length && nodes.every((n, i) => n.id === was[i].id && n.state === was[i].state && n.lat === was[i].lat && n.lon === was[i].lon && n.shake === was[i].shake)) return;
     this.nodesShown = nodes;

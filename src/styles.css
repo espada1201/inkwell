@@ -43,7 +43,6 @@ a { color: inherit; }
 .map .maplibregl-ctrl-group button:focus:focus-visible, .map .maplibregl-ctrl-attrib-button:focus-visible { box-shadow: var(--focus); }
 .skip { position: absolute; left: 8px; top: -60px; z-index: 50; }
 .skip:focus { top: 8px; }
-/* The way back to the tabs sits inside a long panel, so it shows where the reader is. */
 .skip.back { position: fixed; }
 .mono, .num { font-family: var(--mono); font-feature-settings: 'tnum'; }
 
@@ -286,7 +285,6 @@ details.relays textarea { width: 100%; min-height: 96px; margin-top: 10px; font:
   .map-legend i { width: 8px; height: 8px; margin-right: 5px; }
   .map-note { font-size: 11px; left: 8px; bottom: 8px; padding: 4px 6px; }
   .top { height: auto; flex-wrap: wrap; gap: 0 12px; padding: 10px 14px; }
-  /* A bar along the bottom of the screen, so the tabs stay in reach however far the page is scrolled. */
   html, body { height: auto; }
   body { padding-bottom: calc(48px + env(safe-area-inset-bottom)); }
   .tabs {

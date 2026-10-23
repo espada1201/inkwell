@@ -1,10 +1,6 @@
 import type { Compute, ModelOutput } from './model';
 import type { ModelReply, ModelRequest } from './model.worker';
 
-/**
- * The association, location and quiet phones' veto in a worker, so a big network's recompute
- * never holds the page. Without workers, or if this one fails, the page works it out itself.
- */
 export function workerModel(): Compute | null {
   let worker: Worker;
   try {

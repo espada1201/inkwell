@@ -569,7 +569,6 @@ test('the Set button stands out while the box holds a town that has not been use
   await typed.fill('Qqqqzz');
   await set.click();
   await expect(near.getByRole('status')).toContainText('No town called');
-  // Refused, so still unused.
   expect(await filled()).toBe(true);
   await typed.fill('Vallejo');
   await set.click();
@@ -583,14 +582,12 @@ test('the key opens beside the map and folds away once the map is used, unless t
   await expect(key).toHaveAttribute('open', '');
   await expect(key.getByText('Tremor detection')).toBeVisible();
   const box = (await map.boundingBox())!;
-  // Dragging the map clears the key off it.
   await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 4 });
   await page.mouse.up();
   await expect(key).not.toHaveAttribute('open');
   await expect(key.locator('summary')).toBeVisible();
-  // Opened by the reader, it stays open while the map is used.
   await key.locator('summary').click();
   await expect(key).toHaveAttribute('open', '');
   await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
@@ -607,20 +604,17 @@ test('from deep in a screen, a keyboard gets back to the tabs without crossing t
   await page.keyboard.press('Tab');
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Live network' })).toBeFocused();
-  // Backwards from the first control of the panel: one press, not the map's controls.
   await page.getByTestId('near').getByRole('button', { name: 'Use my approximate location' }).focus();
   await page.keyboard.press('Shift+Tab');
   const back = page.getByRole('button', { name: 'Back to tabs' });
   await expect(back.first()).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('link', { name: 'Network' })).toBeFocused();
-  // Forwards from the last control of the panel.
   await page.locator('details.relays summary').focus();
   await page.keyboard.press('Tab');
   await expect(back.last()).toBeFocused();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('link', { name: 'Network' })).toBeFocused();
-  // On the Be a sensor screen too, and the tab it lands on is the one open.
   await page.getByRole('link', { name: 'Be a sensor' }).click();
   await expect(page.getByTestId('sensor-state')).toBeVisible();
   await page.getByRole('button', { name: 'Back to tabs' }).last().focus();

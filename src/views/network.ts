@@ -1,4 +1,5 @@
-import { NODE_STALE_MS, SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
+import { SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
+import { NODE_STALE_MS } from '../app/model';
 import { NOTICED_LEVEL, fromPlace, nearYou, type Near, type Place } from '../app/near';
 import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
@@ -40,7 +41,6 @@ export interface NetworkCtx {
 type Selection = { kind: 'event' | 'usgs'; id: string };
 const HOURS = WINDOW_MS / 3600_000;
 const USGS_SHOWN = 12;
-/** The live screen redraws at most this often when the network changes. */
 const DRAW_EVERY_MS = 250;
 const USGS_GAP = 'Outside the US, USGS may not list quakes below about M4.5.';
 const feltText = (c: { people: number; places: number }) => `${c.people} people in ${c.places} places felt shaking`;
@@ -470,10 +470,8 @@ export function networkView(ctx: NetworkCtx) {
     syncMap();
   }
 
-  // A busy network changes the model many times a second; the screen follows a few times a second, in step with a frame.
   let queued = false;
   let lastDrawn = 0;
-  // A redraw that took long (thousands of phones for the map to take in) is followed by a longer rest.
   let rest = DRAW_EVERY_MS;
   const off = live.on(() => {
     if (queued) return;

@@ -12,8 +12,6 @@ import type { MapNode } from '../ui/map';
 import { Emitter } from './emitter';
 import { ModelSender, NODE_STALE_MS, computeModel, isOnline, type Compute, type ModelInput, type ModelOutput } from './model';
 
-export { NODE_STALE_MS };
-
 export interface LiveNode extends Heartbeat {
   id: string;
   /** When this browser first heard it listening without a break: stands in for a missing `since`. */
@@ -38,12 +36,10 @@ const SHAKEN_MS = 120_000;
 /** A provisional detection that neither its phones nor a confirmed one settle this long after it was declared stays unconfirmed. */
 export const SETTLE_MS = 2 * 60_000;
 const MAX_PROVISIONAL = 500;
-/** Relay events wait this long to be checked in one batch, or go at this many. Past MAX_UNCHECKED waiting, the newest are dropped: the checks cannot keep up. */
 const CHECK_EVERY_MS = 20;
 const CHECK_BATCH = 64;
 const MAX_UNCHECKED = 50_000;
 
-/** Picks or triggers by the phone that sent them, so a phone's recent count looks at its own few and not at everyone's. */
 class ByNode {
   private by = new Map<string, Trigger[]>();
 
@@ -66,7 +62,6 @@ class ByNode {
     for (const t of all) this.add(t);
   }
 
-  /** How many of this phone's arrivals started in the last hour. */
   lastHour(node: string, now: number) {
     return (this.by.get(node) ?? []).filter((x) => now - x.t < 3600_000).length;
   }
@@ -117,7 +112,6 @@ export class LiveNetwork extends Emitter {
   usgsWindow: UsgsWindow;
   private pending: Message[] = [];
   private unchecked: Event[] = [];
-  /** Events handed over and not yet taken in. */
   private backlog = 0;
   private inOrder: Promise<void> = Promise.resolve();
   private pickedBy = new ByNode();
@@ -137,8 +131,6 @@ export class LiveNetwork extends Emitter {
   private computing = false;
   private sender = new ModelSender();
   private again = false;
-  private waiting = false;
-  /** How long the last recompute took, ms: a big network waits longer between them, so the page keeps most of its time. */
   private recomputeCost = 0;
   private recheck: ReturnType<typeof setTimeout> | undefined;
   private usgsAsked = 0;
@@ -148,9 +140,7 @@ export class LiveNetwork extends Emitter {
     readonly transport: Transport,
     usgsWindow: UsgsWindow,
     private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
-    /** Where relay events are checked; without one, here and at once. */
     private readonly verify?: Verify,
-    /** Where the quakes are worked out from what has been heard; without one, here and at once. */
     private compute?: Compute,
   ) {
     super();
@@ -193,7 +183,6 @@ export class LiveNetwork extends Emitter {
     if (m) this.receive(m);
   }
 
-  /** An event from a relay: checked beside the page when there is a verifier, in the order they came. */
   private take(ev: Event) {
     const verify = this.verify;
     if (!verify) return this.ingest(ev);
@@ -327,12 +316,10 @@ export class LiveNetwork extends Emitter {
     }, this.pause(200));
   }
 
-  /** At least `ms`, and at least three times what a recompute costs now: a quarter of the page's time at most. */
   private pause(ms: number) {
     return Math.min(2000, Math.max(ms, 3 * this.recomputeCost));
   }
 
-  /** What the model works from, here. */
   private snapshot(now: number): ModelInput {
     return { now, nodes: [...this.nodes.values()], picks: [...this.picks.values()], triggers: this.triggers, heard: this.heard };
   }
@@ -341,12 +328,12 @@ export class LiveNetwork extends Emitter {
     clearTimeout(this.recheck);
     if (!this.compute) {
       const began = Date.now();
-      this.apply(computeModel(this.snapshot(now)), now);
+      const out = computeModel(this.snapshot(now));
+      this.apply(out, now);
       this.recomputeCost = Date.now() - began;
-      this.scheduleRecheck();
+      this.scheduleRecheck(out.waiting);
       return;
     }
-    // One at a time: what arrives while it works is taken up when it is done.
     if (this.computing) return void (this.again = true);
     this.computing = true;
     const began = Date.now();
@@ -357,9 +344,8 @@ export class LiveNetwork extends Emitter {
         this.computing = false;
         const applied = Date.now();
         this.apply(out, now);
-        // The page's own share is small; the worker's is not, and it too is spared the next few moments.
         this.recomputeCost = Math.max(Date.now() - applied, (applied - began) / 3);
-        this.scheduleRecheck();
+        this.scheduleRecheck(out.waiting);
         this.emit();
         if (this.again) {
           this.again = false;
@@ -367,7 +353,6 @@ export class LiveNetwork extends Emitter {
         }
       },
       () => {
-        // The worker failed, and what it was told is gone with it: from here the page does the work.
         this.computing = false;
         this.compute = undefined;
         this.queueRecompute();
@@ -378,14 +363,13 @@ export class LiveNetwork extends Emitter {
   private apply(out: ModelOutput, now: number) {
     this.events = out.events;
     this.early = out.early;
-    this.waiting = out.waiting;
     this.settle(now);
     this.feltClusters = clusterFelt(this.felt);
   }
 
-  private scheduleRecheck() {
+  private scheduleRecheck(waiting: boolean) {
     // A candidate holds for now, but phones the wave is still reaching could overturn it.
-    if (this.waiting)
+    if (waiting)
       this.recheck = setTimeout(() => {
         this.recompute();
         if (!this.compute) this.emit();
@@ -450,7 +434,6 @@ export class LiveNetwork extends Emitter {
     }));
   }
 
-  /** Whether a phone was listening at time t (see `isOnline`). */
   isOnline(n: LiveNode, t = Date.now()) {
     return isOnline(n, t);
   }

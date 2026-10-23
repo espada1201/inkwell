@@ -34,7 +34,6 @@ const MAX_DISTANCE_KM = 400;
 const NEAR_DEG = MAX_DISTANCE_KM / (Math.SQRT2 * KM_PER_DEG);
 const MAX_SPAN_S = 90;
 
-/** A point's half-angle sines and cosines, so the distance between two needs no trigonometry. */
 export interface Sphere {
   cosLat: number;
   sinLat2: number;
@@ -103,12 +102,6 @@ const popcount32 = (bits: number) => {
   return Math.imul((bits + (bits >>> 4)) & 0x0f0f0f0f, 0x01010101) >>> 24;
 };
 
-/**
- * The last input each option set was given, with its answer. A live network asks again every
- * few hundred ms with the same picks while nothing new has come in, and the answer is a function
- * of the triggers alone, so the same triggers (the very same objects, in the same order) get the
- * same events back.
- */
 const lastAnswer = new Map<string, { input: Trigger[]; events: DetectedEvent[] }>();
 
 /**
@@ -136,8 +129,7 @@ function associateAll(triggers: Trigger[], opts: AssociateOptions): DetectedEven
 
   // Pairwise compatibility as one bitset row per trigger, so growing a cluster costs a few
   // word-ANDs per member instead of a distance check against every member (a city of a
-  // thousand phones would otherwise take seconds). A row holds the later triggers only: a
-  // cluster grows forward in time and never looks back.
+  // thousand phones would otherwise take seconds).
   const n = sorted.length;
   const words = (n + 31) >>> 5;
   const compat = new Uint32Array(n * words);

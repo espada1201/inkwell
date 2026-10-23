@@ -10,9 +10,7 @@ export interface Crowd {
   phones: number;
   epicentre: LatLon;
   heartbeats: Message[];
-  /** Picks and retractions of the shaken phones, and of the ones a footstep tripped, in the order they would arrive. */
   picks: Message[];
-  /** Confirmed reports of the picks that held. */
   triggers: Message[];
 }
 
@@ -26,10 +24,10 @@ const hex = (n: number, salt: number) => (n * 4 + salt).toString(16).padStart(64
  * before `now` at the middle; each phone picks with the chance its shaking suggests, a quarter of
  * those picks are withdrawn, and 2% of the others send a footstep pick of their own and withdraw it.
  */
-export function crowd(phones: number, now = Date.now(), CITY: LatLon = BAY): Crowd {
+export function crowd(phones: number, now = Date.now(), city: LatLon = BAY): Crowd {
   const r = rng(phones);
   const origin = now - 40_000;
-  const epicentre = offset(CITY, 3, -2);
+  const epicentre = offset(city, 3, -2);
   const heartbeats: Message[] = [];
   const picks: [number, Message][] = [];
   const triggers: [number, Message][] = [];
@@ -39,7 +37,7 @@ export function crowd(phones: number, now = Date.now(), CITY: LatLon = BAY): Cro
     const node = hex(i + 1, 0);
     const rad = RADIUS_KM * Math.sqrt(r());
     const a = 2 * Math.PI * r();
-    const at = offset(CITY, rad * Math.cos(a), rad * Math.sin(a));
+    const at = offset(city, rad * Math.cos(a), rad * Math.sin(a));
     const heard = Math.floor(now - 30_000 * r() - 50_000);
     heartbeats.push({ id: id(), node, at: heard, type: 'heartbeat', data: { ...at, noise: 0.01, sps: 50, since: origin - 3600_000 } });
     const hyp = hypocentralKm(distanceKm(epicentre, at));
@@ -64,7 +62,6 @@ export function crowd(phones: number, now = Date.now(), CITY: LatLon = BAY): Cro
   return { phones, epicentre, heartbeats, picks: inOrder(picks), triggers: inOrder(triggers) };
 }
 
-/** CPU milliseconds this process has used: other work on the machine does not count against it. */
 const ms = () => {
   const { user, system } = process.cpuUsage();
   return (user + system) / 1000;
@@ -75,30 +72,23 @@ const timed = <T>(f: () => T): [T, number] => {
   return [out, ms() - t];
 };
 
-/** What checking a relay's heartbeats costs, ms each: parse (signature included) over `n` signed ones. */
 export function verifyCost(n = 200): number {
   const events = Array.from({ length: n }, () => signHeartbeat(generateSecretKey(), { lat: 37.9, lon: -122.3, noise: 0.01, sps: 50 }));
   return timed(() => events.forEach((e) => parse(e)!))[1] / n;
 }
 
 export interface Timings {
-  /** Taking in every heartbeat, total ms. */
   heartbeats: number;
-  /** Taking in every pick, retraction and trigger, total ms. */
   messages: number;
-  /** A recompute after each sixth of the picks and triggers: the slowest and the sum, ms. */
   recomputeMax: number;
   recomputeSum: number;
-  /** A recompute with nothing new, ms. */
   recomputeRepeat: number;
-  /** What each screen redraw asks the model for: every phone's state and the activity trace, ms. */
   screen: number;
   prune: number;
   events: number;
   provisional: number;
 }
 
-/** Run a crowd through a live network the way relays would: heartbeats, then picks and triggers in sixths with a recompute after each. */
 export function measure(c: Crowd, live: LiveNetwork): Timings {
   const [, heartbeats] = timed(() => c.heartbeats.forEach((m) => live.receive(m)));
   const rest = [...c.picks, ...c.triggers];
@@ -126,7 +116,6 @@ export function measure(c: Crowd, live: LiveNetwork): Timings {
   };
 }
 
-/** The crowd's messages as signed Nostr events, in order: heartbeats, then picks with their retractions, then triggers. Signing is slow (a few ms each). */
 export function signedCrowd(c: Crowd): { heartbeats: Event[]; picks: Event[]; triggers: Event[] } {
   const keys = new Map<string, Uint8Array>();
   const key = (node: string) => keys.get(node) ?? (keys.set(node, generateSecretKey()), keys.get(node)!);

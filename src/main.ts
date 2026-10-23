@@ -73,7 +73,6 @@ const panel = h('aside', { class: 'panel', 'aria-live': 'off' });
 const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Sensor' });
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
-// The key opens over the map on a wide screen; it folds away once the reader starts using the map, or after a while, unless the reader opened or closed it.
 let keyTouched = false;
 legend.querySelector('summary')!.addEventListener('click', () => (keyTouched = true));
 const foldKey = () => {
@@ -90,7 +89,6 @@ const skip = (scroll = true) => {
   if (start?.tagName === 'H1') start.tabIndex = -1;
   start?.focus({ preventScroll: !scroll });
 };
-// From inside a screen back to its tab, without the map's controls on the way.
 const toTabs = () => tabs.querySelector<HTMLElement>('[aria-current]')?.focus();
 const backToTabs = () => h('button', { class: 'btn skip back', onclick: toTabs }, 'Back to tabs');
 // A tap on a tab should not scroll a phone down to the screen's heading; Tab and Enter should.

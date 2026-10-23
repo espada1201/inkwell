@@ -232,7 +232,6 @@ describe('a relay that is down', () => {
     const pool = new RelayPool(['wss://down.example']);
     vi.advanceTimersByTime(3600_000);
     pool.close();
-    // Each refusal arrives a millisecond after the attempt.
     const gaps = Refused.tries.slice(1).map((t, i) => Math.round((t - Refused.tries[i]) / 1000) * 1000);
     expect(gaps.slice(0, 9)).toEqual([1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000]);
     expect(Math.min(...gaps.slice(9))).toBe(RETRY_CAP_MS);

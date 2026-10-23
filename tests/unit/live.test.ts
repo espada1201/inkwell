@@ -441,7 +441,6 @@ describe('events checked beside the page', () => {
   it('takes events in the order they arrived, drops the ones that fail, and batches them', async () => {
     const batches: Event[][] = [];
     const later: (() => void)[] = [];
-    // The first batch is checked slowest, as when a worker is busy; the answers must still go in order.
     const verify: Verify = (events, now) => {
       batches.push(events);
       return new Promise((done) => later.push(() => done(events.map((ev) => parse(ev, now)))));
@@ -473,7 +472,6 @@ describe('events checked beside the page', () => {
 });
 
 describe('the quakes worked out beside the page', () => {
-  /** A worker's way: each change is copied across to its own mirror of the model, and the answer copied back. */
   const apartFrom = (): Compute => {
     const mirror = new ModelMirror();
     return async (delta) => structuredClone(computeModel(mirror.apply(structuredClone(delta))));
@@ -495,7 +493,6 @@ describe('the quakes worked out beside the page', () => {
     away.on(told);
     here.recompute();
     away.recompute();
-    // A second ask while the first is being worked out waits for it.
     away.recompute();
     expect(away.events).toHaveLength(0);
     await vi.waitFor(() => expect(away.events).toHaveLength(1));

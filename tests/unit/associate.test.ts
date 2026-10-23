@@ -219,7 +219,6 @@ describe('the fast check of whether two triggers can be one wave', () => {
       const b = offset(a, Math.cos(ang) * reach * r(), Math.sin(ang) * reach * r());
       const d = distanceKm(a, b);
       const speed = i % 2 ? VP_KMS : VS_KMS;
-      // Time gaps that fall inside, just inside, just outside and well outside the travel time.
       const dt = Math.max(0, d / speed + TOLERANCE_S + [-5, -0.01, 0, 1e-9, 0.01, 5][i % 6]);
       const want = d <= MAX_KM && dt <= d / speed + TOLERANCE_S;
       near += want ? 1 : 0;
@@ -236,7 +235,6 @@ describe('association answers asked twice', () => {
     const first = associate(triggers);
     const again = associate(triggers);
     expect(again).toEqual(first);
-    // What a caller does with the answer does not reach the next one.
     again.pop();
     expect(associate(triggers)).toEqual(first);
     const more = associate([...triggers, ...quake({ lat: 40.5, lon: -118 }, T0 + 5000, 8, 2, 'b')]);

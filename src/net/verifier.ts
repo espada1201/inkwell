@@ -2,14 +2,8 @@ import type { Event } from 'nostr-tools/pure';
 import { parse, type Message } from './protocol';
 import type { VerifyReply, VerifyRequest } from './verify.worker';
 
-/** Checks a batch of relay events, as of `now`: the message each one carries, or null for one that fails its checks. Answers come back in the order asked. */
 export type Verify = (events: Event[], now: number) => Promise<(Message | null)[]>;
 
-/**
- * Signature checks cost about 2 ms each, and a big network sends thousands of heartbeats the
- * moment a page opens. A few workers check them off the page's thread; with none (or if they
- * fail), the page checks them itself.
- */
 export function workerVerifier(size = Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 2) - 1))): Verify | null {
   const waiting = new Map<number, { events: Event[]; now: number; done: (m: (Message | null)[]) => void }>();
   const workers: Worker[] = [];
