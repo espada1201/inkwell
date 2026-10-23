@@ -29,13 +29,15 @@ const fetchNone = (async () => new Response('{}', { status: 503 })) as typeof fe
 const BUDGET: Record<number, Partial<Record<keyof Timings, number>>> = {
   1000: { heartbeats: 150, messages: 100, recomputeMax: 300, recomputeSum: 1200, recomputeRepeat: 50, screen: 30, prune: 30 },
   3000: { heartbeats: 300, messages: 150, recomputeMax: 600, recomputeSum: 2400, recomputeRepeat: 60, screen: 60, prune: 50 },
+  // Measured at 10,000 (the most phones kept): heartbeats 15-22, messages 125-170, recompute max 665-720, sum 2500-2700, repeat 11-15, screen 9, prune 6. A repeat of 1,200 was the old code.
+  10000: { heartbeats: 100, messages: 500, recomputeMax: 2200, recomputeSum: 8000, recomputeRepeat: 45, screen: 30, prune: 20 },
 };
 
 describe('a crowd of phones in a quake', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }));
   afterEach(() => vi.useRealTimers());
 
-  for (const n of [1000, 3000]) {
+  for (const n of [1000, 3000, 10_000]) {
     it(`${n} phones: heartbeats, picks and withdrawals are taken in, and the quake found, within the time budget`, { timeout: 120_000 }, () => {
       const c = crowd(n);
       const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
