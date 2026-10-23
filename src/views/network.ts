@@ -40,6 +40,8 @@ export interface NetworkCtx {
 type Selection = { kind: 'event' | 'usgs'; id: string };
 const HOURS = WINDOW_MS / 3600_000;
 const USGS_SHOWN = 12;
+/** The live screen redraws at most this often when the network changes. */
+const DRAW_EVERY_MS = 250;
 const USGS_GAP = 'Outside the US, USGS may not list quakes below about M4.5.';
 const feltText = (c: { people: number; places: number }) => `${c.people} people in ${c.places} places felt shaking`;
 const nearTitle = (x: Near) => (x.kind === 'felt' ? feltText(x) : x.kind === 'usgs' ? `USGS: ${x.place}` : x.kind === 'provisional' ? 'Provisional Tremor detection' : 'Tremor detection');
@@ -468,14 +470,19 @@ export function networkView(ctx: NetworkCtx) {
     syncMap();
   }
 
+  // A busy network changes the model many times a second; the screen follows a few times a second, in step with a frame.
   let queued = false;
+  let lastDrawn = 0;
   const off = live.on(() => {
     if (queued) return;
     queued = true;
-    requestAnimationFrame(() => {
-      queued = false;
-      render();
-    });
+    setTimeout(() => {
+      requestAnimationFrame(() => {
+        queued = false;
+        lastDrawn = performance.now();
+        render();
+      });
+    }, Math.max(0, DRAW_EVERY_MS - (performance.now() - lastDrawn)));
   });
   const tick = setInterval(render, 15_000);
   render();

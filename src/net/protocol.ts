@@ -138,9 +138,9 @@ const inRange = (v: unknown, lo: number, hi: number): v is number => finite(v) &
 const hex64 = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
 const KINDS = [KIND_PICK, KIND_TRIGGER, KIND_HEARTBEAT, KIND_DELETION, KIND_FELT];
 
-/** Verify signature and shape. Anything malformed, forged or implausible returns null. */
-export function parse(ev: Event): Message | null {
-  if (!validateEvent(ev) || !KINDS.includes(ev.kind) || ev.created_at * 1000 > Date.now() + MAX_FUTURE_MS) return null;
+/** Verify signature and shape, as of `now`. Anything malformed, forged or implausible returns null. */
+export function parse(ev: Event, now = Date.now()): Message | null {
+  if (!validateEvent(ev) || !KINDS.includes(ev.kind) || ev.created_at * 1000 > now + MAX_FUTURE_MS) return null;
   if (!ev.tags.some((t) => t[0] === 't' && t[1] === TAG)) return null;
   // Verify a plain copy: nostr-tools caches a "verified" flag on event objects it has seen.
   const { id, pubkey, created_at, kind, tags, content, sig } = ev;
@@ -164,7 +164,7 @@ export function parse(ev: Event): Message | null {
     const since = inRange(c.since, 0, base.at + MAX_FUTURE_MS) ? c.since : undefined;
     return { ...base, type: 'heartbeat', data: { ...loc, noise: c.noise, sps: c.sps, since } };
   }
-  if (!finite(c.t) || c.t > Date.now() + MAX_ONSET_AHEAD_MS) return null;
+  if (!finite(c.t) || c.t > now + MAX_ONSET_AHEAD_MS) return null;
   if (ev.kind === KIND_FELT) {
     if (c.t < base.at - FELT_BEFORE_MS || c.t > base.at + FELT_AFTER_MS || !inRange(c.lvl, 1, 5) || !Number.isInteger(c.lvl)) return null;
     return { ...base, type: 'felt', data: { ...loc, t: c.t, lvl: c.lvl } };

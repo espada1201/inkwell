@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { associate, eventUncertainty, type Trigger } from '../../src/core/associate';
+import { associate, compatible, eventUncertainty, onSphere, type Trigger } from '../../src/core/associate';
 import { distanceKm, offset, type LatLon } from '../../src/core/geo';
 import { VP_KMS, VS_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { gauss, rng } from '../../src/core/rng';
@@ -203,3 +203,45 @@ describe('association', () => {
     expect([...seen]).toHaveLength(1);
   });
 });
+
+describe('the fast check of whether two triggers can be one wave', () => {
+  const MAX_KM = 400;
+  const TOLERANCE_S = 1.5;
+
+  it('agrees with the great-circle distance for pairs near and far, at the poles and across the antimeridian', () => {
+    const r = rng(11);
+    const places: LatLon[] = [{ lat: 0, lon: 0 }, { lat: 37.8, lon: -122.3 }, { lat: -43.5, lon: 172.6 }, { lat: 66, lon: 179.95 }, { lat: 84, lon: 30 }, { lat: -89.5, lon: -10 }];
+    let near = 0;
+    for (let i = 0; i < 60_000; i++) {
+      const a = places[i % places.length];
+      const reach = [3, 40, 380, 399, 401, 420, 2000][i % 7];
+      const ang = r() * 2 * Math.PI;
+      const b = offset(a, Math.cos(ang) * reach * r(), Math.sin(ang) * reach * r());
+      const d = distanceKm(a, b);
+      const speed = i % 2 ? VP_KMS : VS_KMS;
+      // Time gaps that fall inside, just inside, just outside and well outside the travel time.
+      const dt = Math.max(0, d / speed + TOLERANCE_S + [-5, -0.01, 0, 1e-9, 0.01, 5][i % 6]);
+      const want = d <= MAX_KM && dt <= d / speed + TOLERANCE_S;
+      near += want ? 1 : 0;
+      expect(compatible(a, b, onSphere(a), onSphere(b), dt, speed), `${JSON.stringify([a, b, dt, speed])}`).toBe(want);
+    }
+    expect(near).toBeGreaterThan(10_000);
+  });
+});
+
+describe('association answers asked twice', () => {
+  it('gives the same events for the same triggers, and works afresh when one more arrives', () => {
+    const src = { lat: 35, lon: -118 };
+    const triggers = quake(src, T0, 10, 1, 'a');
+    const first = associate(triggers);
+    const again = associate(triggers);
+    expect(again).toEqual(first);
+    // What a caller does with the answer does not reach the next one.
+    again.pop();
+    expect(associate(triggers)).toEqual(first);
+    const more = associate([...triggers, ...quake({ lat: 40.5, lon: -118 }, T0 + 5000, 8, 2, 'b')]);
+    expect(more).toHaveLength(2);
+    expect(associate(triggers)).toEqual(first);
+  });
+});
+

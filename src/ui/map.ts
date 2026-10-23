@@ -319,6 +319,7 @@ export class QuakeMap {
 
   /** Empty every layer and forget the last screen's click handler: each screen starts from a blank map. */
   clear() {
+    this.nodesShown = [];
     for (const id of SOURCES) this.set(id, fc([]));
     this.setRings([]);
     this.onSelect = () => {};
@@ -330,7 +331,12 @@ export class QuakeMap {
     else this.pending.set(id, data);
   }
 
+  private nodesShown: MapNode[] = [];
   setNodes(nodes: MapNode[]) {
+    // Thousands of phones, and most redraws change none of them: skip handing the map the same points again.
+    const was = this.nodesShown;
+    if (nodes.length === was.length && nodes.every((n, i) => n.id === was[i].id && n.state === was[i].state && n.lat === was[i].lat && n.lon === was[i].lon && n.shake === was[i].shake)) return;
+    this.nodesShown = nodes;
     this.set('nodes', fc(nodes.map((n) => pt(n, { id: n.id, state: n.state, shake: n.shake ?? 0 }))));
   }
 

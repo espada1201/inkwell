@@ -4,6 +4,7 @@ import { Replay } from './app/replay';
 import { SensorNode } from './app/sensor';
 import { loadIdentity, safeStorage } from './net/identity';
 import { DEFAULT_RELAYS, RelayPool, isRelayUrl, reach } from './net/transport';
+import { workerVerifier } from './net/verifier';
 import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
 import { QuakeMap, SHAKE_COLORS, type Swatch } from './ui/map';
@@ -51,7 +52,7 @@ const logo = () => {
 
 const relays = relayList();
 const transport = new RelayPool(relays);
-const live = new LiveNetwork(transport, params.get('usgs') === 'hour' ? 'hour' : 'day');
+const live = new LiveNetwork(transport, params.get('usgs') === 'hour' ? 'hour' : 'day', undefined, workerVerifier() ?? undefined);
 const me = loadIdentity();
 const sensor = new SensorNode(transport, me);
 const replay = new Replay();

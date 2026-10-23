@@ -34,6 +34,43 @@ const MAX_DISTANCE_KM = 400;
 const NEAR_DEG = MAX_DISTANCE_KM / (Math.SQRT2 * KM_PER_DEG);
 const MAX_SPAN_S = 90;
 
+/** A point's half-angle sines and cosines, so the distance between two needs no trigonometry. */
+export interface Sphere {
+  cosLat: number;
+  sinLat2: number;
+  cosLat2: number;
+  sinLon2: number;
+  cosLon2: number;
+}
+export function onSphere(p: LatLon): Sphere {
+  const lat = (p.lat * Math.PI) / 180;
+  const lon = (p.lon * Math.PI) / 180;
+  return { cosLat: Math.cos(lat), sinLat2: Math.sin(lat / 2), cosLat2: Math.cos(lat / 2), sinLon2: Math.sin(lon / 2), cosLon2: Math.cos(lon / 2) };
+}
+
+const TWO_R_KM = (2 * 180 * KM_PER_DEG) / Math.PI;
+/** The chord-based distance below the great-circle one (asin x ≥ x), and the most it can fall short by under MAX_DISTANCE_KM (x/6 of x²), with room to spare. */
+const SHORT_BY = 1.001;
+
+/**
+ * `d <= MAX_DISTANCE_KM && dt <= d / speed + TOLERANCE_S` for the great-circle distance d, as
+ * `distanceKm` gives it. Products of half-angle sines give d to within 0.1% without a single
+ * trigonometric call, and only a pair that bound cannot settle pays for the exact distance.
+ */
+export function compatible(a: LatLon, b: LatLon, pa: Sphere, pb: Sphere, dt: number, speed: number): boolean {
+  const sLat = pb.sinLat2 * pa.cosLat2 - pb.cosLat2 * pa.sinLat2;
+  const sLon = pb.sinLon2 * pa.cosLon2 - pb.cosLon2 * pa.sinLon2;
+  const near = TWO_R_KM * Math.sqrt(sLat * sLat + pa.cosLat * pb.cosLat * sLon * sLon);
+  if (near > MAX_DISTANCE_KM) return false;
+  const far = near * SHORT_BY;
+  if (far <= MAX_DISTANCE_KM) {
+    if (dt <= near / speed + TOLERANCE_S) return true;
+    if (dt > far / speed + TOLERANCE_S) return false;
+  }
+  const d = distanceKm(a, b);
+  return d <= MAX_DISTANCE_KM && dt <= d / speed + TOLERANCE_S;
+}
+
 /**
  * Recent cluster solutions. Callers re-associate nearly the same triggers several times a
  * second while a quake or a busy minute unfolds, and most clusters come round again unchanged.
@@ -67,6 +104,14 @@ const popcount32 = (bits: number) => {
 };
 
 /**
+ * The last input each option set was given, with its answer. A live network asks again every
+ * few hundred ms with the same picks while nothing new has come in, and the answer is a function
+ * of the triggers alone, so the same triggers (the very same objects, in the same order) get the
+ * same events back.
+ */
+const lastAnswer = new Map<string, { input: Trigger[]; events: DetectedEvent[] }>();
+
+/**
  * Space–time association. Two triggers of the same wave can belong to one earthquake only if
  * their time difference is no larger than that wave's travel time between the nodes (plus slack).
  *  1. From every unused trigger, grow a cluster of pairwise-compatible triggers (one per node).
@@ -79,7 +124,7 @@ const popcount32 = (bits: number) => {
  *     relocate, so an unlucky seed (e.g. a stray footstep) cannot bias membership.
  *  5. Later triggers the event explains as either wave are absorbed so they do not spawn ghosts.
  */
-export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
+function associateAll(triggers: Trigger[], opts: AssociateOptions): DetectedEvent[] {
   const minNodes = opts.minNodes ?? 4;
   const maxSpan = MAX_SPAN_S * 1000;
   const maxRms = opts.maxRmsS ?? 1.5;
@@ -91,22 +136,23 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
 
   // Pairwise compatibility as one bitset row per trigger, so growing a cluster costs a few
   // word-ANDs per member instead of a distance check against every member (a city of a
-  // thousand phones would otherwise take seconds).
+  // thousand phones would otherwise take seconds). A row holds the later triggers only: a
+  // cluster grows forward in time and never looks back.
   const n = sorted.length;
   const words = (n + 31) >>> 5;
   const compat = new Uint32Array(n * words);
+  const sphere = sorted.map(onSphere);
   for (let a = 0; a < n; a++) {
     const A = sorted[a];
     const phase = A.phase ?? 'P';
+    const speed = speedOf(phase);
     for (let b = a + 1; b < n && sorted[b].t - A.t <= maxSpan; b++) {
       const B = sorted[b];
       if (phase !== (B.phase ?? 'P')) continue;
       const dt = (B.t - A.t) / 1000;
       const near = dt <= TOLERANCE_S && Math.abs(B.lat - A.lat) <= NEAR_DEG && Math.abs(B.lon - A.lon) <= NEAR_DEG;
-      const d = near ? 0 : distanceKm(A, B);
-      if (near || (d <= MAX_DISTANCE_KM && dt <= d / speedOf(phase) + TOLERANCE_S)) {
+      if (near || compatible(A, B, sphere[a], sphere[b], dt, speed)) {
         compat[a * words + (b >>> 5)] |= 1 << (b & 31);
-        compat[b * words + (a >>> 5)] |= 1 << (a & 31);
       }
     }
   }
@@ -139,7 +185,7 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
       if (!(fits[j >>> 5] & (1 << (j & 31))) || used.has(c.id) || nodes.has(c.node)) continue;
       cluster.push(c);
       nodes.add(c.node);
-      for (let w = 0; w < words; w++) fits[w] &= compat[j * words + w];
+      for (let w = j >>> 5; w < words; w++) fits[w] &= compat[j * words + w];
     }
     return cluster;
   };
@@ -210,6 +256,15 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
     events.push({ ...f.sol, id: `ev-${f.members[0].id.slice(0, 12)}`, time: f.time, triggers: f.members });
   }
   return events.sort((a, b) => a.time - b.time);
+}
+
+export function associate(triggers: Trigger[], opts: AssociateOptions = {}): DetectedEvent[] {
+  const key = `${opts.minNodes ?? 4}|${opts.maxRmsS ?? 1.5}`;
+  const last = lastAnswer.get(key);
+  if (last && last.input.length === triggers.length && last.input.every((t, i) => t === triggers[i])) return [...last.events];
+  const events = associateAll(triggers, opts);
+  lastAnswer.set(key, { input: [...triggers], events });
+  return [...events];
 }
 
 const traced = new Map<string, Uncertainty>();

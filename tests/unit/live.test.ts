@@ -6,8 +6,9 @@ import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { ORIGIN_OFFSET_S, simulate } from '../../src/core/scenarios';
 import { RELAY_LATENCY_MS } from '../../src/core/simnet';
-import { HEARTBEAT_EVERY_MS, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
+import { HEARTBEAT_EVERY_MS, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import type { Transport } from '../../src/net/transport';
+import type { Verify } from '../../src/net/verifier';
 
 class NullTransport implements Transport {
   publish() {}
@@ -26,7 +27,8 @@ const T0 = Date.now() - 20_000;
 const phones = Array.from({ length: 8 }, (_, i) => {
   const p = offset(src, Math.cos(i) * (10 + 4 * i), Math.sin(i) * (10 + 4 * i));
   const hyp = hypocentralKm(distanceKm(src, p));
-  return { sk: generateSecretKey(), ...p, t: T0 + (hyp / VP_KMS) * 1000, pga: pgaFor(5.5, hyp) };
+  const sk = generateSecretKey();
+  return { sk, pubkey: getPublicKey(sk), ...p, t: T0 + (hyp / VP_KMS) * 1000, pga: pgaFor(5.5, hyp) };
 });
 const fetchNone = (async () => new Response('{}', { status: 503 })) as typeof fetch;
 
@@ -229,6 +231,29 @@ describe('live network model', () => {
     expect(live.isOnline(live.nodes.get(getPublicKey(p.sk))!, Date.now())).toBe(false);
   });
 
+  it('hears one phone for 30 picks and 30 confirmed reports an hour, and a withdrawn pick frees its place', () => {
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const [a, b] = phones;
+    for (const p of [a, b]) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    const picked = (node: string) => [...live.picks.values()].filter((p) => p.node === node);
+    const picks = Array.from({ length: 40 }, (_, i) => signPick(a.sk, { ...a, t: T0 + i * 100 }));
+    picks.forEach((ev) => live.ingest(ev));
+    expect(picked(a.pubkey)).toHaveLength(30);
+    live.ingest(signPick(b.sk, b));
+    expect(picked(b.pubkey)).toHaveLength(1);
+    live.ingest(signRetraction(a.sk, picks[0].id, 'footsteps'));
+    expect(picked(a.pubkey)).toHaveLength(29);
+    live.ingest(signPick(a.sk, { ...a, t: T0 + 9000 }));
+    live.ingest(signPick(a.sk, { ...a, t: T0 + 9100 }));
+    expect(picked(a.pubkey)).toHaveLength(30);
+    Array.from({ length: 40 }, (_, i) => signTrigger(a.sk, { ...a, t: T0 + i * 100, dur: 5 })).forEach((ev) => live.ingest(ev));
+    live.ingest(signTrigger(b.sk, { ...b, dur: 5 }));
+    expect(live.triggers.filter((t) => t.node === a.pubkey)).toHaveLength(30);
+    expect(live.triggers.filter((t) => t.node === b.pubkey)).toHaveLength(1);
+    live.ingest(signTrigger(a.sk, { ...a, t: T0 + 5000, dur: 5 }));
+    expect(live.triggers).toHaveLength(31);
+  });
+
   it('keeps a bounded number of phones, dropping the one silent longest', () => {
     const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
     const at = Date.now() - 60_000;
@@ -393,5 +418,55 @@ describe('a quake felt only from one side, by a town 100 km away', () => {
     const { live } = heard(14, false);
     expect(live.events).toHaveLength(0);
     expect(live.provisional.map((d) => d.outcome)).toEqual(['unconfirmed']);
+  });
+});
+
+describe('events checked beside the page', () => {
+  beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }));
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+  });
+
+  function watching(verify: Verify) {
+    let deliver: (ev: Event) => void = () => {};
+    const transport: Transport = Object.assign(new NullTransport(), { subscribe: (_f: Filter[] | (() => Filter[]), cb: (ev: Event) => void) => ((deliver = cb), () => {}) });
+    const live = new LiveNetwork(transport, 'hour', fetchNone, verify);
+    live.start();
+    return { live, deliver: (ev: Event) => deliver(ev) };
+  }
+  const beat = (p: (typeof phones)[number]) => signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 });
+
+  it('takes events in the order they arrived, drops the ones that fail, and batches them', async () => {
+    const batches: Event[][] = [];
+    const later: (() => void)[] = [];
+    // The first batch is checked slowest, as when a worker is busy; the answers must still go in order.
+    const verify: Verify = (events, now) => {
+      batches.push(events);
+      return new Promise((done) => later.push(() => done(events.map((ev) => parse(ev, now)))));
+    };
+    const { live, deliver } = watching(verify);
+    const forged = { ...beat(phones[1]), content: '{"v":1,"lat":1,"lon":2,"noise":0.01,"sps":60}' };
+    [phones[0], phones[1], phones[2]].forEach((p, i) => deliver(i === 1 ? forged : beat(p)));
+    expect(live.nodes.size).toBe(0);
+    vi.advanceTimersByTime(20);
+    deliver(beat(phones[3]));
+    deliver(beat(phones[4]));
+    vi.advanceTimersByTime(20);
+    expect(batches.map((b) => b.length)).toEqual([3, 2]);
+    later[1]();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(live.nodes.size).toBe(0);
+    later[0]();
+    await vi.advanceTimersByTimeAsync(0);
+    expect([...live.nodes.keys()]).toEqual([phones[0], phones[2], phones[3], phones[4]].map((p) => p.pubkey));
+  });
+
+  it('sends a full batch at once, without waiting', () => {
+    const batches: number[] = [];
+    const { deliver } = watching((events) => (batches.push(events.length), new Promise(() => {})));
+    const ev = beat(phones[0]);
+    for (let i = 0; i < 64; i++) deliver(ev);
+    expect(batches).toEqual([64]);
   });
 });

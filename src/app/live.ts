@@ -6,6 +6,7 @@ import type { LatLon } from '../core/geo';
 import type { RejectReason } from '../core/sensor';
 import { HEARTBEAT_EVERY_MS, filters, parse, signFelt, type Heartbeat, type Message } from '../net/protocol';
 import type { Transport } from '../net/transport';
+import type { Verify } from '../net/verifier';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
 import type { MapNode } from '../ui/map';
 import { Emitter } from './emitter';
@@ -36,6 +37,39 @@ const SHAKEN_MS = 120_000;
 /** A provisional detection that neither its phones nor a confirmed one settle this long after it was declared stays unconfirmed. */
 export const SETTLE_MS = 2 * 60_000;
 const MAX_PROVISIONAL = 500;
+/** Relay events wait this long to be checked in one batch, or go at this many. Past MAX_UNCHECKED waiting, the newest are dropped: the checks cannot keep up. */
+const CHECK_EVERY_MS = 20;
+const CHECK_BATCH = 64;
+const MAX_UNCHECKED = 50_000;
+
+/** Picks or triggers by the phone that sent them, so a phone's recent count looks at its own few and not at everyone's. */
+class ByNode {
+  private by = new Map<string, Trigger[]>();
+
+  add(t: Trigger) {
+    const own = this.by.get(t.node);
+    if (own) own.push(t);
+    else this.by.set(t.node, [t]);
+  }
+
+  remove(t: Trigger) {
+    const own = this.by.get(t.node);
+    const i = own?.indexOf(t) ?? -1;
+    if (!own || i < 0) return;
+    own.splice(i, 1);
+    if (!own.length) this.by.delete(t.node);
+  }
+
+  reset(all: Iterable<Trigger>) {
+    this.by.clear();
+    for (const t of all) this.add(t);
+  }
+
+  /** How many of this phone's arrivals started in the last hour. */
+  lastHour(node: string, now: number) {
+    return (this.by.get(node) ?? []).filter((x) => now - x.t < 3600_000).length;
+  }
+}
 
 /** A phone withdrew its pick: why it says, and when. */
 export interface Withdrawal {
@@ -81,6 +115,13 @@ export class LiveNetwork extends Emitter {
   usgsState: 'loading' | 'ok' | 'error' = 'loading';
   usgsWindow: UsgsWindow;
   private pending: Message[] = [];
+  private unchecked: Event[] = [];
+  /** Events handed over and not yet taken in. */
+  private backlog = 0;
+  private inOrder: Promise<void> = Promise.resolve();
+  private pickedBy = new ByNode();
+  private triggeredBy = new ByNode();
+  private triggerIds = new Set<string>();
   /**
    * Retractions by `pick:phone`, from phones with a heartbeat. One can arrive before its pick,
    * and only the pick's own author may retract it, so every retracting phone is kept until the
@@ -92,6 +133,8 @@ export class LiveNetwork extends Emitter {
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
   private recomputeQueued = false;
+  /** How long the last recompute took, ms: a big network waits longer between them, so the page keeps most of its time. */
+  private recomputeCost = 0;
   private recheck: ReturnType<typeof setTimeout> | undefined;
   private usgsAsked = 0;
   private usgsShown = 0;
@@ -100,13 +143,15 @@ export class LiveNetwork extends Emitter {
     readonly transport: Transport,
     usgsWindow: UsgsWindow,
     private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
+    /** Where relay events are checked; without one, here and at once. */
+    private readonly verify?: Verify,
   ) {
     super();
     this.usgsWindow = usgsWindow;
   }
 
   start() {
-    this.transport.subscribe(() => filters(Date.now() - WINDOW_MS), (ev) => this.ingest(ev));
+    this.transport.subscribe(() => filters(Date.now() - WINDOW_MS), (ev) => this.take(ev));
     this.transport.onStatus(() => this.emit());
     this.refreshUsgs();
     setInterval(() => this.refreshUsgs(), 120_000);
@@ -141,6 +186,27 @@ export class LiveNetwork extends Emitter {
     if (m) this.receive(m);
   }
 
+  /** An event from a relay: checked beside the page when there is a verifier, in the order they came. */
+  private take(ev: Event) {
+    const verify = this.verify;
+    if (!verify) return this.ingest(ev);
+    if (this.backlog >= MAX_UNCHECKED) return;
+    this.backlog++;
+    this.unchecked.push(ev);
+    if (this.unchecked.length >= CHECK_BATCH) this.sendUnchecked(verify);
+    else if (this.unchecked.length === 1) setTimeout(() => this.sendUnchecked(verify), CHECK_EVERY_MS);
+  }
+
+  private sendUnchecked(verify: Verify) {
+    const batch = this.unchecked.splice(0);
+    if (!batch.length) return;
+    const checked = verify(batch, Date.now()).catch(() => []);
+    this.inOrder = this.inOrder.then(() => checked).then((messages) => {
+      this.backlog -= batch.length;
+      messages.forEach((m) => m && this.receive(m));
+    });
+  }
+
   /** One message whose signature and shape `parse` has checked. */
   receive(m: Message) {
     if (m.type === 'heartbeat') {
@@ -150,9 +216,11 @@ export class LiveNetwork extends Emitter {
       if (!prev && this.nodes.size >= MAX_NODES) this.nodes.delete([...this.nodes.values()].reduce((a, b) => (b.lastSeen < a.lastSeen ? b : a)).id);
       const resumed = !prev || prev.sps === 0 || m.at - prev.lastSeen > NODE_STALE_MS;
       this.nodes.set(m.node, { ...m.data, id: m.node, firstSeen: resumed ? m.at : prev.firstSeen, lastSeen: m.at, lastTrigger: prev?.lastTrigger ?? null });
-      const held = this.pending.filter((p) => p.node === m.node);
-      this.pending = this.pending.filter((p) => p.node !== m.node);
-      held.forEach((p) => this.receive(p));
+      if (this.pending.length) {
+        const held = this.pending.filter((p) => p.node === m.node);
+        this.pending = this.pending.filter((p) => p.node !== m.node);
+        held.forEach((p) => this.receive(p));
+      }
       this.queueRecompute();
     } else if (m.type !== 'felt' && !this.nodes.has(m.node)) {
       this.pending = [...this.pending, m].slice(-500);
@@ -169,7 +237,7 @@ export class LiveNetwork extends Emitter {
         this.withdrawnBy.set(m.node, [...(this.withdrawnBy.get(m.node) ?? []), key]);
       }
       this.withdrawals.set(key, { reason: m.reason, at: m.at, node: m.node });
-      this.picks.delete(m.pick);
+      this.dropPick(m.pick);
       this.queueRecompute();
     } else if (m.type === 'felt') {
       if (m.data.t < Date.now() - WINDOW_MS || this.felt.some((f) => f.id === m.id)) return;
@@ -182,17 +250,20 @@ export class LiveNetwork extends Emitter {
       if (m.type === 'trigger' && m.pick) t.pick = m.pick;
       const n = this.nodes.get(m.node)!;
       if (m.type === 'pick') {
-        if (this.picks.has(t.id) || this.burst(m.node, [...this.picks.values()])) return;
+        if (this.picks.has(t.id) || this.pickedBy.lastHour(m.node, Date.now()) >= MAX_PER_NODE_HOUR) return;
         this.hear(t);
         // A retraction can arrive before its pick.
         if (this.withdrawals.has(`${t.id}:${t.node}`)) return;
         this.picks.set(t.id, t);
-        if (this.picks.size > MAX_PICKS) this.picks.delete(this.picks.keys().next().value!);
+        this.pickedBy.add(t);
+        if (this.picks.size > MAX_PICKS) this.dropPick(this.picks.keys().next().value!);
       } else {
-        if (this.triggers.some((x) => x.id === t.id) || this.burst(m.node, this.triggers)) return;
+        if (this.triggerIds.has(t.id) || this.triggeredBy.lastHour(m.node, Date.now()) >= MAX_PER_NODE_HOUR) return;
         this.hear(t);
         this.triggers.push(t);
-        if (this.triggers.length > MAX_TRIGGERS) this.triggers.shift();
+        this.triggerIds.add(t.id);
+        this.triggeredBy.add(t);
+        if (this.triggers.length > MAX_TRIGGERS) this.dropTrigger(this.triggers.shift()!);
         n.lastTrigger = Math.max(n.lastTrigger ?? 0, t.t);
       }
       this.queueRecompute();
@@ -227,10 +298,16 @@ export class LiveNetwork extends Emitter {
     else this.withdrawnBy.delete(node);
   }
 
-  /** Simple per-node rate limit so one broken or hostile phone cannot flood the detector. */
-  private burst(node: string, list: Trigger[]) {
-    const now = Date.now();
-    return list.filter((x) => x.node === node && now - x.t < 3600_000).length >= MAX_PER_NODE_HOUR;
+  private dropPick(id: string) {
+    const t = this.picks.get(id);
+    if (!t) return;
+    this.picks.delete(id);
+    this.pickedBy.remove(t);
+  }
+
+  private dropTrigger(t: Trigger) {
+    this.triggerIds.delete(t.id);
+    this.triggeredBy.remove(t);
   }
 
   private queueRecompute() {
@@ -240,10 +317,16 @@ export class LiveNetwork extends Emitter {
       this.recomputeQueued = false;
       this.recompute();
       this.emit();
-    }, 200);
+    }, this.pause(200));
+  }
+
+  /** At least `ms`, and at least three times what a recompute costs now: a quarter of the page's time at most. */
+  private pause(ms: number) {
+    return Math.min(2000, Math.max(ms, 3 * this.recomputeCost));
   }
 
   recompute(now = Date.now()) {
+    const began = Date.now();
     clearTimeout(this.recheck);
     const nodes = [...this.nodes.values()];
     // Confirmed events face the phones that were listening when they struck, and stayed quiet.
@@ -256,12 +339,13 @@ export class LiveNetwork extends Emitter {
     this.early = unconfirmed(early.events, this.events);
     this.settle(now);
     this.feltClusters = clusterFelt(this.felt);
+    this.recomputeCost = Date.now() - began;
     // A candidate holds for now, but phones the wave is still reaching could overturn it.
     if (early.waiting)
       this.recheck = setTimeout(() => {
         this.recompute();
         this.emit();
-      }, 500);
+      }, this.pause(500));
   }
 
   private settle(now: number) {
@@ -272,7 +356,8 @@ export class LiveNetwork extends Emitter {
       if (!d) this.provisional.push({ event: e, declared: now, picks: [...e.triggers], outcome: 'open', confirmed: null, withdrew: [] });
       else {
         d.event = e;
-        d.picks.push(...e.triggers.filter((t) => !d.picks.some((p) => p.id === t.id)));
+        const had = new Set(d.picks.map((p) => p.id));
+        d.picks.push(...e.triggers.filter((t) => !had.has(t.id)));
       }
     }
     for (const d of this.provisional) {
@@ -290,10 +375,15 @@ export class LiveNetwork extends Emitter {
 
   private prune() {
     const now = Date.now();
-    this.triggers = this.triggers.filter((t) => now - t.t < WINDOW_MS);
+    const kept = this.triggers.filter((t) => now - t.t < WINDOW_MS);
+    if (kept.length < this.triggers.length) {
+      this.triggers = kept;
+      this.triggerIds = new Set(kept.map((t) => t.id));
+      this.triggeredBy.reset(kept);
+    }
     this.heard = this.heard.filter((h) => now - h.t < WINDOW_MS);
     this.felt = this.felt.filter((f) => now - f.t < WINDOW_MS);
-    for (const [k, p] of this.picks) if (now - p.t > 5 * 60_000) this.picks.delete(k);
+    for (const [k, p] of this.picks) if (now - p.t > 5 * 60_000) this.dropPick(k);
     for (const [k, n] of this.nodes) if (now - n.lastSeen > WINDOW_MS) this.nodes.delete(k);
     for (const [k, w] of this.withdrawals) if (now - w.at > WINDOW_MS) this.forget(k);
     this.queueRecompute();
