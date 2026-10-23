@@ -12,7 +12,7 @@ The Network screen answers "was that a quake, near me?". A card lists what was r
 - `net-chime` works only after the reader ticks the box. It then sounds, vibrates, notifies and shows a dismissable alert once for each light or stronger shaking near the reader that phones confirmed or USGS lists. It does none of this for withdrawn picks, provisional detections, what people say they felt, weak shaking, shaking listed before the tick or shaking older than 30 minutes.
 - `net-usgs` lists the USGS feed for the past day or hour, nearest first or worldwide, with placeholders while it loads, the 12 nearest or newest and a line saying how many there are in all, a line saying it retries when the feed cannot be reached, and the note that USGS may miss quakes below about M4.5 outside the US.
 - `net-hostile` drops forged and malformed events without breaking the page.
-- `net-relays` counts open relays, says so when none can be reached, and edits the list. A relay that is down is tried again after 1 s, 2 s, 4 s and so on, but at least every 5 minutes, and at once when the browser comes back online; the browser's own console logs one error per refused try. It saves only `wss://` addresses (or `ws://` to localhost), one per line or comma-separated as a link writes them; the saved list survives a reload (carried in the address where the browser refuses to store it), and a `?relays=` link with no usable address falls back to the usual relays.
+- `net-relays` counts open relays, says so when none can be reached, and edits the list. A relay that is down is tried again after about 1 s, 2 s, 4 s and so on (each wait a random 70% to 130% of that), but at least every 5 minutes, or every minute while this browser is a listening sensor with a location set; and at once when the browser comes back online or the tab is shown again (at most every 10 s for the tab); the browser's own console logs one error per refused try. It saves only `wss://` addresses (or `ws://` to localhost), one per line or comma-separated as a link writes them; the saved list survives a reload (carried in the address where the browser refuses to store it), and a `?relays=` link with no usable address falls back to the usual relays.
 - `net-offline-map` falls back to a bundled coastline when map tiles cannot load.
 
 ## How to get to it (user POV)
@@ -40,7 +40,7 @@ Preconditions: the baseline. Start the journey with `const { scenarioEvents, sen
 ## Gotchas
 
 - Events from a phone whose heartbeat has not arrived wait until it does; send heartbeats first or in the same batch.
-- The screen recomputes 200 ms after a batch arrives; wait on the counts, not on time.
+- The screen recomputes 200 ms after a pick, trigger or withdrawal arrives (a heartbeat waits longer on a big network, up to 2 s); wait on the counts, not on time.
 - `scenarioEvents` dates the quake from the moment it is called; its Napa picks are already 30 to 60 s old, and the early detector uses picks up to 60 s old, so send them within about 30 s of calling it or no provisional detection shows. The near-you card lists Tremor detections for 10 minutes only.
 - The chime counts only shaking that arrives after the box is ticked, and the tick is not saved across reloads: a page can start sound only from a tap.
 - With no relay connected and the USGS feed unreachable, the near-you card says it cannot tell whether anything shook, never that nothing did.
