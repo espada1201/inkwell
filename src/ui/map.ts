@@ -1,4 +1,4 @@
-import type { GeoJSONSource, MapLayerMouseEvent, Map as MlMap, Marker, StyleSpecification } from 'maplibre-gl';
+import type { GeoJSONSource, MapLayerMouseEvent, Map as MlMap, Marker, Popup, StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import type { GeometryCollection, Topology } from 'topojson-specification';
@@ -146,6 +146,8 @@ export class QuakeMap {
   offline = false;
   readonly ready: Promise<void>;
   onSelect: (kind: 'event' | 'usgs', id: string) => void = () => {};
+  /** What pressing a phone's dot says (its id in, a note out), or null for nothing. */
+  nodeInfo: ((id: string) => string | null) | null = null;
   private pending = new Map<string, FC>();
   private lib: typeof import('maplibre-gl') | null = null;
 
@@ -307,6 +309,18 @@ export class QuakeMap {
       source: 'truth',
       paint: { 'circle-radius': 7, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': INK, 'circle-stroke-width': 2.5 },
     });
+    // A dot is 7 px across: a press within a fingertip of it is a press on it.
+    map.on('click', (e) => {
+      const r = 10;
+      const hits = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ['nodes'] });
+      const near = hits
+        .map((f) => ({ id: String(f.properties?.id ?? ''), d: Math.hypot(...(['x', 'y'] as const).map((k) => map.project((f.geometry as GeoJSON.Point).coordinates as [number, number])[k] - e.point[k])) }))
+        .filter((x) => x.id)
+        .sort((a, b) => a.d - b.d)[0];
+      if (near) this.showNode(near.id);
+    });
+    map.on('mouseenter', 'nodes', () => this.nodeInfo && (map.getCanvas().style.cursor = 'pointer'));
+    map.on('mouseleave', 'nodes', () => this.nodeInfo && (map.getCanvas().style.cursor = ''));
     for (const [layer, kind] of [['events', 'event'], ['events-halo', 'event'], ['usgs', 'usgs']] as const) {
       map.on('click', layer, (e: MapLayerMouseEvent) => {
         const id = e.features?.[0]?.properties?.id;
@@ -317,9 +331,13 @@ export class QuakeMap {
     }
   }
 
-  /** Empty every layer and forget the last screen's click handler: each screen starts from a blank map. */
+  /** Empty every layer and forget the last screen's click handlers: each screen starts from a blank map. */
   clear() {
     this.nodesShown = [];
+    this.nodeInfo = null;
+    this.popup?.remove();
+    this.popup = null;
+    this.setPlaces([]);
     for (const id of SOURCES) this.set(id, fc([]));
     this.setRings([]);
     this.onSelect = () => {};
@@ -386,6 +404,32 @@ export class QuakeMap {
         const p = offset(r.center, 0, r.km);
         return new lib.Marker({ element: h('div', { class: `ring-label ${r.kind}` }, r.label!), anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map);
       });
+  }
+
+  private popup: Popup | null = null;
+  /** Open the note for one phone beside its dot. */
+  showNode(id: string) {
+    const { map, lib } = this;
+    const node = this.nodesShown.find((n) => n.id === id);
+    const note = node && this.nodeInfo?.(id);
+    if (!map || !lib || !node || !note) return;
+    this.popup?.remove();
+    this.popup = new lib.Popup({ closeButton: true, maxWidth: '240px', offset: 10, className: 'phone-popup' }).setLngLat([node.lon, node.lat]).setDOMContent(h('p', {}, note)).addTo(map);
+  }
+
+  private places: Marker[] = [];
+  private placesKey = '';
+  /** Name a few places on the map (a town beside the epicentre, the reader's own), drawn by Tremor so they show without the online basemap's labels. */
+  setPlaces(list: { at: LatLon; text: string }[]) {
+    const key = list.map((x) => `${x.text}@${x.at.lat},${x.at.lon}`).join('|');
+    if (key === this.placesKey) return;
+    this.placesKey = key;
+    this.ready.then(() => {
+      const { map, lib } = this;
+      if (!map || !lib || key !== this.placesKey) return;
+      this.places.forEach((m) => m.remove());
+      this.places = list.map((x) => new lib.Marker({ element: h('div', { class: 'town-label' }, x.text), anchor: 'left' }).setLngLat([x.at.lon, x.at.lat]).addTo(map));
+    });
   }
 
   setTruth(p: LatLon | null) {

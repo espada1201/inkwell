@@ -152,7 +152,7 @@ const TABS = {
       return networkView({ live, map, relays, saveRelays, place: sensor, openFelt: felt.open, chime: bell });
     },
   },
-  replay: { label: 'Replay', legend: REPLAY_LEGEND, shakeKey: true, mount: (arg) => replayView(replay, map, arg, Number(params.get('speed')) || 1, live, sensor.location) },
+  replay: { label: 'Replay', legend: REPLAY_LEGEND, shakeKey: true, mount: (arg) => replayView(replay, map, arg, Number(params.get('speed')) || 1, live, sensor.location, sensor.placeName) },
   plan: { label: 'Plan', legend: PLAN_LEGEND, shakeKey: false, mount: (arg) => planView(map, arg, live, sensor.location, sensor.placeName) },
   sensor: { label: 'Be a sensor', legend: NETWORK_LEGEND, shakeKey: true, fullScreen: true, mount: () => sensorView(sensor, live) },
   about: { label: 'About', legend: NETWORK_LEGEND, shakeKey: true, mount: () => aboutView() },

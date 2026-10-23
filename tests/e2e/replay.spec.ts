@@ -28,6 +28,64 @@ test('Napa replay: phones declare early, locate near USGS, and show warning time
   await expect(page.locator('canvas.section')).toBeVisible();
 });
 
+test('Napa replay answers "how much warning did Napa get": none, the shaking came first', async ({ page }) => {
+  await page.goto('/?speed=10#replay/napa-2014');
+  const near = page.getByTestId('warning-near');
+  await expect(near).toHaveText(/^Near Napa \(10 km from the epicentre\): shaking came \d\.\d–\d\.\d s before the alert \(\d phones within 15 km\), so no warning\.$/, { timeout: 30_000 });
+  // The bars say what they are and what the two colours mean.
+  const card = page.getByTestId('warning');
+  await expect(card).toContainText('Each bar is one simulated phone');
+  await expect(card).toContainText('seconds of warning');
+  await expect(card).toContainText('shaking came first');
+  await expect(card.locator('.bars-axis')).toContainText('0 s');
+});
+
+test('the Napa epicentre is marked on the map with its town, even without the online basemap', async ({ page }) => {
+  await page.goto('/?speed=10#replay/napa-2014');
+  await expect(page.locator('.town-label')).toHaveText('Napa');
+});
+
+test('a phone can be asked about: by a list the keyboard reaches, and by pressing its dot', async ({ page }) => {
+  await page.goto('/?speed=10#replay/napa-2014');
+  await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
+  const list = page.getByTestId('phone-list');
+  await list.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  const first = list.getByRole('button').first();
+  await expect(first).toHaveText(/^\d+\.\d km from the epicentre · (\d+\.\d s warning|shaking \d+\.\d s before the alert|barely felt)$/);
+  await first.focus();
+  await page.keyboard.press('Enter');
+  const popup = page.locator('.maplibregl-popup');
+  await expect(popup).toContainText(/^Simulated phone, \d+\.\d km from the epicentre\./);
+  await expect(popup).toContainText(/before the (alert|strong shaking)|barely felt/);
+  await popup.getByRole('button', { name: 'Close popup' }).click();
+  await expect(popup).toHaveCount(0);
+});
+
+test('pressing a phone dot on the map opens its note', async ({ page }) => {
+  await page.goto('/?speed=10#replay/napa-2014');
+  await expect(page.getByTestId('play')).toHaveText('Replay', { timeout: 30_000 });
+  const list = page.getByTestId('phone-list');
+  await list.locator('summary').click();
+  await list.getByRole('button').first().click();
+  const popup = page.locator('.maplibregl-popup');
+  await expect(popup).toBeVisible();
+  // The popup's tip points at the dot.
+  const box = (await popup.boundingBox())!;
+  const dot = { x: box.x + box.width / 2, y: box.y + box.height + 10 };
+  await popup.getByRole('button', { name: 'Close popup' }).click();
+  await expect(popup).toHaveCount(0);
+  await page.mouse.click(dot.x, dot.y);
+  await expect(popup).toContainText(/^Simulated phone, \d+\.\d km from the epicentre\./);
+});
+
+test('the Replay key explains the blind zone and the 5, 10 and 20 s rings', async ({ page }) => {
+  await page.goto('/?speed=10#replay/napa-2014');
+  const key = page.locator('details.map-legend');
+  await expect(key).toContainText('blind zone: the strong shaking got there before the alert');
+  await expect(key).toContainText('5, 10 and 20 s rings: the strong shaking reaches a ring that many seconds after the alert');
+});
+
 test('concert night: no earthquake is declared', async ({ page }) => {
   await page.goto('/?speed=10#replay/stadium-night');
   await expect(page.locator('[data-scenario="stadium-night"]')).toHaveAttribute('aria-pressed', 'true');

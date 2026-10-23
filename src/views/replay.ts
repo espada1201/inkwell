@@ -2,19 +2,24 @@ import type { LiveNetwork } from '../app/live';
 import type { Replay } from '../app/replay';
 import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
-import { shakeGrid, sRadiusKm } from '../core/impact';
+import { shakeGrid, sRadiusKm, warningNear } from '../core/impact';
+import { epicentreTown, type Town } from '../core/places';
 import { MIN_REPLAY_MAG, ORIGIN_OFFSET_S, SCENARIOS, parseQuakeLink, quakeLink, type QuakeRef, type Scenario } from '../core/scenarios';
 import { usgsEventUrl } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
 import { WITHDRAWN, ago, clockT, coord, mag, many, utc } from '../ui/format';
 import { NODE_COLORS, type MapRing, type QuakeMap, type Swatch } from '../ui/map';
 import { drawSection } from '../ui/section';
+import { nearLine, phoneNote } from '../ui/warnnear';
 import { compareCard, give } from './compare';
+import { loadTowns } from './place';
 
 const ISOCHRONS = [5, 10, 20];
 const elapsed = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const NEAR_HOME_KM = 150;
 const RECENT = 5;
+/** Phones this close to a place stand for it: a town is some 10 km across. */
+const NEAR_PLACE_KM = 15;
 
 export const REPLAY_LEGEND: Swatch[] = [
   [NODE_COLORS.idle, 'simulated phone'],
@@ -25,9 +30,11 @@ export const REPLAY_LEGEND: Swatch[] = [
   ['transparent;border:2px solid var(--ink)', 'USGS epicentre'],
   ['transparent;border:1px dashed var(--ink)', 'where a detection could be'],
   ['transparent;border:1.5px dashed var(--muted)', 'P and S wavefronts'],
+  ['rgba(200,38,28,.14);border:1.5px dashed var(--red)', 'blind zone: the strong shaking got there before the alert'],
+  ['transparent;border:1px dashed var(--ink)', '5, 10 and 20 s rings: the strong shaking reaches a ring that many seconds after the alert'],
 ];
 
-export function replayView(r: Replay, map: QuakeMap, initial: string | undefined, speed: number, live: LiveNetwork, saved: LatLon | null) {
+export function replayView(r: Replay, map: QuakeMap, initial: string | undefined, speed: number, live: LiveNetwork, saved: LatLon | null, savedName: string | null = null) {
   const root = h('div', { class: 'panel-inner' });
   const canvas = h('canvas', { class: 'section', role: 'img', 'aria-label': 'Record section: phone traces sorted by distance from the epicentre' });
   const clock = h('span', { class: 'clock', 'data-testid': 'clock' });
@@ -36,6 +43,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   const stats = h('p', { class: 'small mono muted', 'data-testid': 'replay-stats' });
   const steps = h('ol', { class: 'timeline', 'aria-label': 'What the network knew, and when' });
   const warn = h('div', {});
+  const phones = h('div', {});
   const result = h('div', {});
   const said = h('p', { class: 'sr-only', role: 'status', 'data-testid': 'replay-status' });
   const picker = h('div', { class: 'scenarios', role: 'group', 'aria-label': 'Scenarios' });
@@ -59,6 +67,31 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     const pts = r.nodes.map((n) => ({ lat: n.lat, lon: n.lon }));
     if (s.truth) pts.push(s.truth);
     map.fitTo(pts, 10);
+  }
+
+  /** The town the quake is named for, and where the reader is, once the list of towns has loaded. */
+  let named: { id: string; town: Town | null } | null = null;
+  let gone = false;
+  const inArea = (p: LatLon) => r.nodes.some((n) => distanceKm(n, p) <= NEAR_PLACE_KM);
+  const here = (town: Town | null) => !!saved && inArea(saved) && !(town && distanceKm(saved, town) <= 5);
+
+  function nameQuake(s: Scenario) {
+    named = null;
+    map.setPlaces([]);
+    const truth = s.truth;
+    if (!truth) return;
+    loadTowns()
+      .then((towns) => epicentreTown(towns, truth), () => null)
+      .then((town) => {
+        if (gone || r.sim?.scenario.id !== s.id) return;
+        named = { id: s.id, town };
+        map.setPlaces([
+          ...(town ? [{ at: town, text: town.name }] : []),
+          ...(saved && here(town) ? [{ at: saved, text: `${(savedName ?? 'You').split(',')[0]} (you)` }] : []),
+        ]);
+        lastKey = '';
+        update();
+      });
   }
 
   function quakeScenario(q: QuakeRef): Scenario {
@@ -89,6 +122,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     history.replaceState(null, '', `#replay/${s.id}`);
     frame(s);
     describe(s);
+    nameQuake(s);
     renderPicker();
     renderRecent();
     lastKey = '';
@@ -195,7 +229,16 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     if (!w) return h('section', { class: 'warn-card pending', 'data-testid': 'warning' }, h('b', {}, 'Early warning'), h('p', {}, 'Waiting for enough phones to feel the first waves…'));
     const felt = w.warnings.length;
     const sorted = [...w.warnings].sort((a, b) => b - a);
-    const max = Math.max(1, ...sorted.map((x) => Math.abs(x)));
+    const up = Math.max(0, sorted[0] ?? 0);
+    const down = Math.max(0, -(sorted[sorted.length - 1] ?? 0));
+    const span = Math.max(1, up + down);
+    const truth = sim.scenario.truth;
+    const lines: [string, string][] = [];
+    if (named?.id === sim.scenario.id) {
+      if (named.town) lines.push(['warning-near', nearLine(named.town.name, distanceKm(named.town, truth), warningNear(w.phones, named.town, NEAR_PLACE_KM), NEAR_PLACE_KM)]);
+      const mine = saved && here(named.town) ? warningNear(w.phones, saved, NEAR_PLACE_KM) : null;
+      if (saved && mine) lines.push(['warning-near-you', nearLine(savedName ?? 'your saved location', distanceKm(saved, truth), mine, NEAR_PLACE_KM)]);
+    }
     return h(
       'section',
       { class: 'warn-card', 'data-testid': 'warning' },
@@ -213,15 +256,73 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
         w.median !== null ? h('span', {}, ` (median ${w.median.toFixed(1)} s, up to ${sorted[0].toFixed(1)} s)`) : null,
         '.',
       ),
+      ...lines.map(([id, text]) => h('p', { class: 'warn-near', 'data-testid': id }, text)),
       h(
         'div',
-        { class: 'bars', role: 'img', 'aria-label': 'Warning time per phone, longest first' },
-        ...sorted.map((x) => h('i', { class: x > 0 ? 'pos' : 'neg', style: `height:${Math.max(2, (Math.abs(x) / max) * 100)}%` })),
+        { class: 'bars-wrap', style: `--base:${(down / span) * 100}%` },
+        h('div', { class: 'bars-axis', 'aria-hidden': 'true' }, h('span', { class: 'ax-up' }, up > 0 ? `+${up.toFixed(0)} s` : ''), h('span', { class: 'ax-zero' }, '0 s'), h('span', { class: 'ax-down' }, down > 0 ? `−${down.toFixed(0)} s` : '')),
+        h(
+          'div',
+          { class: 'bars', role: 'img', 'aria-label': `Warning time of each simulated phone that felt it, longest first: from ${sorted[0].toFixed(1)} s to ${sorted[sorted.length - 1].toFixed(1)} s` },
+          ...sorted.map((x) => h('i', { class: x > 0 ? 'pos' : 'neg', style: `--h:${(Math.abs(x) / span) * 100}%` })),
+        ),
+      ),
+      h(
+        'p',
+        { class: 'small muted' },
+        'Each bar is one simulated phone that felt the quake, longest warning first. Above the line, in red: seconds of warning, the alert reached it before the strong shaking. Below the line, in grey: the shaking came first, so no warning.',
       ),
       h(
         'p',
         { class: 'small muted' },
         `Inside ${w.blindKm.toFixed(0)} km the shaking beat the alert (the blind zone). Official warning systems use seconds like these to have people drop, cover and hold on, slow trains and open fire-station doors; Tremor reaches only the screens that have it open.`,
+      ),
+    );
+  }
+
+  /** What a press on a simulated phone says; null where there is nothing to say. */
+  function phoneInfo(id: string): string | null {
+    const sim = r.sim;
+    const i = r.nodes.findIndex((n) => n.id === id);
+    if (!sim || i < 0) return null;
+    const truth = sim.scenario.truth;
+    if (!truth) {
+      const why = r.nodes[i].rejects.find((x) => x.at <= r.vt)?.reason;
+      return `Simulated phone. No earthquake in this scenario${why ? `; it withdrew a pick: ${WITHDRAWN[why]}` : ''}.`;
+    }
+    const w = r.warning();
+    return phoneNote(w?.phones[i] ?? { lat: r.nodes[i].lat, lon: r.nodes[i].lon, epicentreKm: distanceKm(truth, r.nodes[i]), s: 0, felt: true }, !!w);
+  }
+  let phonesKey = '';
+  /** Every phone as a list a keyboard can reach: the same note as pressing its dot. Built once the alert is known, so it stays open while reading. */
+  function phoneList() {
+    const w = r.warning();
+    const key = w ? `${r.sim!.scenario.id}|${w.alertAt}` : '';
+    if (key === phonesKey) return;
+    phonesKey = key;
+    if (!w) return void phones.replaceChildren();
+    const rows = w.phones.map((p, i) => ({ p, id: r.nodes[i].id })).sort((a, b) => a.p.epicentreKm - b.p.epicentreKm);
+    phones.replaceChildren(
+      h(
+        'details',
+        { class: 'phone-list', 'data-testid': 'phone-list' },
+        h('summary', {}, `Phone by phone (${rows.length})`),
+        h('p', { class: 'small muted' }, 'Nearest the epicentre first. Pressing one opens its note on the map, as pressing its dot does.'),
+        h(
+          'ul',
+          {},
+          ...rows.map(({ p, id }) =>
+            h(
+              'li',
+              {},
+              h(
+                'button',
+                { class: 'btn', onclick: () => map.showNode(id) },
+                `${p.epicentreKm.toFixed(1)} km from the epicentre · ${!p.felt ? 'barely felt' : p.s > 0 ? `${p.s.toFixed(1)} s warning` : `shaking ${(-p.s).toFixed(1)} s before the alert`}`,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -287,6 +388,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     map.setShake(r.events.length ? shakeGrid(r.events[0].triggers) : []);
     timeline();
     warn.replaceChildren(warningCard());
+    phoneList();
     const ev = r.events[0];
     result.replaceChildren(
       ev
@@ -317,6 +419,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     scrub,
     steps,
     warn,
+    phones,
     result,
     h(
       'section',
@@ -335,6 +438,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     ),
   );
   map.clear();
+  map.nodeInfo = phoneInfo;
   renderPicker();
   const off = r.on(update);
   const offLive = live.on(renderRecent);
@@ -347,6 +451,7 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
     history.replaceState(null, '', `#replay/${start.id}`);
     frame(start);
     describe(start);
+    nameQuake(start);
     renderRecent();
     update();
   }
@@ -356,9 +461,11 @@ export function replayView(r: Replay, map: QuakeMap, initial: string | undefined
   return {
     el: root,
     dispose: () => {
+      gone = true;
       off();
       offLive();
       r.pause();
+      map.setPlaces([]);
       map.setRings([]);
       map.setShake([]);
       window.removeEventListener('resize', onResize);
