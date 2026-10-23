@@ -1,4 +1,5 @@
 import type { LiveNetwork } from '../app/live';
+import { isOnline } from '../app/model';
 import type { PlanMessage, PlanRequest } from '../app/planner.worker';
 import { coarsen, distanceKm, offset, parseLatLon, type LatLon } from '../core/geo';
 import { DISTURBED_PER_MINUTE, RELIABLY, enoughPhones, type PlanResult, type Summary } from '../core/planner';
@@ -147,7 +148,7 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     history.replaceState(null, '', `#plan/${state.city.id}/${state.mag}/${state.setting}/${state.phones}`);
   }
 
-  const listening = () => [...live.nodes.values()].filter((n) => live.isOnline(n) && distanceKm(n, state.city) <= HERE_KM).length;
+  const listening = () => [...live.nodes.values()].filter((n) => isOnline(n, Date.now()) && distanceKm(n, state.city) <= HERE_KM).length;
 
   function adopt() {
     const n = listening();

@@ -1,5 +1,5 @@
 import { SETTLE_MS, WINDOW_MS, type LiveNetwork, type Provisional } from '../app/live';
-import { NODE_STALE_MS } from '../app/model';
+import { NODE_STALE_MS, isOnline } from '../app/model';
 import { NOTICED_LEVEL, fromPlace, nearYou, type Near, type Place } from '../app/near';
 import { eventUncertainty } from '../core/associate';
 import { distanceKm, type LatLon } from '../core/geo';
@@ -219,7 +219,7 @@ export function networkView(ctx: NetworkCtx) {
 
   function statsRow() {
     const st = live.transport.statuses();
-    const phones = [...live.nodes.values()].filter((n) => live.isOnline(n)).length;
+    const phones = [...live.nodes.values()].filter((n) => isOnline(n, Date.now())).length;
     const one = (n: number, word: string, words: string) => (n === 1 ? word : words);
     return h(
       'div',

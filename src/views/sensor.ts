@@ -1,4 +1,5 @@
 import type { LiveNetwork } from '../app/live';
+import { isOnline } from '../app/model';
 import { reachKm, type SensorNode, type Verdict } from '../app/sensor';
 import { distanceKm, parseLatLon, type LatLon } from '../core/geo';
 import { nearestTown, townLabel } from '../core/places';
@@ -104,7 +105,7 @@ export function sensorView(s: SensorNode, live: LiveNetwork) {
       return km ? `an M${m} within about ${about(km)} km` : `no M${m}, even right below`;
     };
     const quakes = s.nearbyQuakes(live.usgs);
-    const phones = here ? [...live.nodes.values()].filter((n) => n.id !== s.pubkey && live.isOnline(n) && distanceKm(n, here) <= NEAR_KM).length : 0;
+    const phones = here ? [...live.nodes.values()].filter((n) => n.id !== s.pubkey && isOnline(n, Date.now()) && distanceKm(n, here) <= NEAR_KM).length : 0;
     return h(
       'div',
       {},

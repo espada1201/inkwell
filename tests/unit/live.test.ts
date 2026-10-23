@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { LiveNetwork, MAX_NODES, WINDOW_MS } from '../../src/app/live';
+import { MAX_UNCHECKED } from '../../src/app/verifyqueue';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { ORIGIN_OFFSET_S, simulate } from '../../src/core/scenarios';
@@ -9,7 +10,7 @@ import { RELAY_LATENCY_MS } from '../../src/core/simnet';
 import { HEARTBEAT_EVERY_MS, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
 import type { Transport } from '../../src/net/transport';
 import type { Verify } from '../../src/net/verifier';
-import { ModelMirror, computeModel, type Compute } from '../../src/app/model';
+import { ModelMirror, ModelSender, computeModel, isOnline, type Compute } from '../../src/app/model';
 
 class NullTransport implements Transport {
   publish() {}
@@ -225,11 +226,11 @@ describe('live network model', () => {
     const now = Math.floor(Date.now() / 1000);
     for (let k = 10; k >= 0; k--) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50 }, now - k * 60));
     const n = live.nodes.get(getPublicKey(p.sk))!;
-    expect(live.isOnline(n, Date.now() - 5 * 60_000)).toBe(true);
-    expect(live.isOnline(n, Date.now() - 11 * 60_000)).toBe(false);
+    expect(isOnline(n, Date.now() - 5 * 60_000)).toBe(true);
+    expect(isOnline(n, Date.now() - 11 * 60_000)).toBe(false);
     live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 0 }, now + 1));
     live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 50 }, now + 2));
-    expect(live.isOnline(live.nodes.get(getPublicKey(p.sk))!, Date.now())).toBe(false);
+    expect(isOnline(live.nodes.get(getPublicKey(p.sk))!, Date.now())).toBe(false);
   });
 
   it('hears one phone for 30 picks and 30 confirmed reports an hour, and a withdrawn pick frees its place', () => {
@@ -425,6 +426,7 @@ describe('a quake felt only from one side, by a town 100 km away', () => {
 describe('events checked beside the page', () => {
   beforeEach(() => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }));
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.clearAllTimers();
     vi.useRealTimers();
   });
@@ -462,6 +464,87 @@ describe('events checked beside the page', () => {
     expect([...live.nodes.keys()]).toEqual([phones[0], phones[2], phones[3], phones[4]].map((p) => p.pubkey));
   });
 
+  it('goes on taking events when one of them breaks receive, and still counts the batch off', async () => {
+    const verify: Verify = (events, now) => Promise.resolve(events.map((ev) => parse(ev, now)));
+    const { live, deliver } = watching(verify);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(live, 'receive').mockImplementationOnce(() => {
+      throw new Error('a message that breaks the model');
+    });
+    [phones[0], phones[1], phones[2]].forEach((p) => deliver(beat(p)));
+    vi.advanceTimersByTime(20);
+    await vi.advanceTimersByTimeAsync(0);
+    expect([...live.nodes.keys()]).toEqual([phones[1], phones[2]].map((p) => p.pubkey));
+    [phones[3], phones[4]].forEach((p) => deliver(beat(p)));
+    vi.advanceTimersByTime(20);
+    await vi.advanceTimersByTimeAsync(0);
+    expect([...live.nodes.keys()]).toEqual([phones[1], phones[2], phones[3], phones[4]].map((p) => p.pubkey));
+    expect(live.checks!.backlog).toBe(0);
+  });
+
+  it('goes on when the check itself throws or fails, and counts those events off', async () => {
+    let n = 0;
+    const verify: Verify = (events, now) => {
+      if (++n === 1) throw new Error('could not even start');
+      if (n === 2) return Promise.reject(new Error('worker lost'));
+      return Promise.resolve(events.map((ev) => parse(ev, now)));
+    };
+    const { live, deliver } = watching(verify);
+    for (const p of phones.slice(0, 3)) {
+      deliver(beat(p));
+      vi.advanceTimersByTime(20);
+      await vi.advanceTimersByTimeAsync(0);
+    }
+    expect([...live.nodes.keys()]).toEqual([phones[2].pubkey]);
+    expect(live.checks!.backlog).toBe(0);
+  });
+
+  describe('when more arrives than can be checked', () => {
+    const fake = (kind: number) => ({ kind, id: 'x', pubkey: 'y', sig: 'z', content: '', tags: [], created_at: 0 }) as Event;
+    const PICK = 4578;
+    const HEARTBEAT = 34579;
+    const RETRACTION = 5;
+    const TRIGGER = 4579;
+
+    it('drops picks and heartbeats first, keeps retractions, and counts what it dropped', () => {
+      const { live, deliver } = watching(() => new Promise(() => {}));
+      for (let i = 0; i < MAX_UNCHECKED; i++) deliver(fake(PICK));
+      expect(live.checks!.backlog).toBe(MAX_UNCHECKED);
+      expect(live.checks!.dropped).toBe(0);
+      for (let i = 0; i < 100; i++) deliver(fake(PICK));
+      for (let i = 0; i < 50; i++) deliver(fake(HEARTBEAT));
+      for (let i = 0; i < 20; i++) deliver(fake(RETRACTION));
+      for (let i = 0; i < 10; i++) deliver(fake(TRIGGER));
+      expect(live.checks!.shed).toMatchObject({ pick: 100, heartbeat: 50, retract: 0, trigger: 0 });
+      expect(live.checks!.dropped).toBe(150);
+      expect(live.checks!.backlog).toBe(MAX_UNCHECKED + 30);
+    });
+
+    it('drops everything past twice that, so memory stays bounded whoever floods it', () => {
+      const { live, deliver } = watching(() => new Promise(() => {}));
+      for (let i = 0; i < 2 * MAX_UNCHECKED; i++) deliver(fake(RETRACTION));
+      expect(live.checks!.dropped).toBe(0);
+      deliver(fake(RETRACTION));
+      deliver(fake(TRIGGER));
+      expect(live.checks!.shed).toMatchObject({ retract: 1, trigger: 1 });
+      expect(live.checks!.backlog).toBe(2 * MAX_UNCHECKED);
+    });
+
+    it('takes events again once the backlog has been checked', async () => {
+      const waiting: (() => void)[] = [];
+      const { live, deliver } = watching((events, now) => new Promise((done) => waiting.push(() => done(events.map((ev) => parse(ev, now))))));
+      for (let i = 0; i < MAX_UNCHECKED + 10; i++) deliver(fake(i < MAX_UNCHECKED ? PICK : HEARTBEAT));
+      expect(live.checks!.dropped).toBe(10);
+      vi.advanceTimersByTime(20);
+      waiting.splice(0).forEach((f) => f());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(live.checks!.backlog).toBe(0);
+      deliver(beat(phones[0]));
+      expect(live.checks!.dropped).toBe(10);
+      expect(live.checks!.backlog).toBe(1);
+    });
+  });
+
   it('sends a full batch at once, without waiting', () => {
     const batches: number[] = [];
     const { deliver } = watching((events) => (batches.push(events.length), new Promise(() => {})));
@@ -472,6 +555,7 @@ describe('events checked beside the page', () => {
 });
 
 describe('the quakes worked out beside the page', () => {
+  afterEach(() => vi.restoreAllMocks());
   const apartFrom = (): Compute => {
     const mirror = new ModelMirror();
     return async (delta) => structuredClone(computeModel(mirror.apply(structuredClone(delta))));
@@ -530,5 +614,59 @@ describe('the quakes worked out beside the page', () => {
     expect(seen(away)).toBe(seen(here));
     away.recompute();
     expect(asked).toHaveBeenCalledTimes(1);
+  });
+
+  const settled = async (live: LiveNetwork) => {
+    await vi.waitFor(() => expect(live.events).toHaveLength(1));
+    return seen(live);
+  };
+
+  it('works the quake out on the page when the worker throws at once, and is not stuck afterwards', async () => {
+    const here = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const away = new LiveNetwork(new NullTransport(), 'hour', fetchNone, undefined, () => {
+      throw new Error('could not post to the worker');
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    feed(here);
+    feed(away);
+    here.recompute();
+    expect(() => away.recompute()).not.toThrow();
+    expect(await settled(away)).toBe(seen(here));
+    expect(() => away.recompute()).not.toThrow();
+    expect(away.events).toHaveLength(1);
+  });
+
+  it('works the quake out on the page when working out the changes for the worker fails', async () => {
+    const here = new LiveNetwork(new NullTransport(), 'hour', fetchNone);
+    const away = new LiveNetwork(new NullTransport(), 'hour', fetchNone, undefined, apartFrom());
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(ModelSender.prototype, 'delta').mockImplementationOnce(() => {
+      throw new Error('delta broke');
+    });
+    feed(here);
+    feed(away);
+    here.recompute();
+    away.recompute();
+    expect(await settled(away)).toBe(seen(here));
+    vi.restoreAllMocks();
+  });
+
+  it('asks again with the time it was given, not the time of the day, when the first answer is still on its way', async () => {
+    const asked: number[] = [];
+    let release: () => void = () => {};
+    const slow: Compute = (delta) =>
+      new Promise((done) => {
+        asked.push(delta.now);
+        const mirror = new ModelMirror();
+        release = () => done(computeModel(mirror.apply(delta)));
+      });
+    const away = new LiveNetwork(new NullTransport(), 'hour', fetchNone, undefined, slow);
+    feed(away);
+    const t = Date.now() + 70_000;
+    away.recompute(t);
+    away.recompute(t + 1000);
+    release();
+    await vi.waitFor(() => expect(asked).toHaveLength(2));
+    expect(asked).toEqual([t, t + 1000]);
   });
 });

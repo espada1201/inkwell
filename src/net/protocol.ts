@@ -138,6 +138,13 @@ const inRange = (v: unknown, lo: number, hi: number): v is number => finite(v) &
 const hex64 = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{64}$/.test(v);
 const KINDS = [KIND_PICK, KIND_TRIGGER, KIND_HEARTBEAT, KIND_DELETION, KIND_FELT];
 
+export type EventKind = Message['type'] | 'other';
+
+/** What an event claims to be, from its kind alone: nothing about it has been checked. */
+export function eventKind(ev: { kind: number }): EventKind {
+  return ev.kind === KIND_PICK ? 'pick' : ev.kind === KIND_TRIGGER ? 'trigger' : ev.kind === KIND_HEARTBEAT ? 'heartbeat' : ev.kind === KIND_DELETION ? 'retract' : ev.kind === KIND_FELT ? 'felt' : 'other';
+}
+
 /** Verify signature and shape. Anything malformed, forged or implausible returns null. */
 export function parse(ev: Event, now = Date.now()): Message | null {
   if (!validateEvent(ev) || !KINDS.includes(ev.kind) || ev.created_at * 1000 > now + MAX_FUTURE_MS) return null;

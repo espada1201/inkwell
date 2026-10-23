@@ -54,7 +54,14 @@ export interface ModelDelta {
   heard: { all: Onset[] } | { add: Onset[] };
 }
 
-export type Compute = (delta: ModelDelta) => Promise<ModelOutput>;
+/** What works the model out: here on the page, answering at once, or beside it, answering later. */
+export type Compute = (delta: ModelDelta) => ModelOutput | Promise<ModelOutput>;
+
+/** The model on the page itself: the same deltas as the worker gets, the same `computeModel`, so the two cannot differ in what they are given. */
+export function mainThread(): Compute {
+  const mirror = new ModelMirror();
+  return (delta) => computeModel(mirror.apply(delta));
+}
 
 const slim = ({ id, lat, lon, sps, since, firstSeen, lastSeen }: ModelNode): ModelNode => ({ id, lat, lon, sps, since, firstSeen, lastSeen });
 

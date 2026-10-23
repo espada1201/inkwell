@@ -10,7 +10,9 @@ import type { Verify } from '../net/verifier';
 import { fetchUsgs, type UsgsQuake, type UsgsWindow } from '../net/usgs';
 import type { MapNode } from '../ui/map';
 import { Emitter } from './emitter';
-import { ModelSender, NODE_STALE_MS, computeModel, isOnline, type Compute, type ModelInput, type ModelOutput } from './model';
+import { NODE_STALE_MS, isOnline, type Compute, type ModelOutput } from './model';
+import { Recomputer } from './recomputer';
+import { VerifyQueue } from './verifyqueue';
 
 export interface LiveNode extends Heartbeat {
   id: string;
@@ -36,9 +38,6 @@ const SHAKEN_MS = 120_000;
 /** A provisional detection that neither its phones nor a confirmed one settle this long after it was declared stays unconfirmed. */
 export const SETTLE_MS = 2 * 60_000;
 const MAX_PROVISIONAL = 500;
-const CHECK_EVERY_MS = 20;
-const CHECK_BATCH = 64;
-const MAX_UNCHECKED = 50_000;
 
 class ByNode {
   private by = new Map<string, Trigger[]>();
@@ -110,10 +109,9 @@ export class LiveNetwork extends Emitter {
   usgs: UsgsQuake[] = [];
   usgsState: 'loading' | 'ok' | 'error' = 'loading';
   usgsWindow: UsgsWindow;
+  /** Events waiting for their signatures to be checked, when they are checked apart from the page. */
+  readonly checks?: VerifyQueue;
   private pending: Message[] = [];
-  private unchecked: Event[] = [];
-  private backlog = 0;
-  private inOrder: Promise<void> = Promise.resolve();
   private pickedBy = new ByNode();
   private triggeredBy = new ByNode();
   private triggerIds = new Set<string>();
@@ -127,12 +125,7 @@ export class LiveNetwork extends Emitter {
   private withdrawnBy = new Map<string, string[]>();
   /** Every onset heard, withdrawn or not: which phones felt something, and when. */
   private heard: Onset[] = [];
-  private recomputeQueued = false;
-  private computing = false;
-  private sender = new ModelSender();
-  private again = false;
-  private recomputeCost = 0;
-  private recheck: ReturnType<typeof setTimeout> | undefined;
+  private readonly recomputer: Recomputer;
   private usgsAsked = 0;
   private usgsShown = 0;
 
@@ -140,11 +133,16 @@ export class LiveNetwork extends Emitter {
     readonly transport: Transport,
     usgsWindow: UsgsWindow,
     private readonly fetchImpl: typeof fetch = (...a) => fetch(...a),
-    private readonly verify?: Verify,
-    private compute?: Compute,
+    verify?: Verify,
+    compute?: Compute,
   ) {
     super();
     this.usgsWindow = usgsWindow;
+    if (verify) this.checks = new VerifyQueue(verify, (m) => this.receive(m));
+    this.recomputer = new Recomputer(
+      { source: () => ({ nodes: this.nodes, picks: this.picks, triggers: this.triggers, heard: this.heard }), apply: (out, now) => this.apply(out, now), emit: () => this.emit() },
+      compute,
+    );
   }
 
   start() {
@@ -184,23 +182,8 @@ export class LiveNetwork extends Emitter {
   }
 
   private take(ev: Event) {
-    const verify = this.verify;
-    if (!verify) return this.ingest(ev);
-    if (this.backlog >= MAX_UNCHECKED) return;
-    this.backlog++;
-    this.unchecked.push(ev);
-    if (this.unchecked.length >= CHECK_BATCH) this.sendUnchecked(verify);
-    else if (this.unchecked.length === 1) setTimeout(() => this.sendUnchecked(verify), CHECK_EVERY_MS);
-  }
-
-  private sendUnchecked(verify: Verify) {
-    const batch = this.unchecked.splice(0);
-    if (!batch.length) return;
-    const checked = verify(batch, Date.now()).catch(() => []);
-    this.inOrder = this.inOrder.then(() => checked).then((messages) => {
-      this.backlog -= batch.length;
-      messages.forEach((m) => m && this.receive(m));
-    });
+    if (this.checks) this.checks.push(ev);
+    else this.ingest(ev);
   }
 
   /** One message whose signature and shape `parse` has checked. */
@@ -234,7 +217,7 @@ export class LiveNetwork extends Emitter {
       }
       this.withdrawals.set(key, { reason: m.reason, at: m.at, node: m.node });
       this.dropPick(m.pick);
-      this.queueRecompute();
+      this.queueRecompute(true);
     } else if (m.type === 'felt') {
       if (m.data.t < Date.now() - WINDOW_MS || this.felt.some((f) => f.id === m.id)) return;
       this.felt.push({ id: m.id, node: m.node, ...m.data });
@@ -262,7 +245,7 @@ export class LiveNetwork extends Emitter {
         if (this.triggers.length > MAX_TRIGGERS) this.dropTrigger(this.triggers.shift()!);
         n.lastTrigger = Math.max(n.lastTrigger ?? 0, t.t);
       }
-      this.queueRecompute();
+      this.queueRecompute(true);
     }
     this.emit();
   }
@@ -306,58 +289,14 @@ export class LiveNetwork extends Emitter {
     this.triggeredBy.remove(t);
   }
 
-  private queueRecompute() {
-    if (this.recomputeQueued) return;
-    this.recomputeQueued = true;
-    setTimeout(() => {
-      this.recomputeQueued = false;
-      this.recompute();
-      if (!this.compute) this.emit();
-    }, this.pause(200));
+  /** Work the quakes out soon. `early`: something early warning waits on (a pick, a trigger, a withdrawal) has come in. */
+  private queueRecompute(early = false) {
+    this.recomputer.request(early);
   }
 
-  private pause(ms: number) {
-    return Math.min(2000, Math.max(ms, 3 * this.recomputeCost));
-  }
-
-  private snapshot(now: number): ModelInput {
-    return { now, nodes: [...this.nodes.values()], picks: [...this.picks.values()], triggers: this.triggers, heard: this.heard };
-  }
-
+  /** Work the quakes out now, or as soon as the run on its way is done, for `now`. */
   recompute(now = Date.now()) {
-    clearTimeout(this.recheck);
-    if (!this.compute) {
-      const began = Date.now();
-      const out = computeModel(this.snapshot(now));
-      this.apply(out, now);
-      this.recomputeCost = Date.now() - began;
-      this.scheduleRecheck(out.waiting);
-      return;
-    }
-    if (this.computing) return void (this.again = true);
-    this.computing = true;
-    const began = Date.now();
-    const delta = this.sender.delta(now, this.nodes, this.picks, this.triggers, this.heard);
-    this.recomputeCost = Date.now() - began;
-    this.compute(delta).then(
-      (out) => {
-        this.computing = false;
-        const applied = Date.now();
-        this.apply(out, now);
-        this.recomputeCost = Math.max(Date.now() - applied, (applied - began) / 3);
-        this.scheduleRecheck(out.waiting);
-        this.emit();
-        if (this.again) {
-          this.again = false;
-          this.queueRecompute();
-        }
-      },
-      () => {
-        this.computing = false;
-        this.compute = undefined;
-        this.queueRecompute();
-      },
-    );
+    this.recomputer.run(now);
   }
 
   private apply(out: ModelOutput, now: number) {
@@ -365,15 +304,6 @@ export class LiveNetwork extends Emitter {
     this.early = out.early;
     this.settle(now);
     this.feltClusters = clusterFelt(this.felt);
-  }
-
-  private scheduleRecheck(waiting: boolean) {
-    // A candidate holds for now, but phones the wave is still reaching could overturn it.
-    if (waiting)
-      this.recheck = setTimeout(() => {
-        this.recompute();
-        if (!this.compute) this.emit();
-      }, this.pause(500));
   }
 
   private settle(now: number) {
@@ -430,11 +360,7 @@ export class LiveNetwork extends Emitter {
       id: n.id,
       lat: n.lat,
       lon: n.lon,
-      state: !this.isOnline(n, now) ? 'offline' : n.lastTrigger !== null && now - n.lastTrigger < SHAKEN_MS ? 'trigger' : picking.has(n.id) ? 'pick' : 'idle',
+      state: !isOnline(n, now) ? 'offline' : n.lastTrigger !== null && now - n.lastTrigger < SHAKEN_MS ? 'trigger' : picking.has(n.id) ? 'pick' : 'idle',
     }));
-  }
-
-  isOnline(n: LiveNode, t = Date.now()) {
-    return isOnline(n, t);
   }
 }

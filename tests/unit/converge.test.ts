@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { generateSecretKey, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { LiveNetwork } from '../../src/app/live';
+import { isOnline } from '../../src/app/model';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
@@ -34,7 +35,7 @@ function seen(live: LiveNetwork, probes: number[]) {
   return JSON.stringify({
     nodes: [...live.nodes.values()]
       .sort((a, b) => (a.id < b.id ? -1 : 1))
-      .map((n) => ({ id: n.id, lat: n.lat, lon: n.lon, sps: n.sps, lastSeen: n.lastSeen, lastTrigger: n.lastTrigger, online: probes.map((t) => live.isOnline(n, t)) })),
+      .map((n) => ({ id: n.id, lat: n.lat, lon: n.lon, sps: n.sps, lastSeen: n.lastSeen, lastTrigger: n.lastTrigger, online: probes.map((t) => isOnline(n, t)) })),
     picks: ids([...live.picks.values()]),
     triggers: ids(live.triggers),
     events: order(live.events.map(quake)),
