@@ -8,6 +8,7 @@ import { DEFAULT_RELAYS, RelayPool, isRelayUrl, reach } from './net/transport';
 import { workerVerifier } from './net/verifier';
 import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
+import { keyFolder } from './ui/keyfold';
 import { QuakeMap, SHAKE_COLORS, type Swatch } from './ui/map';
 import { aboutView } from './views/about';
 import { chime } from './views/chime';
@@ -73,15 +74,9 @@ const panel = h('aside', { class: 'panel', 'aria-live': 'off' });
 const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Sensor' });
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
-let keyTouched = false;
-legend.querySelector('summary')!.addEventListener('click', () => (keyTouched = true));
-const foldKey = () => {
-  if (keyTouched || !legend.open) return;
-  if (legend.matches(':hover, :focus-within')) return void setTimeout(foldKey, 5000);
-  legend.open = false;
-};
-for (const type of ['pointerdown', 'wheel'] as const) mapEl.addEventListener(type, (e) => legend.contains(e.target as Node) || foldKey(), { capture: true, passive: true });
-setTimeout(foldKey, 15_000);
+const keyFold = keyFolder(legend);
+legend.querySelector('summary')!.addEventListener('click', keyFold.touched);
+for (const type of ['pointerdown', 'wheel'] as const) mapEl.addEventListener(type, (e) => legend.contains(e.target as Node) || keyFold.use(), { capture: true, passive: true });
 // Past the header and the map, which take a keyboard many presses, to the screen's own heading.
 const skip = (scroll = true) => {
   // The sensor's heading is its changing state, so its first control instead.
