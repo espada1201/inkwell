@@ -47,3 +47,31 @@ test('a one-finger swipe over the map scrolls the page on a phone, as it does ev
   await cdp.send('Input.synthesizeScrollGesture', { x: box.x + box.width / 2, y: box.y + box.height / 2, yDistance: -400, speed: 1200 });
   await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(100);
 });
+
+test('the tabs stay in reach on a phone, however far the page is scrolled, and cover no content', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  const tabs = page.getByRole('navigation', { name: 'Sections' });
+  await expect(page.getByRole('heading', { name: 'Live network' })).toBeVisible();
+  const reachable = async () => {
+    const box = (await tabs.boundingBox())!;
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.y + box.height).toBeLessThanOrEqual(844 + 0.5);
+    await expect(tabs).toBeInViewport({ ratio: 1 });
+    return box;
+  };
+  await reachable();
+  await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight));
+  await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(300);
+  const bar = await reachable();
+  // The end of the page sits above the bar, not under it.
+  const last = await page.evaluate(() => {
+    const panel = document.querySelector('.panel-inner')!;
+    return panel.lastElementChild!.getBoundingClientRect().bottom;
+  });
+  expect(last).toBeLessThanOrEqual(bar.y + 0.5);
+  await page.getByRole('link', { name: 'About' }).click();
+  await expect(page.getByRole('heading', { name: 'Old phones as civic infrastructure' })).toBeVisible();
+  await page.evaluate(() => scrollTo(0, 400));
+  await reachable();
+  await expect(tabs.getByRole('link', { name: 'About' })).toHaveAttribute('aria-current', 'page');
+});
