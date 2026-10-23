@@ -1,42 +1,33 @@
 import type { Event } from 'nostr-tools/pure';
 import { parse, type Message } from './protocol';
-import type { VerifyReply, VerifyRequest } from './verify.worker';
+import { workerCall } from './workercall';
 
 export type Verify = (events: Event[], now: number) => Promise<(Message | null)[]>;
 
+interface Batch {
+  events: Event[];
+  now: number;
+}
+
+/**
+ * Signature checks in up to `size` workers, a batch to each in turn. When any worker fails, they
+ * all stop and every batch, those waiting and those after, is checked on the page instead:
+ * slower, never lost.
+ */
 export function workerVerifier(size = Math.min(4, Math.max(1, (navigator.hardwareConcurrency || 2) - 1))): Verify | null {
-  const waiting = new Map<number, { events: Event[]; now: number; done: (m: (Message | null)[]) => void }>();
+  const here = ({ events, now }: Batch) => events.map((ev) => parse(ev, now));
   const workers: Worker[] = [];
-  let broken = false;
+  const asks: ReturnType<typeof workerCall<Batch, (Message | null)[]>>[] = [];
   let n = 0;
-  const here = (events: Event[], now: number) => events.map((ev) => parse(ev, now));
-  const fail = () => {
-    broken = true;
-    workers.forEach((w) => w.terminate());
-    for (const { events, now, done } of waiting.values()) done(here(events, now));
-    waiting.clear();
-  };
   try {
     for (let i = 0; i < size; i++) {
       const w = new Worker(new URL('./verify.worker.ts', import.meta.url), { type: 'module' });
-      w.onmessage = (e: MessageEvent<VerifyReply>) => {
-        const job = waiting.get(e.data.id);
-        waiting.delete(e.data.id);
-        job?.done(e.data.messages);
-      };
-      w.onerror = fail;
       workers.push(w);
+      asks.push(workerCall<Batch, (Message | null)[]>(w, { onBroken: () => asks.forEach((a) => a.stop()) }));
     }
   } catch {
     workers.forEach((w) => w.terminate());
     return null;
   }
-  return (events, now) =>
-    broken
-      ? Promise.resolve(here(events, now))
-      : new Promise((done) => {
-          const id = ++n;
-          waiting.set(id, { events, now, done });
-          workers[id % workers.length].postMessage({ id, events, now } satisfies VerifyRequest);
-        });
+  return (events, now) => asks[++n % asks.length].call({ events, now }, here);
 }

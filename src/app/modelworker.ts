@@ -1,6 +1,11 @@
-import type { Compute, ModelOutput } from './model';
-import type { ModelReply, ModelRequest } from './model.worker';
+import { workerCall } from '../net/workercall';
+import type { Compute, ModelDelta, ModelOutput } from './model';
 
+/**
+ * The quake model in a worker. Its calls reject when the worker fails (error, unreadable
+ * message, no answer in time), and the caller then does the work itself: there is no fallback
+ * here, because only the caller knows what the worker was last told.
+ */
 export function workerModel(): Compute | null {
   let worker: Worker;
   try {
@@ -8,22 +13,6 @@ export function workerModel(): Compute | null {
   } catch {
     return null;
   }
-  const waiting = new Map<number, { done: (o: ModelOutput) => void; fail: () => void }>();
-  let n = 0;
-  worker.onmessage = (e: MessageEvent<ModelReply>) => {
-    const job = waiting.get(e.data.id);
-    waiting.delete(e.data.id);
-    job?.done(e.data.output);
-  };
-  worker.onerror = () => {
-    worker.terminate();
-    for (const { fail } of waiting.values()) fail();
-    waiting.clear();
-  };
-  return (delta) =>
-    new Promise((done, fail) => {
-      const request: ModelRequest = { id: ++n, delta };
-      waiting.set(request.id, { done, fail });
-      worker.postMessage(request);
-    });
+  const ask = workerCall<ModelDelta, ModelOutput>(worker);
+  return (delta) => ask.call(delta);
 }
