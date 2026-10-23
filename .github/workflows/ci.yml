@@ -20,6 +20,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: npx playwright install --with-deps chromium
+      # Every Playwright project, the scale one last and alone (see playwright.config.ts).
       - run: npm run e2e
       - if: failure()
         uses: actions/upload-artifact@v4

@@ -21,8 +21,12 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 } }, testIgnore: /mobile\.spec/ },
+    { name: 'desktop', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 } }, testIgnore: /mobile\.spec|scale\.spec/ },
     { name: 'phone', use: { ...devices['Pixel 7'], viewport: { width: 390, height: 844 } }, testMatch: /mobile\.spec/ },
+    // The scale spec measures the page's own CPU time against budgets, so it runs by itself: only
+    // once every other project is done, so no neighbour shares the machine with it.
+    // `npm run e2e:scale` runs it alone without them.
+    { name: 'scale', use: { ...devices['Desktop Chrome'], viewport: { width: 1360, height: 860 } }, testMatch: /scale\.spec/, fullyParallel: false, dependencies: ['desktop', 'phone'] },
   ],
   webServer: {
     // CI has just built the app; locally, build first. Never a server left running, so the

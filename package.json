@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
+    "e2e:scale": "playwright test --project=scale --no-deps",
     "bench": "rolldown tests/bench/scale.ts -f esm --platform node -o node_modules/.cache/bench.mjs && node node_modules/.cache/bench.mjs"
   },
   "dependencies": {
