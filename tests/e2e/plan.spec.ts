@@ -92,3 +92,29 @@ test('a plan follows an address edited in place, and its tab keeps the plan as i
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Plan' }).click();
   await expect(page.locator('[data-city="lima"]')).toHaveAttribute('aria-pressed', 'true');
 });
+
+test('with a town saved, Plan opens on Here and names the town', async ({ page, relay }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('tremor.location', JSON.stringify({ lat: 38.29, lon: -122.46 }));
+    localStorage.setItem('tremor.place', 'Sonoma, CA, US');
+  });
+  await page.goto(`/?relays=${relay.url}#network`);
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Plan' }).click();
+  const here = page.locator('[data-city="here"]');
+  await expect(here).toHaveAttribute('aria-pressed', 'true');
+  await expect(here).toContainText('Sonoma, CA, US');
+  await expect(page.locator('[data-city="istanbul"]')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page).toHaveURL(/#plan\/38\.29,-122\.46\/6\/near\/200$/);
+  await expect(page.locator('.plan-story')).toContainText('within 20 km of you', { timeout: 60_000 });
+  await expect(page.getByText(/^Within 20 km of Sonoma, CA, US/)).toBeVisible();
+  // A link to another city still goes there.
+  await page.goto(`/?relays=${relay.url}#plan/kathmandu/6/near/50`);
+  await expect(page.locator('[data-city="kathmandu"]')).toHaveAttribute('aria-pressed', 'true');
+});
+
+test('a saved location typed as coordinates is still Here, without a town name', async ({ page, relay }) => {
+  await page.addInitScript(() => localStorage.setItem('tremor.location', JSON.stringify({ lat: 37.8, lon: -122.27 })));
+  await page.goto(`/?relays=${relay.url}#plan`);
+  await expect(page.locator('[data-city="here"]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('[data-city="here"]')).toContainText('your location');
+});

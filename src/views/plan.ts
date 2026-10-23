@@ -47,7 +47,7 @@ export const PLAN_LEGEND: Swatch[] = [
   ['transparent;border:1.5px solid var(--muted)', 'simulated quake, missed'],
 ];
 
-export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwork, saved: LatLon | null) {
+export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwork, saved: LatLon | null, savedName: string | null = null) {
   const mine = saved && coarsen(saved);
   const isMine = (p: LatLon) => !!mine && mine.lat === p.lat && mine.lon === p.lon;
   const herePlace = (p: LatLon): City => ({
@@ -55,20 +55,22 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
     name: 'Here',
     ...p,
     radiusKm: HERE_KM,
-    note: `Within ${HERE_KM} km of ${coord(p.lat, p.lon)}${isMine(p) ? ', your saved location' : ''}. Phones listening right now are counted from the relays this browser follows.`,
+    note: `Within ${HERE_KM} km of ${isMine(p) && savedName ? `${savedName} (${coord(p.lat, p.lon)}), your saved location` : `${coord(p.lat, p.lon)}${isMine(p) ? ', your saved location' : ''}`}. Phones listening right now are counted from the relays this browser follows.`,
   });
   const [c, m, d, p] = (arg ?? '').split('/');
   const spot = parseSpot(c);
   const phones = Number(p);
   const state = {
-    city: CITIES.find((x) => x.id === c) ?? (spot ? herePlace(spot) : CITIES[0]),
+    // With a saved location, a plan that names no place of its own starts there, not on the first city.
+    city: CITIES.find((x) => x.id === c) ?? (spot ? herePlace(spot) : mine ? herePlace(mine) : CITIES[0]),
     mag: MAGS.includes(Number(m)) ? Number(m) : 6,
     // Not `in`: that would also accept inherited names like "toString".
     setting: SETTING_KEYS.find((k) => k === d) ?? 'near',
     phones: Number.isInteger(phones) && phones >= 1 && phones <= PHONES[PHONES.length - 1] ? phones : 200,
   };
   const here = () => !CITIES.includes(state.city);
-  let follow = false;
+  // Opened on Here by the saved location alone, it counts the phones listening there, as pressing Here does.
+  let follow = !arg && !!mine;
   const root = h('div', { class: 'panel-inner' });
   const cityButtons = h('div', { class: 'scenarios', role: 'group', 'aria-label': 'Place' });
   const cityNote = h('p', { class: 'small muted' });
@@ -189,7 +191,7 @@ export function planView(map: QuakeMap, arg: string | undefined, live: LiveNetwo
           },
         },
         h('b', {}, 'Here'),
-        h('span', {}, mine ? `${HERE_KM * 2} km across` : 'type a spot'),
+        h('span', {}, mine ? `${savedName ?? 'your location'}, ${HERE_KM * 2} km across` : 'type a spot'),
       ),
       ...CITIES.map((x) =>
         h(
