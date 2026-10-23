@@ -55,7 +55,10 @@ export interface ModelDelta {
 }
 
 /** What works the model out: here on the page, answering at once, or beside it, answering later. */
-export type Compute = (delta: ModelDelta) => ModelOutput | Promise<ModelOutput>;
+export type Compute = ((delta: ModelDelta) => ModelOutput | Promise<ModelOutput>) & {
+  /** Let go of what it holds (a worker): called when the page stops using it. */
+  dispose?: () => void;
+};
 
 /** The model on the page itself: the same deltas as the worker gets, the same `computeModel`, so the two cannot differ in what they are given. */
 export function mainThread(): Compute {

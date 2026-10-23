@@ -123,4 +123,44 @@ describe('when and where the quake model is worked out', () => {
     r.run(2);
     expect(applied).toEqual([2]);
   });
+
+  it('stops the worker when it moves to the page, even if the worker itself was fine', () => {
+    const dispose = vi.fn();
+    const worker: Compute = Object.assign((): ModelOutput => none, { dispose });
+    let bad = true;
+    const applied: number[] = [];
+    const h: Hooks = {
+      source: () => {
+        if (bad) throw new Error('state in a mess');
+        return { nodes: new Map(), picks: new Map(), triggers: [], heard: [] };
+      },
+      apply: (_o, now) => void applied.push(now),
+      emit() {},
+    };
+    const r = new Recomputer(h, worker);
+    r.run(1);
+    expect(dispose).toHaveBeenCalledTimes(1);
+    bad = false;
+    r.run(2);
+    expect(applied).toEqual([2]);
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a screen that throws when told does not stop the request that came in meanwhile', async () => {
+    const { h, applied } = hooks();
+    let fail = true;
+    h.emit = () => {
+      if (fail) throw new Error('a listener broke');
+    };
+    let release: () => void = () => {};
+    const r = new Recomputer(h, () => new Promise((done) => (release = () => done(none))));
+    r.run(1);
+    r.run(2);
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    fail = false;
+    release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(applied).toEqual([1, 2]);
+  });
 });

@@ -14,5 +14,7 @@ export function workerModel(): Compute | null {
     return null;
   }
   const ask = workerCall<ModelDelta, ModelOutput>(worker);
-  return (delta) => ask.call(delta);
+  const compute: Compute = (delta) => ask.call(delta);
+  compute.dispose = ask.stop;
+  return compute;
 }

@@ -36,7 +36,7 @@ const isPromise = <T>(x: T | Promise<T>): x is Promise<T> => typeof (x as Promis
  * `compute` takes the changes since the last run and answers at once or later. If it fails, by
  * throwing, rejecting or never answering (a worker's own watchdog turns that into a rejection),
  * the model is worked out on the page from then on, from a fresh start: the worker's picture
- * died with it. If the page's own computation fails there is nowhere left to fall back to: the
+ * died with it, and the worker is let go. If the page's own computation fails there is nowhere left to fall back to: the
  * failure is logged, and the next request tries again.
  */
 export class Recomputer {
@@ -114,7 +114,11 @@ export class Recomputer {
     }
     this.cost = apart ? Math.max(this.clock() - applied, (applied - began) / 3) : this.clock() - began;
     if (out.waiting) this.recheck = setTimeout(() => this.run(), WAITING_RECHECK_MS);
-    this.hooks.emit();
+    try {
+      this.hooks.emit();
+    } catch (e) {
+      console.error(e);
+    }
     this.next();
   }
 
@@ -124,6 +128,8 @@ export class Recomputer {
     this.sender = new ModelSender();
     const retry = !this.onPage;
     this.onPage = true;
+    // Whatever failed, the worker's picture is no longer the sender's: let the worker go.
+    this.compute.dispose?.();
     this.compute = mainThread();
     if (retry) this.start(now);
     else this.next();
