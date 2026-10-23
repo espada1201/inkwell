@@ -43,11 +43,19 @@ interface Sub {
 
 const req = (s: Sub) => ['REQ', s.id, ...(s.filters = s.make())];
 
+/**
+ * A relay that cannot be reached is tried again after 1 s, then 2 s, 4 s and so on, but never
+ * less often than this: the browser logs an error for every refused connection, and a relay that
+ * is down for an hour should not fill the console. Coming back online tries at once.
+ */
+export const RETRY_FIRST_MS = 1000;
+export const RETRY_CAP_MS = 5 * 60_000;
+
 /** Minimal NIP-01 client: one socket per relay, reconnect with backoff, resubscribe, de-duplicate. */
 class RelayConn {
   status: RelayStatus;
   private ws: WebSocket | null = null;
-  private backoff = 1000;
+  private backoff = RETRY_FIRST_MS;
   private queue: string[] = [];
   private closed = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -73,7 +81,7 @@ class RelayConn {
     }
     this.ws = ws;
     ws.onopen = () => {
-      this.backoff = 1000;
+      this.backoff = RETRY_FIRST_MS;
       this.status.failures = 0;
       this.setState('open');
       for (const s of this.subs.values()) ws.send(JSON.stringify(req(s)));
@@ -107,7 +115,15 @@ class RelayConn {
     this.setState('closed');
     if (this.closed) return;
     this.timer = setTimeout(() => this.connect(), this.backoff);
-    this.backoff = Math.min(this.backoff * 2, 30_000);
+    this.backoff = Math.min(this.backoff * 2, RETRY_CAP_MS);
+  }
+
+  /** The network is back: a relay waiting out a long pause tries now. */
+  retryNow() {
+    if (this.closed || this.status.state !== 'closed') return;
+    clearTimeout(this.timer);
+    this.backoff = RETRY_FIRST_MS;
+    this.connect();
   }
 
   private setState(s: RelayState) {
@@ -140,8 +156,11 @@ export class RelayPool implements Transport {
   private listeners: (() => void)[] = [];
   private n = 0;
 
+  private readonly online = () => this.conns.forEach((c) => c.retryNow());
+
   constructor(urls: string[]) {
     this.conns = urls.map((u) => new RelayConn(u, this.subs, (id, ev) => this.deliver(id, ev), () => this.emit()));
+    if (typeof window !== 'undefined') window.addEventListener('online', this.online);
   }
 
   private deliver(subId: string, ev: Event) {
@@ -185,6 +204,7 @@ export class RelayPool implements Transport {
   }
 
   close() {
+    if (typeof window !== 'undefined') window.removeEventListener('online', this.online);
     for (const c of this.conns) c.close();
     this.listeners = [];
   }

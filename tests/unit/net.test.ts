@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools/pure';
 import { filters, parse, signFelt, signHeartbeat, signPick, signRetraction, signTrigger, type Message } from '../../src/net/protocol';
-import { RelayPool, isRelayUrl, reach } from '../../src/net/transport';
+import { RETRY_CAP_MS, RelayPool, isRelayUrl, reach } from '../../src/net/transport';
 import { loadIdentity } from '../../src/net/identity';
 // @ts-expect-error plain JS test helper
 import { startRelay } from '../fake-relay.mjs';
@@ -203,5 +203,55 @@ describe('relay pool against a local fake relay', () => {
     const ev = signTrigger(sk, { lat: 1, lon: 2, t: Date.now(), pga: 0.3, dur: 2 });
     p.publish(ev);
     await until(() => got.includes(ev.id));
+  });
+});
+
+describe('a relay that is down', () => {
+  class Refused {
+    static OPEN = 1;
+    static tries: number[] = [];
+    readyState = 3;
+    onerror: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    constructor() {
+      Refused.tries.push(Date.now());
+      setTimeout(() => this.onerror?.(), 0);
+    }
+    close() {}
+    send() {}
+  }
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    Refused.tries = [];
+  });
+
+  it('is retried after 1 s, 2 s, 4 s and so on, never less often than every five minutes, so the console does not fill up', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Refused);
+    const pool = new RelayPool(['wss://down.example']);
+    vi.advanceTimersByTime(3600_000);
+    pool.close();
+    // Each refusal arrives a millisecond after the attempt.
+    const gaps = Refused.tries.slice(1).map((t, i) => Math.round((t - Refused.tries[i]) / 1000) * 1000);
+    expect(gaps.slice(0, 9)).toEqual([1000, 2000, 4000, 8000, 16000, 32000, 64000, 128000, 256000]);
+    expect(Math.min(...gaps.slice(9))).toBe(RETRY_CAP_MS);
+    expect(Refused.tries.length).toBeLessThanOrEqual(20);
+    expect(reach(pool.statuses())).toBe('down');
+  });
+
+  it('is tried at once when the network comes back, and then again from a second', () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('WebSocket', Refused);
+    const online: (() => void)[] = [];
+    vi.stubGlobal('window', { addEventListener: (_: string, f: () => void) => online.push(f), removeEventListener() {} });
+    const pool = new RelayPool(['wss://down.example']);
+    vi.advanceTimersByTime(60_000);
+    const before = Refused.tries.length;
+    online.forEach((f) => f());
+    expect(Refused.tries.length).toBe(before + 1);
+    vi.advanceTimersByTime(1000);
+    expect(Refused.tries.length).toBe(before + 2);
+    pool.close();
   });
 });
