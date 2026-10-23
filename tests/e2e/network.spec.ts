@@ -542,9 +542,7 @@ test('a keyboard skips the header and the map, and lands on each screen it opens
   await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Live network' })).toBeFocused();
   const canvas = page.locator('.maplibregl-canvas');
-  await page.locator('.map-legend summary').focus();
-  await page.keyboard.press('Tab');
-  await expect(canvas).toBeFocused();
+  await canvas.focus();
   await expect.poll(() => canvas.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe('solid');
   // Its zoom buttons wear the same ring as every other control, not the map library's blue one.
   await page.keyboard.press('Tab');
@@ -606,6 +604,8 @@ test('from deep in a screen, a keyboard gets back to the tabs without crossing t
   await expect(page.getByRole('heading', { name: 'Live network' })).toBeFocused();
   await page.getByTestId('near').getByRole('button', { name: 'Use my approximate location' }).focus();
   await page.keyboard.press('Shift+Tab');
+  await expect(page.getByRole('button', { name: 'Map key' })).toBeFocused();
+  await page.keyboard.press('Shift+Tab');
   const back = page.getByRole('button', { name: 'Back to tabs' });
   await expect(back.first()).toBeFocused();
   await page.keyboard.press('Enter');
@@ -620,4 +620,63 @@ test('from deep in a screen, a keyboard gets back to the tabs without crossing t
   await page.getByRole('button', { name: 'Back to tabs' }).last().focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('link', { name: 'Be a sensor' })).toBeFocused();
+});
+
+test('the key never folds by itself: not mid-replay, not after a long wait, and it stays as the reader left it', async ({ page }) => {
+  await page.clock.install();
+  await page.goto('/?speed=1#replay/napa-2014');
+  const key = page.locator('details.map-legend');
+  await expect(key).toHaveAttribute('open', '');
+  await page.clock.fastForward(60_000);
+  await page.waitForTimeout(300);
+  await expect(key).toHaveAttribute('open', '');
+  await expect(key.getByText('blind zone')).toBeVisible();
+
+  // Closed by the reader, it stays closed through a reload in the same tab; opened, it stays open through a drag.
+  await key.locator('summary').click();
+  await expect(key).not.toHaveAttribute('open');
+  await page.reload();
+  await expect(key).not.toHaveAttribute('open');
+  await page.getByRole('button', { name: 'Map key' }).click();
+  await expect(key).toHaveAttribute('open', '');
+  await page.reload();
+  await expect(key).toHaveAttribute('open', '');
+  const box = (await page.getByRole('region', { name: 'Map' }).boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  await expect(key).toHaveAttribute('open', '');
+});
+
+test('the key toggle is the first stop after the screen heading, ahead of the map and its controls', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Live network' })).toBeFocused();
+  await page.keyboard.press('Tab');
+  const toggle = page.getByRole('button', { name: 'Map key' });
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await page.keyboard.press('Enter');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator('details.map-legend')).not.toHaveAttribute('open');
+  await page.keyboard.press('Space');
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('details.map-legend')).toHaveAttribute('open', '');
+  // The one on the map is for the pointer; the keyboard has this one.
+  await expect(page.locator('details.map-legend summary')).toHaveAttribute('tabindex', '-1');
+});
+
+test('"Back to tabs" does not cover the TREMOR logo when it takes focus', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#about`);
+  await page.getByRole('link', { name: 'Tremor home' }).waitFor();
+  await page.getByRole('button', { name: 'Back to tabs' }).first().focus();
+  const logo = (await page.getByRole('link', { name: 'Tremor home' }).boundingBox())!;
+  const back = (await page.getByRole('button', { name: 'Back to tabs' }).first().boundingBox())!;
+  expect(back.y + back.height).toBeGreaterThan(0);
+  const overlap = back.x < logo.x + logo.width && back.x + back.width > logo.x && back.y < logo.y + logo.height && back.y + back.height > logo.y;
+  expect(overlap).toBe(false);
+  await expect(page.getByRole('button', { name: 'Back to tabs' }).first()).toBeInViewport();
 });

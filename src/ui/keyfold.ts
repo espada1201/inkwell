@@ -3,33 +3,54 @@ export interface Foldable {
   matches(selector: string): boolean;
 }
 
-/**
- * Folds an open map key away once the map is used, or after 15 s, unless the reader has touched
- * it. While the pointer or focus is on the key it asks again every 5 s. One timer, whatever the
- * number of wheel turns and taps: a new ask replaces the one waiting.
- */
-export function keyFolder(legend: Foldable, firstMs = 15_000, againMs = 5000) {
-  let touched = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const ask = (ms: number) => {
-    clearTimeout(timer);
-    timer = setTimeout(fold, ms);
-  };
-  function fold() {
-    clearTimeout(timer);
-    timer = undefined;
-    if (touched || !legend.open) return;
-    if (legend.matches(':hover, :focus-within')) return ask(againMs);
-    legend.open = false;
+type Store = Pick<Storage, 'getItem' | 'setItem'>;
+const KEY = 'tremor.key';
+
+/** This tab's sessionStorage, or null where the browser blocks it; a refused write is dropped. */
+export function sessionStore(): Store | null {
+  let store: Storage | undefined;
+  try {
+    store = globalThis.sessionStorage;
+  } catch {
+    return null;
   }
-  ask(firstMs);
+  if (!store) return null;
   return {
-    use: fold,
-    touched: () => {
-      touched = true;
-      clearTimeout(timer);
-      timer = undefined;
+    getItem: (k) => store.getItem(k),
+    setItem: (k, v) => {
+      try {
+        store.setItem(k, v);
+      } catch {}
     },
-    stop: () => clearTimeout(timer),
+  };
+}
+
+/**
+ * Folds an open map key away the first time the map is pressed, dragged or wheeled, and never on a timer: a key that
+ * vanishes while it is being read is lost to the people who read slowest. Once the reader opens or closes it
+ * (`chose`) it stays as chosen, and the choice is kept for the tab's session. While the pointer or focus is on
+ * the key a map press does not fold it.
+ */
+export function keyFolder(legend: Foldable, store: Store | null) {
+  let settled = false;
+  try {
+    const kept = store?.getItem(KEY);
+    if (kept === 'open' || kept === 'closed') {
+      legend.open = kept === 'open';
+      settled = true;
+    }
+  } catch {
+    /* no memory of it */
+  }
+  return {
+    use() {
+      if (settled || !legend.open || legend.matches(':hover, :focus-within')) return;
+      settled = true;
+      legend.open = false;
+    },
+    chose(open: boolean) {
+      settled = true;
+      store?.setItem(KEY, open ? 'open' : 'closed');
+    },
   };
 }

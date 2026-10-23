@@ -44,6 +44,10 @@ a { color: inherit; }
 .skip { position: absolute; left: 8px; top: -60px; z-index: 50; }
 .skip:focus { top: 8px; }
 .skip.back { position: fixed; }
+/* Beside the panel, clear of the TREMOR logo that sits at the top left. */
+.skip.back:focus { left: auto; right: 16px; top: 64px; }
+.key-toggle { margin-top: 10px; min-height: 36px; padding: 5px 12px; font-size: 13px; }
+.key-toggle[aria-expanded='true'] { background: var(--paper-2); }
 .mono, .num { font-family: var(--mono); font-feature-settings: 'tnum'; }
 
 /* ── top bar ─────────────────────────────────────────── */

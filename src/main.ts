@@ -8,7 +8,7 @@ import { DEFAULT_RELAYS, RelayPool, isRelayUrl, reach } from './net/transport';
 import { workerVerifier } from './net/verifier';
 import { h } from './ui/dom';
 import { startHelicorder } from './ui/helicorder';
-import { keyFolder } from './ui/keyfold';
+import { keyFolder, sessionStore } from './ui/keyfold';
 import { QuakeMap, SHAKE_COLORS, type Swatch } from './ui/map';
 import { aboutView } from './views/about';
 import { chime } from './views/chime';
@@ -69,15 +69,30 @@ const heli = h('canvas', { class: 'helicorder', 'aria-hidden': 'true', title: 'A
 // MapLibre labels its own canvas as the "Map" region.
 const mapEl = h('div', { class: 'map' });
 const legendBody = h('div', { class: 'legend-body' });
-const legend = h('details', { class: 'map-legend', open: matchMedia('(min-width: 901px)').matches }, h('summary', {}, 'Key'), legendBody);
+// The Key's own toggle on the map is for the pointer; keyboards get one right after each screen's heading (`keyToggle`).
+const legend = h('details', { class: 'map-legend', id: 'map-key', open: matchMedia('(min-width: 901px)').matches }, h('summary', { tabindex: '-1' }, 'Key'), legendBody);
 const mapNote = h('div', { class: 'map-note', hidden: true });
 const panel = h('aside', { class: 'panel', 'aria-live': 'off' });
 const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Sensor' });
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
-const keyFold = keyFolder(legend);
-legend.querySelector('summary')!.addEventListener('click', keyFold.touched);
+const keyFold = keyFolder(legend, sessionStore());
+legend.querySelector('summary')!.addEventListener('click', () => keyFold.chose(!legend.open));
 for (const type of ['pointerdown', 'wheel'] as const) mapEl.addEventListener(type, (e) => legend.contains(e.target as Node) || keyFold.use(), { capture: true, passive: true });
+const keyButtons = new Set<HTMLElement>();
+const syncKeyButtons = () => keyButtons.forEach((b) => b.setAttribute('aria-expanded', String(legend.open)));
+legend.addEventListener('toggle', syncKeyButtons);
+function keyToggle() {
+  const b = h('button', { class: 'btn key-toggle', 'aria-controls': 'map-key', 'aria-expanded': String(legend.open) }, 'Map key');
+  b.addEventListener('click', () => {
+    legend.open = !legend.open;
+    keyFold.chose(legend.open);
+    syncKeyButtons();
+  });
+  keyButtons.clear();
+  keyButtons.add(b);
+  return b;
+}
 // Past the header and the map, which take a keyboard many presses, to the screen's own heading.
 const skip = (scroll = true) => {
   // The sensor's heading is its changing state, so its first control instead.
@@ -165,6 +180,8 @@ function route(e?: Event) {
     ...(tab.shakeKey ? [h('span', { class: 'shake-key' }, h('b', { style: `background:linear-gradient(90deg, ${SHAKE_COLORS.slice(1).join(',')})` }), 'shaking felt')] : []),
   );
   const v = tab.mount(arg);
+  // The first stop after the heading: the Key is otherwise behind the map and its controls, five Shift+Tabs back.
+  if (!tab.fullScreen) v.el.querySelector('h1')?.parentElement?.append(keyToggle());
   (tab.fullScreen ? sensorEl : panel).replaceChildren(backToTabs(), v.el, backToTabs());
   if (!tab.fullScreen) panel.scrollTop = 0;
   current = { view, dispose: v.dispose };
