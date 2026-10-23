@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { EARLY_DELAY_MS, Recomputer, WAITING_RECHECK_MS, type Hooks } from '../../src/app/recomputer';
 import type { Compute, ModelOutput } from '../../src/app/model';
 
-const none: ModelOutput = { events: [], early: [], waiting: false };
+const none: ModelOutput = { events: [], early: [], uncertainty: [], waiting: false };
 
 describe('when and where the quake model is worked out', () => {
   beforeEach(() => {

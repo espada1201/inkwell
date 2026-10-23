@@ -1,5 +1,6 @@
-import type { DetectedEvent, Trigger } from '../core/associate';
+import { eventUncertainty, type DetectedEvent, type Trigger } from '../core/associate';
 import { confirmedEvents, earlyDetect, unconfirmed, type EarlyEvent, type Onset } from '../core/early';
+import type { Uncertainty } from '../core/locate';
 import { HEARTBEAT_EVERY_MS } from '../net/protocol';
 
 export const NODE_STALE_MS = 3 * HEARTBEAT_EVERY_MS;
@@ -34,13 +35,16 @@ export interface ModelInput {
 export interface ModelOutput {
   events: DetectedEvent[];
   early: EarlyEvent[];
+  /** How far off each early event could be, in the same order: the screens show it, and it is dear enough that the page should not work it out. */
+  uncertainty: Uncertainty[];
   waiting: boolean;
 }
 
 export function computeModel({ now, nodes, picks, triggers, heard }: ModelInput): ModelOutput {
   const events = confirmedEvents(triggers, heard, (t) => nodes.filter((n) => isOnline(n, t)), now);
   const early = earlyDetect(picks, nodes.filter((n) => isOnline(n, now)), now);
-  return { events, early: unconfirmed(early.events, events), waiting: early.waiting };
+  const shown = unconfirmed(early.events, events);
+  return { events, early: shown, uncertainty: shown.map(eventUncertainty), waiting: early.waiting };
 }
 
 export interface ModelDelta {

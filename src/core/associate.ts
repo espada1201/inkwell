@@ -268,14 +268,22 @@ export function associate(triggers: Trigger[], opts: AssociateOptions = {}): Det
 }
 
 const traced = new Map<string, Uncertainty>();
+const tracedKey = (e: DetectedEvent) => `${e.id}|${e.time}|${e.lat}|${e.lon}|${e.triggers.length}`;
+
+function keepTraced(key: string, u: Uncertainty) {
+  traced.set(key, u);
+  if (traced.size > 200) traced.delete(traced.keys().next().value!);
+}
 
 /** How far off an event's epicentre and magnitude could be (see `uncertainty`). */
 export function eventUncertainty(e: DetectedEvent): Uncertainty {
-  const key = `${e.id}|${e.time}|${e.lat}|${e.lon}|${e.triggers.length}`;
+  const key = tracedKey(e);
   let u = traced.get(key);
-  if (!u) {
-    traced.set(key, (u = uncertainty(toArrivals(e.triggers), e)));
-    if (traced.size > 200) traced.delete(traced.keys().next().value!);
-  }
+  if (!u) keepTraced(key, (u = uncertainty(toArrivals(e.triggers), e)));
   return u;
+}
+
+/** An event's uncertainty worked out elsewhere (the model's worker), so it is not worked out again here. */
+export function knownUncertainty(e: DetectedEvent, u: Uncertainty) {
+  keepTraced(tracedKey(e), u);
 }

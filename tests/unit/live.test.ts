@@ -3,6 +3,7 @@ import { generateSecretKey, getPublicKey, type Event } from 'nostr-tools/pure';
 import type { Filter } from 'nostr-tools/filter';
 import { LiveNetwork, MAX_NODES, WINDOW_MS } from '../../src/app/live';
 import { MAX_UNCHECKED } from '../../src/app/verifyqueue';
+import { eventUncertainty } from '../../src/core/associate';
 import { distanceKm, offset } from '../../src/core/geo';
 import { VP_KMS, hypocentralKm, pgaFor } from '../../src/core/physics';
 import { ORIGIN_OFFSET_S, simulate } from '../../src/core/scenarios';
@@ -60,6 +61,20 @@ describe('live network model', () => {
     expect(live.events).toHaveLength(1);
     expect(live.early).toHaveLength(0);
     expect(distanceKm(live.events[0], src)).toBeLessThan(5);
+  });
+
+  it('shows the uncertainty the model answered with for a provisional quake, instead of working it out again', () => {
+    const given = { km: 7, mayBeFarther: false, mag: null };
+    const compute: Compute = (delta) => {
+      const out = computeModel(new ModelMirror().apply(delta));
+      return { ...out, uncertainty: out.early.map(() => given) };
+    };
+    const live = new LiveNetwork(new NullTransport(), 'hour', fetchNone, undefined, compute);
+    for (const p of phones) live.ingest(signHeartbeat(p.sk, { ...p, noise: 0.01, sps: 60 }));
+    for (const p of phones) live.ingest(signPick(p.sk, p));
+    live.recompute();
+    expect(live.early).toHaveLength(1);
+    expect(eventUncertainty(live.early[0])).toBe(given);
   });
 
   it('a provisional detection whose phones withdrew is closed as not confirmed, with their reasons', () => {

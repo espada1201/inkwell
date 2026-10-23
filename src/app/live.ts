@@ -1,5 +1,5 @@
 import type { Event } from 'nostr-tools/pure';
-import type { DetectedEvent, Trigger } from '../core/associate';
+import { knownUncertainty, type DetectedEvent, type Trigger } from '../core/associate';
 import { MIN_PICKS, explainedBy, nearby, type EarlyEvent, type Onset } from '../core/early';
 import { FELT_EVERY_MS, clusterFelt, type Felt, type FeltCluster } from '../core/felt';
 import type { LatLon } from '../core/geo';
@@ -302,6 +302,7 @@ export class LiveNetwork extends Emitter {
   private apply(out: ModelOutput, now: number) {
     this.events = out.events;
     this.early = out.early;
+    out.early.forEach((e, i) => knownUncertainty(e, out.uncertainty[i]));
     this.settle(now);
     this.feltClusters = clusterFelt(this.felt);
   }

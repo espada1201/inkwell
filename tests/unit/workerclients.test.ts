@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 const delta = { now: 1 } as ModelDelta;
-const output: ModelOutput = { events: [], early: [], waiting: false };
+const output: ModelOutput = { events: [], early: [], uncertainty: [], waiting: false };
 
 describe('the model worker as the page sees it', () => {
   it('has no worker where none can be made', () => {
