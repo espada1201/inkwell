@@ -19,7 +19,7 @@ It takes about two seconds. A failure lists every order whose network differs fr
 
 ## Coverage
 
-Last confirmed to describe the code at commit `ab4097c`.
+Last confirmed to describe the code at commit `f857ce7`.
 
 | Check | Code it covers |
 | --- | --- |
