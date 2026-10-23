@@ -58,37 +58,49 @@ export type Compute = (delta: ModelDelta) => Promise<ModelOutput>;
 
 const slim = ({ id, lat, lon, sps, since, firstSeen, lastSeen }: ModelNode): ModelNode => ({ id, lat, lon, sps, since, firstSeen, lastSeen });
 
+/**
+ * What the other side holds of one ordered, keyed collection, and what to tell it so it holds
+ * the page's, in the page's order. A thing the page has replaced by a new object with the same
+ * key is sent again. The other side puts what it is sent anew last and leaves the rest in
+ * place, so where the page's order differs from that (a thing dropped and back since the last
+ * delta now sits after what came in meanwhile), the things from the first difference on are
+ * dropped and sent again.
+ */
+class Held<T> {
+  private by = new Map<string, T>();
+
+  constructor(private readonly keyOf: (t: T) => string) {}
+
+  diff(page: Iterable<T>): { drop: string[]; set: T[] } {
+    const next = new Map<string, T>();
+    for (const t of page) next.set(this.keyOf(t), t);
+    const order = [...next.keys()];
+    const predicted = [...this.by.keys()].filter((k) => next.has(k)).concat(order.filter((k) => !this.by.has(k)));
+    let i = 0;
+    while (i < order.length && predicted[i] === order[i]) i++;
+    const moved = new Set(order.slice(i).filter((k) => this.by.has(k)));
+    const drop = [...this.by.keys()].filter((k) => !next.has(k) || moved.has(k));
+    const set: T[] = [];
+    for (const [k, t] of next) if (this.by.get(k) !== t || moved.has(k)) set.push(t);
+    this.by = next;
+    return { drop, set };
+  }
+}
+
 export class ModelSender {
-  private nodes = new Map<string, ModelNode>();
-  private picks = new Set<string>();
-  private triggers = new Set<string>();
+  private nodes = new Held<ModelNode>((n) => n.id);
+  private picks = new Held<Trigger>((t) => t.id);
+  private triggers = new Held<Trigger>((t) => t.id);
   private heard: Onset[] = [];
 
   delta(now: number, nodes: Map<string, ModelNode>, picks: Map<string, Trigger>, triggers: Trigger[], heard: Onset[]): ModelDelta {
-    const setNodes: ModelNode[] = [];
-    for (const [id, n] of nodes)
-      if (this.nodes.get(id) !== n) {
-        this.nodes.set(id, n);
-        setNodes.push(slim(n));
-      }
-    const dropNodes = [...this.nodes.keys()].filter((id) => !nodes.has(id));
-    dropNodes.forEach((id) => this.nodes.delete(id));
-
-    const addPicks = [...picks.values()].filter((t) => !this.picks.has(t.id));
-    const dropPicks = [...this.picks].filter((id) => !picks.has(id));
-    addPicks.forEach((t) => this.picks.add(t.id));
-    dropPicks.forEach((id) => this.picks.delete(id));
-
-    const current = new Set(triggers.map((t) => t.id));
-    const addTriggers = triggers.filter((t) => !this.triggers.has(t.id));
-    const dropTriggers = [...this.triggers].filter((id) => !current.has(id));
-    addTriggers.forEach((t) => this.triggers.add(t.id));
-    dropTriggers.forEach((id) => this.triggers.delete(id));
-
+    const n = this.nodes.diff(nodes.values());
+    const p = this.picks.diff(picks.values());
+    const t = this.triggers.diff(triggers);
     const sent = this.heard;
     const grew = heard.length >= sent.length && (sent.length === 0 || (heard[0] === sent[0] && heard[sent.length - 1] === sent[sent.length - 1]));
     this.heard = [...heard];
-    return { now, setNodes, dropNodes, addPicks, dropPicks, addTriggers, dropTriggers, heard: grew ? { add: heard.slice(sent.length) } : { all: [...heard] } };
+    return { now, setNodes: n.set.map(slim), dropNodes: n.drop, addPicks: p.set, dropPicks: p.drop, addTriggers: t.set, dropTriggers: t.drop, heard: grew ? { add: heard.slice(sent.length) } : { all: [...heard] } };
   }
 }
 
