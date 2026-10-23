@@ -555,6 +555,27 @@ test('a keyboard skips the header and the map, and lands on each screen it opens
   expect(await zoom.evaluate((el) => getComputedStyle(el).boxShadow)).toBe(ring);
 });
 
+test('the Set button stands out while the box holds a town that has not been used yet', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  const near = page.getByTestId('near');
+  const typed = near.getByLabel('Or type a town, or latitude, longitude');
+  const set = near.getByRole('button', { name: 'Set', exact: true });
+  const filled = () => set.evaluate((el) => el.classList.contains('primary'));
+  expect(await filled()).toBe(false);
+  await typed.fill('Vallejo');
+  expect(await filled()).toBe(true);
+  await typed.fill('   ');
+  expect(await filled()).toBe(false);
+  await typed.fill('Qqqqzz');
+  await set.click();
+  await expect(near.getByRole('status')).toContainText('No town called');
+  // Refused, so still unused.
+  expect(await filled()).toBe(true);
+  await typed.fill('Vallejo');
+  await set.click();
+  await expect(near).toContainText('Near Vallejo, CA, US');
+});
+
 test('the key opens beside the map and folds away once the map is used, unless the reader chose', async ({ page, relay }) => {
   await page.goto(`/?relays=${relay.url}#network`);
   const key = page.locator('details.map-legend');

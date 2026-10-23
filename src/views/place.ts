@@ -22,6 +22,9 @@ export function placeForm(place: Place, then: () => void) {
   const msg = h('p', { class: 'small', role: 'status' });
   const choices = h('div', { class: 'choices' });
   const typed = h('input', { autocomplete: 'off', placeholder: 'Fresno, CA  or  36.74, -119.79' });
+  // Nothing happens until Set or Enter: the button stands out while the box holds text that has not been used.
+  const setButton = h('button', { class: 'btn', type: 'submit' }, 'Set');
+  typed.addEventListener('input', () => setButton.classList.toggle('primary', typed.value.trim() !== ''));
   const set = (p: LatLon, name: string | null = null) => {
     place.setLocation(p, name);
     // The browser can answer after the form has gone.
@@ -75,7 +78,7 @@ export function placeForm(place: Place, then: () => void) {
     { class: 'stack' },
     h('p', {}, 'Where are you, roughly? Tremor snaps it to about 1 km and keeps it in this browser.'),
     h('button', { class: 'btn', 'data-key': 'locate', onclick: locate }, 'Use my approximate location'),
-    h('form', { class: 'place-form', onsubmit: submit }, h('label', {}, 'Or type a town, or latitude, longitude', typed), h('button', { class: 'btn', type: 'submit' }, 'Set')),
+    h('form', { class: 'place-form', onsubmit: submit }, h('label', {}, 'Or type a town, or latitude, longitude', typed), setButton),
     msg,
     choices,
   );
