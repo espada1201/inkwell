@@ -9,6 +9,7 @@ import { matchUsgs, type UsgsQuake } from '../net/usgs';
 import { h, keepFocus } from '../ui/dom';
 import { INTENSITY_WORDS, WITHDRAWN, ago, clock, coord, mag, magBadge } from '../ui/format';
 import { NODE_COLORS, SHAKE_COLORS, type QuakeMap, type Swatch } from '../ui/map';
+import { redrawer } from '../ui/redraw';
 import { compareCard, give } from './compare';
 import { placeForm } from './place';
 
@@ -457,7 +458,10 @@ export function networkView(ctx: NetworkCtx) {
       );
   }
 
+  let disposed = false;
   function render() {
+    // A redraw that was waiting when the screen was left would draw its phones on the next screen's map.
+    if (disposed) return;
     announce();
     parts.near(nearCard());
     parts.stats(statsRow());
@@ -470,27 +474,16 @@ export function networkView(ctx: NetworkCtx) {
     syncMap();
   }
 
-  let queued = false;
-  let lastDrawn = 0;
-  let rest = DRAW_EVERY_MS;
-  const off = live.on(() => {
-    if (queued) return;
-    queued = true;
-    setTimeout(() => {
-      requestAnimationFrame(() => {
-        queued = false;
-        lastDrawn = performance.now();
-        render();
-        rest = Math.min(2000, Math.max(DRAW_EVERY_MS, 4 * (performance.now() - lastDrawn)));
-      });
-    }, Math.max(0, rest - (performance.now() - lastDrawn)));
-  });
+  const redraw = redrawer(render, DRAW_EVERY_MS);
+  const off = live.on(redraw.request);
   const tick = setInterval(render, 15_000);
   render();
   return {
     el: root,
     dispose: () => {
+      disposed = true;
       off();
+      redraw.cancel();
       clearInterval(tick);
       map.onSelect = () => {};
     },
