@@ -19,7 +19,7 @@ It takes about two seconds. A failure lists every order whose network differs fr
 
 ## Coverage
 
-Last confirmed to describe the code at commit `f67ce52`.
+Last confirmed to describe the code at commit `ab4097c`.
 
 | Check | Code it covers |
 | --- | --- |
@@ -38,6 +38,8 @@ The compared view is `seen()` in `converge.test.ts`: each phone's place, rate, l
 - Every order runs on one fake clock, set back to the scenario's start. It moves 250 ms after every event, prefix included. That is past the 200 ms batch, so no two events share a recompute and every order ends at the same time. Nothing is pruned.
 - Every scenario stays well inside its time limits throughout: picks are under a minute old, quiet phones are long due, and nothing comes near the two minutes a detection waits. So a last event that rightly queues nothing, like a repeat, leaves the same view as one that does.
 - Heartbeats carry `since`, as Tremor's own do.
+
+The check hands events to `LiveNetwork.receive`, after signatures: relay events reach it through `take`, which sends them to workers in batches and takes the answers in the order the events came, so `receive` sees what it would have seen without workers (`live.test.ts` checks that order). The per-phone limit (30 picks and 30 triggers an hour) counts from a per-phone index of what is held; `live.test.ts` checks it, and the association now answers the same triggers once (`associate.test.ts`), which cannot change what the check compares.
 
 The check leaves some behaviour out on purpose. Past a cap the network drops the oldest arrival, and past 30 picks an hour a phone's first ones win, so both depend on order by design. The history of provisional detections (`provisional`) records when this browser saw things. A heartbeat without `since` falls back to when it arrived. Their own tests cover `parse`, the relay pool's de-duplication, USGS, and `explainedBy`. At each recompute, `explainedBy` decides afresh from what has arrived which confirmed event explains a provisional one, by the picks its triggers name.
 
