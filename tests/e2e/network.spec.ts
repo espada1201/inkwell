@@ -600,3 +600,30 @@ test('the key opens beside the map and folds away once the map is used, unless t
   await page.waitForTimeout(300);
   await expect(key).toHaveAttribute('open', '');
 });
+
+test('from deep in a screen, a keyboard gets back to the tabs without crossing the map', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  await expect(page.getByTestId('relay-status')).toHaveText('1/1 relays');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('heading', { name: 'Live network' })).toBeFocused();
+  // Backwards from the first control of the panel: one press, not the map's controls.
+  await page.getByTestId('near').getByRole('button', { name: 'Use my approximate location' }).focus();
+  await page.keyboard.press('Shift+Tab');
+  const back = page.getByRole('button', { name: 'Back to tabs' });
+  await expect(back.first()).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('link', { name: 'Network' })).toBeFocused();
+  // Forwards from the last control of the panel.
+  await page.locator('details.relays summary').focus();
+  await page.keyboard.press('Tab');
+  await expect(back.last()).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('link', { name: 'Network' })).toBeFocused();
+  // On the Be a sensor screen too, and the tab it lands on is the one open.
+  await page.getByRole('link', { name: 'Be a sensor' }).click();
+  await expect(page.getByTestId('sensor-state')).toBeVisible();
+  await page.getByRole('button', { name: 'Back to tabs' }).last().focus();
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('link', { name: 'Be a sensor' })).toBeFocused();
+});

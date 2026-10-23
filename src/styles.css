@@ -43,6 +43,8 @@ a { color: inherit; }
 .map .maplibregl-ctrl-group button:focus:focus-visible, .map .maplibregl-ctrl-attrib-button:focus-visible { box-shadow: var(--focus); }
 .skip { position: absolute; left: 8px; top: -60px; z-index: 50; }
 .skip:focus { top: 8px; }
+/* The way back to the tabs sits inside a long panel, so it shows where the reader is. */
+.skip.back { position: fixed; }
 .mono, .num { font-family: var(--mono); font-feature-settings: 'tnum'; }
 
 /* ── top bar ─────────────────────────────────────────── */

@@ -89,6 +89,9 @@ const skip = (scroll = true) => {
   if (start?.tagName === 'H1') start.tabIndex = -1;
   start?.focus({ preventScroll: !scroll });
 };
+// From inside a screen back to its tab, without the map's controls on the way.
+const toTabs = () => tabs.querySelector<HTMLElement>('[aria-current]')?.focus();
+const backToTabs = () => h('button', { class: 'btn skip back', onclick: toTabs }, 'Back to tabs');
 // A tap on a tab should not scroll a phone down to the screen's heading; Tab and Enter should.
 let pointer = false;
 addEventListener('pointerdown', () => (pointer = true), true);
@@ -167,7 +170,7 @@ function route(e?: Event) {
     ...(tab.shakeKey ? [h('span', { class: 'shake-key' }, h('b', { style: `background:linear-gradient(90deg, ${SHAKE_COLORS.slice(1).join(',')})` }), 'shaking felt')] : []),
   );
   const v = tab.mount(arg);
-  (tab.fullScreen ? sensorEl : panel).replaceChildren(v.el);
+  (tab.fullScreen ? sensorEl : panel).replaceChildren(backToTabs(), v.el, backToTabs());
   if (!tab.fullScreen) panel.scrollTop = 0;
   current = { view, dispose: v.dispose };
   requestAnimationFrame(() => map.resize());
