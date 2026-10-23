@@ -72,6 +72,16 @@ const panel = h('aside', { class: 'panel', 'aria-live': 'off' });
 const sensorEl = h('section', { class: 'sensor', hidden: true, 'aria-label': 'Sensor' });
 const stage = h('main', { class: 'stage' }, mapEl, panel, sensorEl);
 mapEl.append(legend, mapNote);
+// The key opens over the map on a wide screen; it folds away once the reader starts using the map, or after a while, unless the reader opened or closed it.
+let keyTouched = false;
+legend.querySelector('summary')!.addEventListener('click', () => (keyTouched = true));
+const foldKey = () => {
+  if (keyTouched || !legend.open) return;
+  if (legend.matches(':hover, :focus-within')) return void setTimeout(foldKey, 5000);
+  legend.open = false;
+};
+for (const type of ['pointerdown', 'wheel'] as const) mapEl.addEventListener(type, (e) => legend.contains(e.target as Node) || foldKey(), { capture: true, passive: true });
+setTimeout(foldKey, 15_000);
 // Past the header and the map, which take a keyboard many presses, to the screen's own heading.
 const skip = (scroll = true) => {
   // The sensor's heading is its changing state, so its first control instead.

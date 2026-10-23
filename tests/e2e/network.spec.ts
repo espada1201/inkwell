@@ -554,3 +554,28 @@ test('a keyboard skips the header and the map, and lands on each screen it opens
   await zoom.focus();
   expect(await zoom.evaluate((el) => getComputedStyle(el).boxShadow)).toBe(ring);
 });
+
+test('the key opens beside the map and folds away once the map is used, unless the reader chose', async ({ page, relay }) => {
+  await page.goto(`/?relays=${relay.url}#network`);
+  const key = page.locator('details.map-legend');
+  const map = page.getByRole('region', { name: 'Map' });
+  await expect(key).toHaveAttribute('open', '');
+  await expect(key.getByText('Tremor detection')).toBeVisible();
+  const box = (await map.boundingBox())!;
+  // Dragging the map clears the key off it.
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5, { steps: 4 });
+  await page.mouse.up();
+  await expect(key).not.toHaveAttribute('open');
+  await expect(key.locator('summary')).toBeVisible();
+  // Opened by the reader, it stays open while the map is used.
+  await key.locator('summary').click();
+  await expect(key).toHaveAttribute('open', '');
+  await page.mouse.move(box.x + box.width * 0.6, box.y + box.height * 0.6);
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.mouse.wheel(0, -200);
+  await page.waitForTimeout(300);
+  await expect(key).toHaveAttribute('open', '');
+});
